@@ -7,7 +7,9 @@ authors = [
     { name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "replkit2",
+]
 
 [project.scripts]
 termtap = "termtap:main"
@@ -15,3 +17,6 @@ termtap = "termtap:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+replkit2 = { path = "../../../replkit2", editable = true }

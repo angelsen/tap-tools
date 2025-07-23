@@ -1,0 +1,58 @@
+version = 1
+revision = 2
+requires-python = ">=3.12"
+
+[manifest]
+members = [
+    "logtap",
+    "tap-tools",
+    "termtap",
+    "webtap",
+]
+
+[[package]]
+name = "logtap"
+version = "0.1.0"
+source = { editable = "packages/logtap" }
+
+[[package]]
+name = "replkit2"
+version = "0.3.0"
+source = { editable = "../replkit2" }
+
+[package.metadata]
+requires-dist = [
+    { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.29.5" },
+    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115.14" },
+    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.9.2" },
+    { name = "nest-asyncio", marker = "extra == 'lsp'", specifier = ">=1.6.0" },
+    { name = "psutil", marker = "extra == 'examples'", specifier = ">=7.0.0" },
+    { name = "pygls", marker = "extra == 'lsp'", specifier = ">=1.3.1" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "uvicorn", marker = "extra == 'api'" },
+]
+provides-extras = ["examples", "api", "mcp", "dev", "lsp"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "basedpyright", specifier = ">=1.29.5" }]
+
+[[package]]
+name = "tap-tools"
+version = "0.1.0"
+source = { virtual = "." }
+
+[[package]]
+name = "termtap"
+version = "0.1.0"
+source = { editable = "packages/termtap" }
+dependencies = [
+    { name = "replkit2" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "replkit2", editable = "../replkit2" }]
+
+[[package]]
+name = "webtap"
+version = "0.1.0"
+source = { editable = "packages/webtap" }

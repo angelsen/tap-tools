@@ -15,3 +15,6 @@ tasks/
 
 # Local development files
 .context-search.json
+
+# External resources
+_resources/
