@@ -1,0 +1,15 @@
+[project]
+name = "tap-tools"
+version = "0.1.0"
+description = "A suite of tools for tapping into terminals, web pages, and logs for LLM-assisted debugging"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+authors = [{name = "Fredrik Angelsen"}]
+
+[tool.uv.workspace]
+members = [
+    "packages/termtap",
+    "packages/webtap",
+    "packages/logtap",
+]
