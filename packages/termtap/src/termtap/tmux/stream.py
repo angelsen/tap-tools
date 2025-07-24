@@ -1,8 +1,14 @@
 """Internal tmux streaming operations.
 
-This module provides internal utilities for streaming tmux pane output
-to files for monitoring and tracking command execution. All classes and
-functions in this module are internal and should not be used directly.
+PUBLIC API: (none)
+
+PACKAGE API:
+  - _StreamHandle: Handle for tmux pane stream operations
+  - _StreamManager: Manages streams for multiple panes
+  - _get_pane_for_session: Get pane identifier for session
+
+PRIVATE:
+  - _send_command: Send command and return tracking ID
 """
 
 import time
@@ -142,7 +148,7 @@ def _get_pane_for_session(session: str) -> str:
 
 def _send_command(pane_id: str, command: str) -> str:
     """Send command and return command ID for tracking."""
-    from ..tmux import send_keys
+    from .session import send_keys
 
     cmd_id = str(uuid.uuid4())[:8]
     send_keys(pane_id, command)

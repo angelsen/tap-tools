@@ -1,8 +1,21 @@
 """Exceptions for tmux operations.
 
-This module defines exceptions that can be raised during tmux operations.
-Only TmuxError, CurrentPaneError, and SessionNotFoundError are part of the
-public API. All other exceptions are internal.
+PUBLIC API:
+  - TmuxError: Base exception for tmux operations
+  - CurrentPaneError: Raised when targeting current pane
+  - SessionNotFoundError: Raised when session doesn't exist
+
+PACKAGE API: (none)
+
+PRIVATE:
+  - _TmuxNotAvailableError: Raised when tmux not available
+  - _SessionError: Base for session-related errors
+  - _SessionAlreadyExistsError: Session creation conflicts
+  - _PaneError: Base for pane operations
+  - _PaneCaptureError: Pane capture failures
+  - _StreamError: Base for streaming operations
+  - _StreamIOError: Stream I/O failures
+  - _ParseError: Tmux output parsing failures
 """
 
 

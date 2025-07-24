@@ -1,7 +1,17 @@
 """Session management for tmux.
 
-This module provides functions for managing tmux sessions including
-creating, listing, and sending commands to sessions.
+PUBLIC API:
+  - SessionInfo: Session information named tuple with from_format_line method
+  - session_exists: Check if session exists
+  - kill_session: Kill a tmux session
+  - list_sessions: Get all tmux sessions
+  - get_or_create_session: Get existing or create new session
+  - send_keys: Send keystrokes to a session
+
+PACKAGE API: (none)
+
+PRIVATE:
+  - _create_session: Create new detached session
 """
 
 from typing import Optional, NamedTuple, List
@@ -31,8 +41,15 @@ class SessionInfo(NamedTuple):
         )
 
 
-def _session_exists(name: str) -> bool:
-    """Check if session exists."""
+def session_exists(name: str) -> bool:
+    """Check if session exists.
+    
+    Args:
+        name: Session name to check.
+        
+    Returns:
+        True if session exists, False otherwise.
+    """
     code, _, _ = _run_tmux(["has-session", "-t", name])
     return code == 0
 
@@ -101,12 +118,12 @@ def get_or_create_session(
 
         while True:
             name = _generate_session_name()
-            if not _session_exists(name):
+            if not session_exists(name):
                 break
     else:
         name = target
 
-    if not _session_exists(name):
+    if not session_exists(name):
         _create_session(name, start_dir)
     return name
 

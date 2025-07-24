@@ -5,6 +5,7 @@ PURPOSE: Low-level tmux operations for session management and pane capture.
 PUBLIC API:
   - list_sessions: Get all tmux sessions
   - SessionInfo: Session information named tuple
+  - session_exists: Check if a session exists
   - kill_session: Kill a tmux session
   - get_or_create_session: Get existing or create new session
   - send_keys: Send keystrokes to a session
@@ -24,6 +25,7 @@ from .exceptions import (
 
 from .session import (
     SessionInfo,
+    session_exists,
     kill_session,
     list_sessions,
     get_or_create_session,
@@ -41,6 +43,7 @@ __all__ = [
     "CurrentPaneError",
     "SessionNotFoundError",
     "SessionInfo",
+    "session_exists",
     "kill_session",
     "list_sessions",
     "get_or_create_session",

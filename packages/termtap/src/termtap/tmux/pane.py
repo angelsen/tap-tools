@@ -1,7 +1,14 @@
 """Pane capture operations for tmux.
 
-This module provides functions for capturing output from tmux panes
-in various ways - visible content, full history, or last N lines.
+PUBLIC API:
+  - capture_visible: Capture visible pane content
+  - capture_all: Capture entire pane history
+  - capture_last_n: Capture last N lines from pane
+
+PACKAGE API: (none)
+
+PRIVATE:
+  - _capture_pane: Internal capture implementation
 """
 
 from typing import Optional

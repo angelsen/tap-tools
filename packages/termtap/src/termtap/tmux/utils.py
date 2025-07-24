@@ -1,8 +1,15 @@
 """Internal tmux utilities for low-level operations.
 
-This module provides internal helper functions for executing tmux commands
-and parsing their output. All functions in this module are internal and
-should not be used directly by external code.
+PUBLIC API: (none)
+
+PACKAGE API:
+  - _run_tmux: Execute tmux commands and return results
+  - _parse_format_line: Parse tmux format string output
+
+PRIVATE:
+  - _check_tmux_available: Check if tmux is available
+  - _get_current_pane: Get current tmux pane identifier
+  - _is_current_pane: Check if given pane is current
 """
 
 import os

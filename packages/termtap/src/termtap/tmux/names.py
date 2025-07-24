@@ -1,7 +1,11 @@
 """Internal session name generation utilities.
 
-Provides Docker-style random name generation for tmux sessions.
-This module is internal and should not be used directly.
+PUBLIC API: (none)
+
+PACKAGE API: (none)
+
+PRIVATE:
+  - _generate_session_name: Generate Docker-style session names
 """
 
 import random
