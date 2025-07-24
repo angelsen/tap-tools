@@ -4,8 +4,9 @@ PUBLIC API: (none)
 """
 
 import time
+import json
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import uuid
 
 from .utils import _run_tmux
@@ -22,7 +23,7 @@ class _StreamHandle:
         positions: Dict mapping command IDs to file positions.
     """
 
-    def __init__(self, pane_id: str, stream_dir: Path = None):
+    def __init__(self, pane_id: str, stream_dir: Optional[Path] = None):
         self.pane_id = pane_id
         self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
         self.stream_dir.mkdir(parents=True, exist_ok=True)
@@ -34,8 +35,6 @@ class _StreamHandle:
         self.positions: Dict[str, int] = {}
         if self.positions_file.exists():
             try:
-                import json
-
                 with open(self.positions_file, "r") as f:
                     self.positions = json.load(f)
             except (json.JSONDecodeError, IOError):
@@ -147,7 +146,7 @@ class _StreamManager:
         streams: Dict mapping pane IDs to stream handles.
     """
 
-    def __init__(self, stream_dir: Path = None):
+    def __init__(self, stream_dir: Optional[Path] = None):
         self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
         self.streams: Dict[str, _StreamHandle] = {}
 

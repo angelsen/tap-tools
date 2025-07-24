@@ -9,7 +9,7 @@ PUBLIC API:
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
 import logging
 
@@ -57,7 +57,7 @@ class ExecutorState:
         active_commands: Tracking for running commands
     """
 
-    stream_manager: _StreamManager = field(default_factory=_StreamManager)
+    stream_manager: _StreamManager = field(default_factory=lambda: _StreamManager())
     active_commands: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def get_project_id(self) -> str:
@@ -79,7 +79,7 @@ def execute(
     target: str = "default",
     wait: bool = True,
     timeout: float = 30.0,
-    hover_check: Optional[callable] = None,
+    hover_check: Optional[Callable] = None,
 ) -> _CommandResult:
     """Execute command with optional waiting.
 
