@@ -1,4 +1,5 @@
 """termtap CLI entry point."""
+
 import sys
 from .app import app
 
