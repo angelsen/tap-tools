@@ -1,20 +1,25 @@
-"""tmux output capture - depends only on utils."""
+"""Pane capture operations for tmux.
+
+This module provides functions for capturing output from tmux panes
+in various ways - visible content, full history, or last N lines.
+"""
+
 from typing import Optional
-from .utils import run_tmux
+from .utils import _run_tmux
 
 
-def capture_pane(session: str, lines: Optional[int] = None) -> str:
+def _capture_pane(session: str, lines: Optional[int] = None) -> str:
     """Capture pane output from session.
-    
+
     Args:
         session: Session name
         lines: Number of lines to capture (None = visible, -1 = all history)
-        
+
     Returns:
         Captured output as string
     """
     args = ["capture-pane", "-t", session, "-p"]
-    
+
     if lines is not None:
         if lines == -1:
             # Full scrollback history
@@ -22,21 +27,43 @@ def capture_pane(session: str, lines: Optional[int] = None) -> str:
         else:
             # Last N lines
             args.extend(["-S", f"-{lines}"])
-    
-    code, out, _ = run_tmux(args)
+
+    code, out, _ = _run_tmux(args)
     return out if code == 0 else ""
 
 
 def capture_visible(session: str) -> str:
-    """Capture only visible content."""
-    return capture_pane(session, lines=None)
+    """Capture visible pane content.
+
+    Args:
+        session: Target session name.
+
+    Returns:
+        Visible pane content as string.
+    """
+    return _capture_pane(session, lines=None)
 
 
 def capture_all(session: str) -> str:
-    """Capture full scrollback history."""
-    return capture_pane(session, lines=-1)
+    """Capture entire pane history.
+
+    Args:
+        session: Target session name.
+
+    Returns:
+        Full pane history including scrollback as string.
+    """
+    return _capture_pane(session, lines=-1)
 
 
 def capture_last_n(session: str, n: int) -> str:
-    """Capture last N lines."""
-    return capture_pane(session, lines=n)
+    """Capture last N lines from pane.
+
+    Args:
+        session: Target session name.
+        n: Number of lines to capture.
+
+    Returns:
+        Last N lines from pane as string.
+    """
+    return _capture_pane(session, lines=n)

@@ -16,57 +16,36 @@ PUBLIC API:
   - SessionNotFoundError: Raised when session doesn't exist
 """
 
-# Utils
-from .utils import (
-    run_tmux,
-    parse_format_line,
-    check_tmux_available,
-    get_current_pane,
-    is_current_pane,
+from .exceptions import (
+    TmuxError,
+    CurrentPaneError,
+    SessionNotFoundError,
 )
 
-# Session management
 from .session import (
     SessionInfo,
-    session_exists,
-    create_session,
     kill_session,
     list_sessions,
     get_or_create_session,
     send_keys,
 )
 
-# Pane operations (read-only)
 from .pane import (
-    capture_pane,
     capture_visible,
     capture_all,
     capture_last_n,
 )
 
-# Name generation
-from .names import generate_session_name
-
 __all__ = [
-    # Utils
-    "run_tmux",
-    "parse_format_line", 
-    "check_tmux_available",
-    "get_current_pane",
-    "is_current_pane",
-    # Session
+    "TmuxError",
+    "CurrentPaneError",
+    "SessionNotFoundError",
     "SessionInfo",
-    "session_exists",
-    "create_session",
     "kill_session",
     "list_sessions",
     "get_or_create_session",
     "send_keys",
-    # Capture
-    "capture_pane",
     "capture_visible",
     "capture_all",
     "capture_last_n",
-    # Names
-    "generate_session_name",
 ]

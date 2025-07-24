@@ -1,56 +1,72 @@
-"""tmux module exceptions."""
+"""Exceptions for tmux operations.
+
+This module defines exceptions that can be raised during tmux operations.
+Only TmuxError, CurrentPaneError, and SessionNotFoundError are part of the
+public API. All other exceptions are internal.
+"""
 
 
 class TmuxError(Exception):
     """Base exception for tmux operations."""
+
     pass
 
 
-class TmuxNotAvailableError(TmuxError):
+class _TmuxNotAvailableError(TmuxError):
     """Raised when tmux is not installed or server not running."""
+
     pass
 
 
-class SessionError(TmuxError):
+class _SessionError(TmuxError):
     """Base exception for session operations."""
+
     pass
 
 
-class SessionNotFoundError(SessionError):
-    """Raised when target session doesn't exist."""
+class SessionNotFoundError(_SessionError):
+    """Raised when session doesn't exist."""
+
     pass
 
 
-class SessionAlreadyExistsError(SessionError):
+class _SessionAlreadyExistsError(_SessionError):
     """Raised when trying to create a session with existing name."""
+
     pass
 
 
-class CurrentPaneError(SessionError):
-    """Raised when attempting operations on current pane."""
+class CurrentPaneError(_SessionError):
+    """Raised when targeting current pane."""
+
     pass
 
 
-class PaneError(TmuxError):
+class _PaneError(TmuxError):
     """Base exception for pane operations."""
+
     pass
 
 
-class PaneCaptureError(PaneError):
+class _PaneCaptureError(_PaneError):
     """Raised when failing to capture pane output."""
+
     pass
 
 
-class StreamError(TmuxError):
+class _StreamError(TmuxError):
     """Base exception for streaming operations."""
+
     pass
 
 
-class StreamIOError(StreamError):
+class _StreamIOError(_StreamError):
     """Raised on file I/O errors in stream operations."""
+
     pass
 
 
-class ParseError(TmuxError):
+class _ParseError(TmuxError):
     """Raised when failing to parse tmux output."""
+
     pass
