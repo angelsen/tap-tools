@@ -12,15 +12,13 @@ from ..tmux import (
     session_exists,
 )
 from ..tmux.stream import (
-    StreamManager, 
-    get_pane_for_session
+    _StreamManager, 
+    _get_pane_for_session
 )
-from ..tmux.utils import run_tmux
+from ..tmux.utils import _run_tmux
 from ..config import get_target_config
-from ..process import (
-    detect_shell_from_pane,
-    wait_for_ready_state,
-)
+from ..process.detect import detect_shell_from_pane
+from ..process.state import wait_for_ready_state
 from .command import prepare_command
 from .watcher import (
     wait_with_patterns
@@ -42,7 +40,7 @@ class CommandResult:
 @dataclass 
 class ExecutorState:
     """State for executor."""
-    stream_manager: StreamManager = field(default_factory=StreamManager)
+    stream_manager: _StreamManager = field(default_factory=_StreamManager)
     active_commands: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
     def get_project_id(self) -> str:
@@ -95,7 +93,7 @@ def execute(
             session = get_or_create_session(target, config.absolute_dir)
     
     # Get pane and stream
-    pane_id = get_pane_for_session(session)
+    pane_id = _get_pane_for_session(session)
     stream = state.stream_manager.get_stream(pane_id)
     
     # Start streaming if not already active
@@ -137,7 +135,7 @@ def execute(
         )
     
     # Get PID for process monitoring
-    code, stdout, _ = run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
+    code, stdout, _ = _run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
     if code != 0:
         logger.error(f"Failed to get PID for pane {pane_id}")
         # Fallback to old method

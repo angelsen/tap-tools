@@ -116,8 +116,8 @@ def detect_shell_from_pane(pane_id: str) -> Optional[str]:
         Shell name or None
     """
     # Get PID from tmux
-    from ..tmux.utils import run_tmux
-    code, stdout, _ = run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
+    from ..tmux.utils import _run_tmux
+    code, stdout, _ = _run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
     
     if code != 0 or not stdout.strip():
         logger.error(f"Failed to get PID for pane {pane_id}")

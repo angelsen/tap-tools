@@ -83,8 +83,7 @@ def bash(
     if hover:
         logger.info(f"Pre-execution hover triggered for command: {command[:50]}...")
         # Get the actual session name that will be used
-        from .tmux import session_exists
-        session = target if session_exists(target) else target
+        session = target
         result = show_hover(
             session=session,
             command=command,
@@ -154,13 +153,13 @@ def read(
 ) -> Any:
     """Read output from target session."""
     from .tmux import capture_last_n, capture_all
-    from .tmux.stream import get_pane_for_session
+    from .tmux.stream import _get_pane_for_session
     from .process import get_process_context
     
     # Handle sessions - just use the target as-is
     session = target
         
-    pane_id = get_pane_for_session(session)
+    pane_id = _get_pane_for_session(session)
     
     # Capture output
     if lines == -1:
@@ -174,8 +173,8 @@ def read(
         return output
         
     # Get process info
-    from .tmux.utils import run_tmux
-    code, stdout, _ = run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
+    from .tmux.utils import _run_tmux
+    code, stdout, _ = _run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
     
     if code == 0 and stdout.strip():
         try:
@@ -254,10 +253,10 @@ def status(state: TermTapState, cmd_id: str) -> dict:
         pane_id = cmd_info.get("pane_id")
         
         if pane_id:
-            from .tmux.utils import run_tmux
+            from .tmux.utils import _run_tmux
             from .process import get_process_context
             
-            code, stdout, _ = run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
+            code, stdout, _ = _run_tmux(['display', '-p', '-t', pane_id, '#{pane_pid}'])
             if code == 0 and stdout.strip():
                 try:
                     pid = int(stdout.strip())

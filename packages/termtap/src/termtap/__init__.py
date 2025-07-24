@@ -1,4 +1,8 @@
-"""termtap - Terminal session manager with tmux."""
+"""termtap - Terminal session manager with tmux.
+
+PUBLIC API:
+- app: ReplKit2 application instance
+"""
 
 from .app import app
 

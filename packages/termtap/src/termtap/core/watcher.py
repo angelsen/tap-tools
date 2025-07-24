@@ -3,11 +3,11 @@ import time
 from typing import Optional, Callable, List, Tuple
 from pathlib import Path
 
-from ..tmux.stream import StreamHandle
+from ..tmux.stream import _StreamHandle
 
 
 def wait_for_silence(
-    stream: StreamHandle, 
+    stream: _StreamHandle, 
     cmd_id: str,
     silence_period: float = 1.0,
     timeout: Optional[float] = None,
@@ -49,7 +49,7 @@ def wait_for_silence(
 
 
 def wait_with_patterns(
-    stream: StreamHandle,
+    stream: _StreamHandle,
     cmd_id: str,
     patterns: List[str],
     pattern_callback: Callable[[str, str], Optional[str]],
