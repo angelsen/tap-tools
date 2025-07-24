@@ -1,14 +1,6 @@
-"""Internal tmux streaming operations.
+"""Tmux streaming operations.
 
 PUBLIC API: (none)
-
-PACKAGE API:
-  - _StreamHandle: Handle for tmux pane stream operations
-  - _StreamManager: Manages streams for multiple panes
-  - _get_pane_for_session: Get pane identifier for session
-
-PRIVATE:
-  - _send_command: Send command and return tracking ID
 """
 
 import time
@@ -20,7 +12,15 @@ from .utils import _run_tmux
 
 
 class _StreamHandle:
-    """Handle for a tmux pane stream."""
+    """Handle for a tmux pane stream.
+
+    Attributes:
+        pane_id: Pane identifier string.
+        stream_dir: Directory for stream files.
+        stream_file: Path to stream output file.
+        positions_file: Path to command positions file.
+        positions: Dict mapping command IDs to file positions.
+    """
 
     def __init__(self, pane_id: str, stream_dir: Path = None):
         self.pane_id = pane_id
@@ -42,7 +42,11 @@ class _StreamHandle:
                 pass
 
     def start(self) -> bool:
-        """Start streaming from pane to file."""
+        """Start streaming from pane to file.
+
+        Returns:
+            True if streaming started successfully.
+        """
         code, out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
             return True
@@ -55,12 +59,23 @@ class _StreamHandle:
         return code == 0
 
     def stop(self) -> bool:
-        """Stop streaming from pane."""
+        """Stop streaming from pane.
+
+        Returns:
+            True if streaming stopped successfully.
+        """
         code, _, _ = _run_tmux(["pipe-pane", "-t", self.pane_id])
         return code == 0
 
     def mark_position(self, cmd_id: str) -> int:
-        """Mark current position in stream for a command."""
+        """Mark current position in stream for a command.
+
+        Args:
+            cmd_id: Command identifier to mark position for.
+
+        Returns:
+            Current file position.
+        """
         pos = self.stream_file.stat().st_size if self.stream_file.exists() else 0
         self.positions[cmd_id] = pos
 
@@ -73,7 +88,14 @@ class _StreamHandle:
         return pos
 
     def read_from(self, cmd_id: str) -> str:
-        """Read stream content from a command's position."""
+        """Read stream content from a command's position.
+
+        Args:
+            cmd_id: Command identifier to read from.
+
+        Returns:
+            Content from command position to end of stream.
+        """
         if cmd_id not in self.positions:
             return ""
 
@@ -89,7 +111,14 @@ class _StreamHandle:
         return content.decode("utf-8", errors="replace")
 
     def read_new(self, last_pos: int) -> Tuple[str, int]:
-        """Read new content since last_pos, return (content, new_pos)."""
+        """Read new content since last_pos, return (content, new_pos).
+
+        Args:
+            last_pos: Last known position in file.
+
+        Returns:
+            Tuple of (new content, current position).
+        """
         if not self.stream_file.exists():
             return "", last_pos
 
@@ -111,14 +140,26 @@ class _StreamHandle:
 
 
 class _StreamManager:
-    """Manages streams for all panes."""
+    """Manages streams for all panes.
+
+    Attributes:
+        stream_dir: Directory for stream files.
+        streams: Dict mapping pane IDs to stream handles.
+    """
 
     def __init__(self, stream_dir: Path = None):
         self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
         self.streams: Dict[str, _StreamHandle] = {}
 
     def get_stream(self, pane_id: str) -> _StreamHandle:
-        """Get or create stream for pane."""
+        """Get or create stream for pane.
+
+        Args:
+            pane_id: Pane identifier to get stream for.
+
+        Returns:
+            Stream handle for the pane.
+        """
         if pane_id not in self.streams:
             self.streams[pane_id] = _StreamHandle(pane_id, self.stream_dir)
             self.streams[pane_id].start()
@@ -130,7 +171,11 @@ class _StreamManager:
             stream.stop()
 
     def cleanup_old_streams(self, max_age_hours: int = 24):
-        """Remove old stream files."""
+        """Remove old stream files.
+
+        Args:
+            max_age_hours: Maximum age in hours before removal. Defaults to 24.
+        """
         if not self.stream_dir.exists():
             return
 
@@ -142,12 +187,27 @@ class _StreamManager:
 
 
 def _get_pane_for_session(session: str) -> str:
-    """Get the first pane for a session in format suitable for -t flag."""
+    """Get the first pane for a session in format suitable for -t flag.
+
+    Args:
+        session: Session name.
+
+    Returns:
+        Pane identifier string.
+    """
     return f"{session}:0.0"
 
 
 def _send_command(pane_id: str, command: str) -> str:
-    """Send command and return command ID for tracking."""
+    """Send command and return command ID for tracking.
+
+    Args:
+        pane_id: Target pane identifier.
+        command: Command to send.
+
+    Returns:
+        Unique command ID for tracking.
+    """
     from .session import send_keys
 
     cmd_id = str(uuid.uuid4())[:8]

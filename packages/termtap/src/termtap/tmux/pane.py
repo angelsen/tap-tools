@@ -4,11 +4,6 @@ PUBLIC API:
   - capture_visible: Capture visible pane content
   - capture_all: Capture entire pane history
   - capture_last_n: Capture last N lines from pane
-
-PACKAGE API: (none)
-
-PRIVATE:
-  - _capture_pane: Internal capture implementation
 """
 
 from typing import Optional

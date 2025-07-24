@@ -1,6 +1,4 @@
-"""Public tmux API - re-exports from submodules.
-
-PURPOSE: Low-level tmux operations for session management and pane capture.
+"""Tmux operations for session management and pane capture.
 
 PUBLIC API:
   - list_sessions: Get all tmux sessions

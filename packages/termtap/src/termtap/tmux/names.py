@@ -1,11 +1,6 @@
-"""Internal session name generation utilities.
+"""Session name generation utilities.
 
 PUBLIC API: (none)
-
-PACKAGE API: (none)
-
-PRIVATE:
-  - _generate_session_name: Generate Docker-style session names
 """
 
 import random

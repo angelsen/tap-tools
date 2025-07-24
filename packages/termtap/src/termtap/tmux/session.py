@@ -1,17 +1,12 @@
 """Session management for tmux.
 
 PUBLIC API:
-  - SessionInfo: Session information named tuple with from_format_line method
+  - SessionInfo: Session information named tuple
   - session_exists: Check if session exists
   - kill_session: Kill a tmux session
   - list_sessions: Get all tmux sessions
   - get_or_create_session: Get existing or create new session
   - send_keys: Send keystrokes to a session
-
-PACKAGE API: (none)
-
-PRIVATE:
-  - _create_session: Create new detached session
 """
 
 from typing import Optional, NamedTuple, List
@@ -33,20 +28,18 @@ class SessionInfo(NamedTuple):
     attached: str
 
     @classmethod
-    def _from_format_line(cls, line: str) -> "SessionInfo":
+    def from_format_line(cls, line: str) -> "SessionInfo":
         """Parse from tmux format string."""
         parts = _parse_format_line(line)
-        return cls(
-            name=parts["0"], created=parts.get("1", ""), attached=parts.get("2", "0")
-        )
+        return cls(name=parts["0"], created=parts.get("1", ""), attached=parts.get("2", "0"))
 
 
 def session_exists(name: str) -> bool:
     """Check if session exists.
-    
+
     Args:
         name: Session name to check.
-        
+
     Returns:
         True if session exists, False otherwise.
     """
@@ -95,15 +88,13 @@ def list_sessions() -> List[SessionInfo]:
 
     sessions = []
     for line in out.strip().split("\n"):
-        info = SessionInfo._from_format_line(line)
+        info = SessionInfo.from_format_line(line)
         sessions.append(info)
 
     return sessions
 
 
-def get_or_create_session(
-    target: Optional[str] = None, start_dir: Optional[str] = None
-) -> str:
+def get_or_create_session(target: Optional[str] = None, start_dir: Optional[str] = None) -> str:
     """Get existing or create new session.
 
     Args:
@@ -145,10 +136,7 @@ def send_keys(session: str, command: str, enter: bool = True) -> bool:
     from .utils import _is_current_pane
 
     if _is_current_pane(session):
-        raise CurrentPaneError(
-            f"Cannot send commands to current pane ({session}). "
-            "Use a different target session."
-        )
+        raise CurrentPaneError(f"Cannot send commands to current pane ({session}). Use a different target session.")
 
     # Don't escape - send raw command
     # This allows us to send complex commands like: bash -c 'echo "test"'
