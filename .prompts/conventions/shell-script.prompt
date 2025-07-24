@@ -1,0 +1,24 @@
+Your task is to apply shell scripting best practices to $(SCRIPT).
+
+INSTRUCTIONS:
+1. Add set -euo pipefail after shebang if missing
+2. Quote all variable expansions: "$VAR" not $VAR
+   Exception: Skip quoting in [[ ]] conditions
+3. Use lowercase_with_underscores for function names
+4. Use UPPER_CASE for global constants/environment variables
+5. Replace `backticks` with $(command) syntax
+6. Use [[ ]] instead of [ ] for conditionals
+7. Add descriptive header comment if missing
+
+NAMING CONVENTIONS:
+- Functions: do_something()
+- Local variables: local my_var="value"
+- Global constants: readonly MY_CONSTANT="value"
+
+SAFETY PATTERNS:
+- ${VAR:-default} for optional variables
+- ${VAR:?error message} for required variables
+- local for function variables
+- readonly for constants
+
+Make changes to improve reliability and safety.

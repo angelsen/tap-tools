@@ -1,0 +1,86 @@
+Your task is to apply Python naming conventions to module $(MODULE).
+
+CONTEXT: This project uses underscore prefixes to indicate internal functions. Functions without underscores are part of the public API and should be listed in the module's __init__.py docstring under "PUBLIC API".
+
+INSTRUCTIONS:
+1. First, read $(MODULE)/__init__.py and identify the PUBLIC API list in the docstring.
+
+2. For each .py file in the module, examine every function and class:
+   - If the function/class is in the PUBLIC API list → Keep name without underscore
+   - If the function/class is NOT in the PUBLIC API list → Add underscore prefix to name
+   
+3. Update all references when renaming:
+   - Within the same file
+   - In other files that import it
+   - In docstrings that mention it
+
+4. Apply these documentation templates:
+
+MODULE DOCSTRING:
+"""One-line description of this module.
+
+PUBLIC API:
+  - public_function: Brief description
+  - PublicClass: Brief description
+"""
+
+CLASS DOCSTRING (Public):
+"""Brief one-line description.
+
+Longer explanation if needed.
+
+Attributes:
+    name: Description of attribute.
+    value: Description of attribute.
+"""
+
+CLASS DOCSTRING (Internal):
+"""Brief one-line description."""
+
+EXCEPTION DOCSTRING:
+"""Brief description of when this exception is raised."""
+
+FUNCTION DOCSTRING (Public):
+"""Brief one-line description.
+
+Longer explanation if needed.
+
+Args:
+    param: Description.
+    optional: Description. Defaults to None.
+
+Returns:
+    Description of return value.
+
+Raises:
+    ValueError: When invalid input provided.
+"""
+
+FUNCTION DOCSTRING (Internal with params):
+"""Brief one-line description.
+
+Args:
+    param: Description.
+"""
+
+FUNCTION DOCSTRING (Internal simple):
+"""Brief one-line description."""
+
+INLINE COMMENTS:
+- Remove obvious comments like # Import os or # Return result
+- Keep comments that explain WHY something is done
+- Keep comments that clarify complex logic
+- Format: # Explanation (capital first letter, no period)
+
+5. In $(MODULE)/__init__.py:
+   - Import ONLY functions listed in PUBLIC API 
+   - Set __all__ to contain ONLY the PUBLIC API names
+   - Remove any imports of underscore-prefixed functions
+
+WHY THIS MATTERS: Python linters expect that functions imported in __init__.py are either used there or exported. By only importing public API functions, we avoid "unused import" warnings while maintaining clean module boundaries.
+
+EXAMPLE TRANSFORMATION:
+Before: def parse_output(text):
+After: def _parse_output(text):  # If not in PUBLIC API
+
+Make all changes directly to improve code clarity and maintain functionality.

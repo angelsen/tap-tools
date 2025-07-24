@@ -1,0 +1,74 @@
+Your task is to apply Python conventions to the file $(FILE).
+
+CONTEXT: This is a standalone Python file, not part of a module with __init__.py. Focus on improving code quality through documentation and naming conventions.
+
+INSTRUCTIONS:
+1. First, read $(FILE) and understand its purpose and structure.
+
+2. For naming conventions:
+   - Main application objects (classes, instances like 'app') → Keep without underscore
+   - Command functions (decorated with @app.command or similar) → Keep without underscore
+   - Helper/utility functions not exposed as commands → Add underscore prefix
+   - Internal constants → Add underscore prefix
+
+3. Apply these documentation templates:
+
+FILE DOCSTRING (at top):
+"""One-line description of this file/application.
+
+Longer explanation if needed.
+"""
+
+CLASS DOCSTRING:
+"""Brief one-line description.
+
+Longer explanation if needed.
+
+Attributes:
+    name: Description of attribute.
+    value: Description of attribute.
+"""
+
+COMMAND FUNCTION DOCSTRING (for @app.command or similar):
+"""Brief one-line description for the command.
+
+Longer explanation if needed.
+
+Args:
+    param: Description.
+    optional: Description. Defaults to None.
+
+Returns:
+    Description of return value.
+"""
+
+HELPER FUNCTION DOCSTRING (with underscore prefix):
+"""Brief one-line description.
+
+Args:
+    param: Description.
+"""
+
+SIMPLE FUNCTION DOCSTRING:
+"""Brief one-line description."""
+
+INLINE COMMENTS:
+- Remove obvious comments like # Import os or # Return result
+- Keep comments that explain WHY something is done
+- Keep comments that clarify complex logic
+- Format: # Explanation (capital first letter, no period)
+
+4. Special considerations for application files:
+   - Keep app instance names (like 'app = App(...)') public
+   - Keep dataclass names public if they're part of the app's state
+   - Prefix helper functions that support commands but aren't commands themselves
+
+EXAMPLE TRANSFORMATIONS:
+Before: def format_output(data):  # Helper function
+After: def _format_output(data):
+
+Before: @app.command
+        def list_items(state):  # Command function
+After: Keep as is (commands are public interface)
+
+Make all changes directly to improve code clarity and maintain functionality.

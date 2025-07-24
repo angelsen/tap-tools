@@ -1,0 +1,50 @@
+# Enforce Conventions Prompt - Iteration Log
+
+## Log Entry Template
+```
+Date: YYYY-MM-DD
+Prompt Version: [hash or version]
+Module Tested: [module path]
+
+### What Worked
+- 
+
+### What Failed
+- 
+
+### Root Cause
+- 
+
+### Recommendations
+- 
+
+---
+```
+
+## 2025-07-24 - Initial Testing
+Prompt Version: v1 (no hash yet)
+Module Tested: packages/termtap/src/termtap/tmux
+
+### What Worked
+- Correctly applied underscore prefixes to internal functions
+- Updated all references across multiple files
+- Applied comprehensive docstring templates
+- Simplified module docstrings to only show PUBLIC API
+- Fixed method naming (SessionInfo.from_format_line)
+
+### What Failed
+- Still imports internal functions in `__init__.py` despite explicit instructions
+- Creates ruff F401 "unused import" errors
+
+### Root Cause
+- Prompt preserves existing internal imports when they're already present
+- Being too conservative about removing existing code
+- Conflict between documenting internal APIs and Python import conventions
+
+### Recommendations
+- Keep prompt focused on naming conventions only
+- Handle import cleanliness as separate step (manual or ruff)
+- Consider adding prompt hash for version tracking
+- Document that `__init__.py` should only contain PUBLIC API imports
+
+---
