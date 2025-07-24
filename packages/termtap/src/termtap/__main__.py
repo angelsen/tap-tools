@@ -1,16 +1,23 @@
-"""termtap CLI entry point."""
+"""Process-native tmux session manager with MCP support.
+
+Entry point for termtap application that can run as either a REPL interface
+or MCP server depending on command line arguments.
+"""
 
 import sys
 from .app import app
 
 
 def main():
-    """Main entry point."""
+    """Run termtap as REPL or MCP server based on command line arguments.
+
+    Checks for --mcp flag to determine mode:
+    - With --mcp: Runs as MCP server for integration
+    - Without --mcp: Runs as interactive REPL
+    """
     if "--mcp" in sys.argv:
-        # Run as MCP server
         app.mcp.run()
     else:
-        # Run as REPL
         app.run(title="termtap - Terminal Session Manager")
 
 

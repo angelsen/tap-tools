@@ -1,4 +1,8 @@
-"""termtap configuration - leaf module, no dependencies."""
+"""Configuration management for termtap sessions.
+
+Provides target-based configuration loading from termtap.toml files
+with hierarchical directory searching and default fallbacks.
+"""
 
 from pathlib import Path
 from typing import Optional, Dict
@@ -6,7 +10,15 @@ import tomllib
 
 
 class TargetConfig:
-    """Configuration for a target session."""
+    """Configuration for a target session.
+
+    Attributes:
+        name: Target name identifier.
+        dir: Working directory path for the session.
+        start: Optional startup command.
+        env: Environment variables dictionary.
+        hover_patterns: List of patterns for hover dialogs.
+    """
 
     def __init__(self, name: str, config: dict):
         self.name = name
@@ -17,12 +29,20 @@ class TargetConfig:
 
     @property
     def absolute_dir(self) -> str:
-        """Get absolute directory path."""
+        """Get absolute directory path.
+
+        Returns:
+            Resolved absolute path as string.
+        """
         return str(Path(self.dir).resolve())
 
 
-def find_config_file() -> Optional[Path]:
-    """Find termtap.toml in current or parent directories."""
+def _find_config_file() -> Optional[Path]:
+    """Find termtap.toml in current or parent directories.
+
+    Returns:
+        Path to config file if found, None otherwise.
+    """
     current = Path.cwd()
 
     for parent in [current] + list(current.parents):
@@ -36,13 +56,16 @@ def find_config_file() -> Optional[Path]:
 def load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
     """Load configuration from file.
 
-    Returns dict of target_name -> TargetConfig
+    Args:
+        path: Path to config file. Defaults to None (auto-discover).
+
+    Returns:
+        Dictionary mapping target names to TargetConfig instances.
     """
     if path is None:
-        path = find_config_file()
+        path = _find_config_file()
 
     if path is None or not path.exists():
-        # Return default config only
         return {"default": TargetConfig("default", {})}
 
     with open(path, "rb") as f:
@@ -50,10 +73,7 @@ def load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
 
     configs = {}
 
-    # Always include default
     configs["default"] = TargetConfig("default", data.get("default", {}))
-
-    # Add other targets
     for name, config in data.items():
         if name != "default" and isinstance(config, dict):
             configs[name] = TargetConfig(name, config)
@@ -62,6 +82,13 @@ def load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
 
 
 def get_target_config(target: str = "default") -> TargetConfig:
-    """Get config for specific target."""
+    """Get config for specific target.
+
+    Args:
+        target: Target name to retrieve. Defaults to "default".
+
+    Returns:
+        TargetConfig instance for the specified target.
+    """
     configs = load_config()
     return configs.get(target, configs["default"])

@@ -20,13 +20,13 @@ def _capture_pane(session: str, lines: Optional[int] = None) -> str:
 
     Returns:
         Captured output as string
-        
+
     Raises:
         CurrentPaneError: If attempting to capture from current pane.
     """
     if _is_current_pane(session):
         raise CurrentPaneError(f"Cannot capture from current pane ({session}). Use a different target session.")
-        
+
     args = ["capture-pane", "-t", session, "-p"]
 
     if lines is not None:
