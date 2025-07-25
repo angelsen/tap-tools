@@ -1,187 +1,120 @@
-# termtap Implementation Plan
+# termtap Architecture
 
 ## Overview
-Minimal tmux-based terminal session manager built with ReplKit2. Commands work natively in REPL and automatically expose as MCP tools/resources via FastMCP decorators.
+Process-native tmux session manager with MCP support. Built on ReplKit2 for dual REPL/MCP functionality, using a handler-based architecture for intelligent process detection.
 
 ## Core Design Principles
-1. **ReplKit2-native**: Commands are REPL-first, MCP-second
-2. **tmux as state**: tmux sessions ARE the state
-3. **Test with debug-bridge**: Use terminal_send/read for development
-4. **Config optional**: Works with zero config, enhanced by termtap.toml
+
+1. **Process-Native**: Leverage OS-level syscalls instead of pattern matching
+2. **Clean Module Boundaries**: Public APIs only, no cross-module private function usage
+3. **Streaming Sidecar**: Reliable output capture through tmux pipe streams
+4. **Handler Architecture**: Extensible system for different process types
+5. **Minimal State**: No command tracking, just stream management
 
 ## Architecture
 
 ### Module Structure
 ```
 packages/termtap/src/termtap/
-├── __init__.py          # App setup, exports
-├── __main__.py          # CLI entry point (--mcp flag)
-├── app.py               # ReplKit2 App definition
-├── config.py            # termtap.toml parsing
-└── tmux/
-    ├── __init__.py      # Public tmux API
-    ├── session.py       # Session management
-    ├── capture.py       # Output capture
-    └── utils.py         # Helpers (escape, parse)
+├── app.py               # ReplKit2 app with minimal commands
+├── config.py            # Configuration with skip_processes support
+├── types.py             # Type definitions (Target, CommandStatus, etc.)
+├── core/
+│   ├── control.py       # Process control (interrupt, signal, kill)
+│   └── execute.py       # Command execution with streaming
+├── tmux/
+│   ├── session.py       # Session management
+│   ├── pane.py          # Pane capture functions  
+│   ├── stream.py        # Streaming sidecar for output
+│   └── utils.py         # Low-level tmux operations
+├── process/
+│   ├── detector.py      # Process state detection
+│   ├── tree.py          # Process tree analysis
+│   └── handlers/        # Pluggable handlers per process type
+└── hover/               # Interactive dialogs (used by handlers)
 ```
 
-### ReplKit2 App Definition
+### Key APIs
 
-```python
-from replkit2 import App
-from dataclasses import dataclass
+#### app.py - Essential Commands
+- `bash(command, target, wait, timeout)` - Execute with streaming output
+- `read(target, lines)` - Direct tmux capture
+- `ls()` - List sessions with process info
+- `active()` - Show only working processes
+- `interrupt(session)` - Send Ctrl+C
 
-@dataclass
-class TermTapState:
-    config: dict = None
-    
-    @property
-    def sessions(self):
-        # Live view into tmux
-        return tmux.list_sessions()
+#### tmux Module - Public API
+- `list_sessions()` - Get all sessions
+- `session_exists()`, `get_or_create_session()`, `kill_session()`
+- `capture_visible()`, `capture_all()`, `capture_last_n()`
+- `get_pane_pid()`, `get_pane_for_session()`
+- `send_keys()` - Send keystrokes
 
-app = App(
-    "termtap",
-    TermTapState,
-    uri_scheme="bash",  # bash:// URIs
-    fastmcp={"tags": {"terminal", "automation"}}
-)
-```
+#### process Module - Public API
+- `is_ready(session)` - Check if ready for input
+- `wait_until_ready(session, timeout)` - Wait for readiness
+- `get_process_info(session)` - Debug information
 
-### Commands (REPL + MCP)
+#### core Module - Public API
+- `execute(state, command, target, wait, timeout)` - Main execution
+- `send_interrupt()`, `send_signal()`, `kill_process()`
+- `ExecutorState` - Just holds StreamManager
 
-```python
-# MCP Tool: Execute command in session
-@app.command(display="box", fastmcp={"type": "tool"})
-def bash(state, command: str, target: str = "default", wait: bool = True, timeout: int = 30000):
-    """Execute command in target session."""
-    # Works in REPL: termtap> bash "ls -la" frontend
-    # Works in MCP: mcp__termtap__bash(command="ls -la", target="frontend")
-    session = get_or_create_session(state, target)
-    return tmux.send_command(session, command, wait, timeout)
+### Streaming Architecture
 
-# MCP Resource: Read session output
-@app.command(display="text", fastmcp={"type": "resource"})
-def read(state, target: str = "default", lines: int = None):
-    """Read output from target session."""
-    # REPL: termtap> read frontend 30
-    # MCP: bash://frontend/30
-    # URI template: bash://{target}/{lines}
-    return tmux.capture_pane(f"termtap-{target}", lines)
+The streaming sidecar provides reliable output capture:
+1. Mark position before sending command
+2. Send command via tmux send-keys
+3. Stream captures all output to file
+4. Read from mark when ready/timeout
 
-# REPL-only: Interactive commands
-@app.command(display="table", headers=["Session", "Created", "Attached"], fastmcp={"enabled": False})
-def list(state):
-    """List all termtap sessions."""
-    return [{"Session": s.name, "Created": s.created, "Attached": s.attached} 
-            for s in state.sessions]
+This avoids tmux capture timing issues and provides complete output.
 
-@app.command(fastmcp={"enabled": False})
-def attach(state, target: str):
-    """Attach to session in current terminal."""
-    os.system(f"tmux attach -t termtap-{target}")
+### Handler System
 
-@app.command(fastmcp={"enabled": False})
-def join(state, target: str):
-    """Join session as pane in current tmux."""
-    os.system(f"tmux join-pane -s termtap-{target}")
-```
+Process handlers in `process/handlers/` provide:
+- Process type detection
+- Ready state determination  
+- Pre/post command hooks
+- Custom behavior per process type
 
-### Config Format (termtap.toml)
-```toml
-[default]
-# Runs in current directory if no config
+Current handlers:
+- `default.py` - Generic processes
+- `claude.py` - Claude/AI assistants
+- `ssh.py` - SSH sessions with safety checks
 
-[frontend]
-dir = "./frontend"
-start = "npm run dev"  # Optional auto-start command
+### Configuration
 
-[backend]
-dir = "./backend"
-env = { PYTHONPATH = "." }
-```
+`termtap.toml` supports:
+- Working directories
+- Startup commands
+- Environment variables
+- Skip processes list (wrappers to ignore)
+- Hover patterns (for interactive dialogs)
 
 ## Development Workflow
 
-### 1. Build with debug-bridge
-```python
-# Start debug-bridge terminal session
-mcp__debug-bridge__terminal_start(command="python", session_id="termtap-dev")
-
-# Test termtap in REPL mode
-mcp__debug-bridge__terminal_send(
-    session_id="termtap-dev",
-    command="uv run python -m termtap"
-)
-
-# Test commands interactively
-mcp__debug-bridge__terminal_send(
-    session_id="termtap-dev", 
-    command='bash "echo hello" frontend'
-)
-```
-
-### 2. Test MCP Mode
 ```bash
-# Run MCP server
-uv run python -m termtap --mcp
+# Test with debug-bridge
+mcp__debug-brdige__terminal_send(session_id="epic-swan", command="uv run python -m termtap")
+mcp__debug-brdige__terminal_read(session_id="epic-swan", lines=50)
 
-# Commands automatically available as:
-# - mcp__termtap__bash
-# - Resource: bash://target/lines
+# Or run directly
+uv run python -m termtap          # REPL mode
+uv run python -m termtap --mcp    # MCP server mode
 ```
 
-## Implementation Steps
+## Future Enhancements
 
-### Phase 1: Core tmux Module
-1. Create minimal tmux wrapper using subprocess
-2. Test with simple scripts before ReplKit2 integration
-3. Ensure proper command escaping and output capture
+1. **More Handlers**: Database shells, containers, notebooks
+2. **Session Templates**: Pre-configured session types
+3. **Process Hooks**: User-defined pre/post command scripts
+4. **Better Debugging**: Enhanced process state visibility
+5. **Performance**: Lazy loading, connection pooling
 
-### Phase 2: ReplKit2 App
-1. Define TermTapState with live tmux view
-2. Create bash command (REPL + MCP tool)
-3. Create read command (REPL + MCP resource)
-4. Add REPL-only commands (list, attach, join)
+## Philosophy
 
-### Phase 3: Config & Polish
-1. Add termtap.toml parsing
-2. Auto-start sessions from config
-3. Handle missing tmux gracefully
-4. Add helpful display formatting
-
-## Key Implementation Details
-
-### Session Naming
-- Config targets: `termtap-{target}`
-- Prevents collision with user sessions
-- Easy to identify in tmux list
-
-### Command Testing in REPL
-```
-termtap> bash "pwd"
-/home/user/project
-
-termtap> bash "npm run dev" frontend
-Starting frontend dev server...
-
-termtap> read frontend 10
-[last 10 lines of frontend output]
-
-termtap> list
-Session            Created    Attached
-termtap-default    10:23      No
-termtap-frontend   10:24      No
-```
-
-### URI Resolution
-- `bash://` → list all sessions
-- `bash://frontend` → read(target="frontend")
-- `bash://frontend/30` → read(target="frontend", lines=30)
-
-## Success Criteria
-1. Commands work identically in REPL and MCP
-2. Can develop/test entirely using debug-bridge terminal
-3. Zero-config usage works immediately
-4. tmux sessions visible and joinable
-5. Clean ReplKit2 patterns throughout
+- **Don't recreate what syscalls tell us** - Use /proc and process info
+- **Clean over clever** - Simple, direct API usage
+- **Extensible not configurable** - Handlers over config options
+- **Process-native** - Work with processes, not patterns

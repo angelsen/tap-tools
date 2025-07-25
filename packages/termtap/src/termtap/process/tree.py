@@ -1,145 +1,275 @@
-"""Process tree analysis and information gathering.
+"""Process tree analysis using /proc filesystem.
 
 PUBLIC API:
-  (None - all functions and classes are internal)
+  - get_process_tree: Build complete process tree from a root PID
+  - get_process_chain: Get main execution chain (parent->child->grandchild)
+  - ProcessNode: Tree node with process information
 """
 
-import subprocess
-from typing import List, Optional
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class _ProcessInfo:
-    """Information about a process."""
-
+class ProcessNode:
+    """Node in a process tree with full process information.
+    
+    Attributes:
+        pid: Process ID
+        name: Process name (comm)
+        cmdline: Full command line with arguments
+        state: Process state (R=running, S=sleeping, etc)
+        ppid: Parent process ID
+        children: List of child ProcessNodes
+        wait_channel: Kernel wait channel (if available)
+        fd_count: Number of open file descriptors
+    """
     pid: int
-    ppid: int
     name: str
     cmdline: str
-    state: str  # R=running, S=sleeping, etc
-
-    @property
-    def is_sleeping(self) -> bool:
-        """Check if process is sleeping (waiting)."""
-        return self.state.startswith("S")
-
+    state: str
+    ppid: int
+    children: List['ProcessNode'] = field(default_factory=list)
+    wait_channel: Optional[str] = None
+    fd_count: Optional[int] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
+        d = {
+            "pid": self.pid,
+            "name": self.name,
+            "cmdline": self.cmdline,
+            "state": self.state,
+            "ppid": self.ppid,
+        }
+        if self.wait_channel:
+            d["wait_channel"] = self.wait_channel
+        if self.fd_count is not None:
+            d["fd_count"] = self.fd_count
+        if self.children:
+            d["children"] = [c.to_dict() for c in self.children]
+        return d
+    
     @property
     def is_running(self) -> bool:
         """Check if process is actively running."""
-        return self.state.startswith("R")
+        return self.state == "R"
+    
+    @property
+    def is_sleeping(self) -> bool:
+        """Check if process is sleeping."""
+        return self.state == "S"
+    
+    @property
+    def has_children(self) -> bool:
+        """Check if process has any children."""
+        return bool(self.children)
 
 
-def _get_process_info(pid: int) -> Optional[_ProcessInfo]:
-    """Get information about a specific process.
-
-    Args:
-        pid: Process ID.
-    """
+def _read_proc_file(path: str, default: str = "") -> str:
+    """Read a /proc file safely."""
     try:
-        # Use ps to get process info
-        # Format: PID,PPID,STATE,COMMAND,ARGS
-        result = subprocess.run(
-            ["ps", "-o", "pid,ppid,state,comm,args", "-p", str(pid)], capture_output=True, text=True, check=True
-        )
-
-        lines = result.stdout.strip().split("\n")
-        if len(lines) < 2:
-            return None
-
-        # Parse the output (skip header)
-        parts = lines[1].split(None, 4)  # Split on whitespace, max 5 parts
-        if len(parts) < 4:
-            return None
-
-        return _ProcessInfo(
-            pid=int(parts[0]),
-            ppid=int(parts[1]),
-            state=parts[2],
-            name=parts[3],
-            cmdline=parts[4] if len(parts) > 4 else parts[3],
-        )
-
-    except (subprocess.CalledProcessError, ValueError) as e:
-        logger.debug(f"Failed to get process info for PID {pid}: {e}")
-        return None
+        with open(path, 'r') as f:
+            return f.read().strip()
+    except (IOError, OSError) as e:
+        logger.debug(f"Could not read {path}: {e}")
+        return default
 
 
-def _get_process_tree(pid: int) -> List[_ProcessInfo]:
-    """Get full process tree starting from a PID.
-
-    Args:
-        pid: Starting process ID.
-    """
-    tree = []
-    current_pid = pid
-
-    # Walk up the tree to find root
-    while current_pid:
-        info = _get_process_info(current_pid)
-        if not info:
-            break
-
-        tree.insert(0, info)  # Insert at beginning to maintain order
-
-        # Stop at init (PID 1) or when we reach the shell owner
-        if info.ppid <= 1:
-            break
-
-        current_pid = info.ppid
-
-    return tree
-
-
-def _get_child_processes(ppid: int) -> List[_ProcessInfo]:
-    """Get all direct child processes of a parent PID.
-
-    Args:
-        ppid: Parent process ID.
-    """
+def _read_proc_file_bytes(path: str) -> bytes:
+    """Read a /proc file as bytes."""
     try:
-        # Get all processes with this parent
-        result = subprocess.run(
-            ["ps", "--ppid", str(ppid), "-o", "pid,ppid,state,comm,args"], capture_output=True, text=True
-        )
+        with open(path, 'rb') as f:
+            return f.read()
+    except (IOError, OSError) as e:
+        logger.debug(f"Could not read {path}: {e}")
+        return b""
 
-        children = []
-        lines = result.stdout.strip().split("\n")
 
-        # Skip header if present
-        for line in lines[1:]:
-            parts = line.split(None, 4)
-            if len(parts) >= 4:
-                children.append(
-                    _ProcessInfo(
-                        pid=int(parts[0]),
-                        ppid=int(parts[1]),
-                        state=parts[2],
-                        name=parts[3],
-                        cmdline=parts[4] if len(parts) > 4 else parts[3],
-                    )
-                )
-
-        return children
-
-    except (subprocess.CalledProcessError, ValueError) as e:
-        logger.debug(f"Failed to get child processes for PID {ppid}: {e}")
+def _get_process_children(pid: int) -> List[int]:
+    """Get direct children of a process."""
+    children_str = _read_proc_file(f"/proc/{pid}/task/{pid}/children")
+    if not children_str:
+        return []
+    
+    try:
+        return [int(p) for p in children_str.split()]
+    except ValueError as e:
+        logger.debug(f"Invalid PID in children for {pid}: {e}")
         return []
 
 
-def _find_shell_in_tree(tree: List[_ProcessInfo]) -> Optional[str]:
-    """Find the shell type from a process tree.
+def _get_process_info(pid: int) -> Optional[ProcessNode]:
+    """Get information about a single process."""
+    try:
+        # Get command name
+        name = _read_proc_file(f"/proc/{pid}/comm")
+        if not name:
+            return None
+        
+        # Get full command line
+        cmdline_bytes = _read_proc_file_bytes(f"/proc/{pid}/cmdline")
+        cmdline = cmdline_bytes.decode('utf-8', 'replace').replace('\x00', ' ').strip()
+        if not cmdline:
+            cmdline = name  # Fallback to comm if cmdline is empty
+        
+        # Parse stat file for state and ppid
+        stat_data = _read_proc_file(f"/proc/{pid}/stat")
+        if not stat_data:
+            return None
+        
+        # State is after the last ) in stat (handles processes with ) in name)
+        right_paren = stat_data.rfind(')')
+        if right_paren == -1:
+            return None
+        
+        stat_fields = stat_data[right_paren + 1:].strip().split()
+        if len(stat_fields) < 2:
+            return None
+        
+        state = stat_fields[0]
+        ppid = int(stat_fields[1])
+        
+        # Get wait channel
+        wait_channel = _read_proc_file(f"/proc/{pid}/wchan")
+        if wait_channel == "0":
+            wait_channel = None
+        
+        # Count file descriptors
+        fd_count = None
+        try:
+            import os
+            fd_count = len(os.listdir(f"/proc/{pid}/fd"))
+        except (OSError, IOError):
+            pass
+        
+        return ProcessNode(
+            pid=pid,
+            name=name,
+            cmdline=cmdline,
+            state=state,
+            ppid=ppid,
+            wait_channel=wait_channel,
+            fd_count=fd_count
+        )
+        
+    except Exception as e:
+        logger.debug(f"Error getting process info for PID {pid}: {e}")
+        return None
 
+
+def _build_tree_recursive(pid: int, visited: Optional[set] = None) -> Optional[ProcessNode]:
+    """Recursively build process tree from a PID."""
+    if visited is None:
+        visited = set()
+    
+    # Prevent cycles
+    if pid in visited:
+        logger.warning(f"Cycle detected at PID {pid}")
+        return None
+    visited.add(pid)
+    
+    # Get this process info
+    node = _get_process_info(pid)
+    if not node:
+        return None
+    
+    # Get children and build their trees
+    child_pids = _get_process_children(pid)
+    for child_pid in child_pids:
+        child_node = _build_tree_recursive(child_pid, visited)
+        if child_node:
+            node.children.append(child_node)
+    
+    return node
+
+
+def get_process_tree(root_pid: int) -> Optional[ProcessNode]:
+    """Build complete process tree starting from a root PID.
+    
     Args:
-        tree: Process tree from _get_process_tree().
+        root_pid: PID to start building tree from
+        
+    Returns:
+        ProcessNode representing the root with all descendants,
+        or None if the process doesn't exist
     """
-    shells = {"bash", "fish", "zsh", "sh", "dash", "ksh", "tcsh", "csh"}
+    return _build_tree_recursive(root_pid)
 
-    for process in tree:
-        if process.name in shells:
-            return process.name
 
-    return None
+def get_process_chain(root_pid: int) -> List[ProcessNode]:
+    """Get the main execution chain from a root PID.
+    
+    Follows the first child at each level to build the main
+    execution chain (e.g., bash -> python -> subprocess).
+    
+    Args:
+        root_pid: PID to start from
+        
+    Returns:
+        List of ProcessNodes from root to leaf process
+    """
+    chain = []
+    current_pid = root_pid
+    visited = set()
+    
+    while current_pid and current_pid not in visited:
+        visited.add(current_pid)
+        
+        node = _get_process_info(current_pid)
+        if not node:
+            break
+        
+        chain.append(node)
+        
+        # Get first child to continue chain
+        child_pids = _get_process_children(current_pid)
+        if child_pids:
+            current_pid = child_pids[0]
+        else:
+            break
+    
+    return chain
+
+
+def _find_processes_by_name(root: ProcessNode, name: str) -> List[ProcessNode]:
+    """Find all processes with a given name in the tree.
+    
+    Args:
+        root: Root node to search from
+        name: Process name to search for
+        
+    Returns:
+        List of ProcessNodes with matching names
+    """
+    results = []
+    
+    if root.name == name:
+        results.append(root)
+    
+    for child in root.children:
+        results.extend(_find_processes_by_name(child, name))
+    
+    return results
+
+
+def _get_leaf_processes(root: ProcessNode) -> List[ProcessNode]:
+    """Get all leaf processes (processes with no children).
+    
+    Args:
+        root: Root node to search from
+        
+    Returns:
+        List of leaf ProcessNodes
+    """
+    if not root.children:
+        return [root]
+    
+    leaves = []
+    for child in root.children:
+        leaves.extend(_get_leaf_processes(child))
+    
+    return leaves

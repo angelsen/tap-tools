@@ -1,13 +1,15 @@
 """Process detection and state inspection for termtap.
 
 PUBLIC API:
-- get_process_context: Get process context with shell and state info
-- ProcessContext: Process context data class
+- is_ready: Check if a tmux session is ready for commands
+- wait_until_ready: Wait for a process to become ready
+- get_process_info: Get detailed process information
 """
 
-from .detect import get_process_context, ProcessContext
+from .detector import is_ready, wait_until_ready, get_process_info
 
 __all__ = [
-    "get_process_context",
-    "ProcessContext",
+    "is_ready",
+    "wait_until_ready", 
+    "get_process_info",
 ]

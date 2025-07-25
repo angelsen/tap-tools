@@ -18,6 +18,7 @@ class TargetConfig:
         start: Optional startup command.
         env: Environment variables dictionary.
         hover_patterns: List of patterns for hover dialogs.
+        skip_processes: List of wrapper processes to skip in detection.
     """
 
     def __init__(self, name: str, config: dict):
@@ -26,6 +27,9 @@ class TargetConfig:
         self.start = config.get("start")
         self.env = config.get("env", {})
         self.hover_patterns = config.get("hover_patterns", [])
+        self.skip_processes = config.get("skip_processes", [
+            "uv", "npm", "yarn", "poetry", "pipenv", "nix-shell"
+        ])
 
     @property
     def absolute_dir(self) -> str:

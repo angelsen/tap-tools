@@ -1,11 +1,15 @@
 """Tmux utilities for low-level operations.
 
-PUBLIC API: (none)
+PUBLIC API:
+  - get_pane_pid: Get PID for a session's pane
+  - get_pane_for_session: Get default pane for a session
 """
 
 import os
 import subprocess
 from typing import List, Tuple, Optional
+
+from ..types import Target
 
 
 def _run_tmux(args: List[str]) -> Tuple[int, str, str]:
@@ -57,14 +61,51 @@ def _get_current_pane() -> Optional[str]:
     return None
 
 
-def _is_current_pane(pane_id: str) -> bool:
-    """Check if given pane_id is the current pane.
+def _is_current_pane(target: Target) -> bool:
+    """Check if given target is the current pane.
 
     Args:
-        pane_id: Pane identifier (e.g., "epic-swan:0.0").
+        target: Target specification (session, pane ID, window ID, or session:window.pane).
 
     Returns:
-        True if pane_id matches current pane.
+        True if target matches current pane.
     """
     current = _get_current_pane()
-    return current is not None and current == pane_id
+    return current is not None and current == target
+
+
+def get_pane_pid(session_id: str) -> int:
+    """Get the PID of a session's active pane.
+    
+    Args:
+        session_id: Tmux session ID
+        
+    Returns:
+        PID of the pane process
+        
+    Raises:
+        RuntimeError: If PID cannot be obtained
+    """
+    code, stdout, stderr = _run_tmux([
+        "display-message", "-t", session_id, "-p", "#{pane_pid}"
+    ])
+    
+    if code != 0:
+        raise RuntimeError(f"Failed to get pane PID: {stderr}")
+    
+    try:
+        return int(stdout.strip())
+    except ValueError:
+        raise RuntimeError(f"Invalid PID: {stdout}")
+
+
+def get_pane_for_session(session: str) -> str:
+    """Get the default pane for a session.
+    
+    Args:
+        session: Session name
+        
+    Returns:
+        Pane identifier in format 'session:0.0'
+    """
+    return f"{session}:0.0"

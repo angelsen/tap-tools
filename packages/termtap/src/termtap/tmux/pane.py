@@ -7,15 +7,16 @@ PUBLIC API:
 """
 
 from typing import Optional
+from ..types import Target
 from .utils import _run_tmux, _is_current_pane
 from .exceptions import CurrentPaneError
 
 
-def _capture_pane(session: str, lines: Optional[int] = None) -> str:
-    """Capture pane output from session.
+def _capture_pane(target: Target, lines: Optional[int] = None) -> str:
+    """Capture pane output from target.
 
     Args:
-        session: Session name
+        target: Target specification (session, pane ID, window ID, or session:window.pane)
         lines: Number of lines to capture (None = visible, -1 = all history)
 
     Returns:
@@ -24,10 +25,10 @@ def _capture_pane(session: str, lines: Optional[int] = None) -> str:
     Raises:
         CurrentPaneError: If attempting to capture from current pane.
     """
-    if _is_current_pane(session):
-        raise CurrentPaneError(f"Cannot capture from current pane ({session}). Use a different target session.")
+    if _is_current_pane(target):
+        raise CurrentPaneError(f"Cannot capture from current pane ({target}). Use a different target.")
 
-    args = ["capture-pane", "-t", session, "-p"]
+    args = ["capture-pane", "-t", target, "-p"]
 
     if lines is not None:
         if lines == -1:
@@ -38,41 +39,51 @@ def _capture_pane(session: str, lines: Optional[int] = None) -> str:
             args.extend(["-S", f"-{lines}"])
 
     code, out, _ = _run_tmux(args)
-    return out if code == 0 else ""
+    if code != 0:
+        return ""
+    
+    # Strip trailing empty lines that tmux adds to fill the pane height
+    # This preserves empty lines within the content but removes padding
+    lines_list = out.splitlines()
+    while lines_list and not lines_list[-1].strip():
+        lines_list.pop()
+    
+    # Reconstruct with original line endings
+    return '\n'.join(lines_list) + '\n' if lines_list else ""
 
 
-def capture_visible(session: str) -> str:
+def capture_visible(target: Target) -> str:
     """Capture visible pane content.
 
     Args:
-        session: Target session name.
+        target: Target specification (session, pane ID, window ID, or session:window.pane).
 
     Returns:
         Visible pane content as string.
     """
-    return _capture_pane(session, lines=None)
+    return _capture_pane(target, lines=None)
 
 
-def capture_all(session: str) -> str:
+def capture_all(target: Target) -> str:
     """Capture entire pane history.
 
     Args:
-        session: Target session name.
+        target: Target specification (session, pane ID, window ID, or session:window.pane).
 
     Returns:
         Full pane history including scrollback as string.
     """
-    return _capture_pane(session, lines=-1)
+    return _capture_pane(target, lines=-1)
 
 
-def capture_last_n(session: str, n: int) -> str:
+def capture_last_n(target: Target, n: int) -> str:
     """Capture last N lines from pane.
 
     Args:
-        session: Target session name.
+        target: Target specification (session, pane ID, window ID, or session:window.pane).
         n: Number of lines to capture.
 
     Returns:
         Last N lines from pane as string.
     """
-    return _capture_pane(session, lines=n)
+    return _capture_pane(target, lines=n)

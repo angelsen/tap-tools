@@ -185,16 +185,6 @@ class _StreamManager:
                 stream_file.unlink()
 
 
-def _get_pane_for_session(session: str) -> str:
-    """Get the first pane for a session in format suitable for -t flag.
-
-    Args:
-        session: Session name.
-
-    Returns:
-        Pane identifier string.
-    """
-    return f"{session}:0.0"
 
 
 def _send_command(pane_id: str, command: str) -> str:
