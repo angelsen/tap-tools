@@ -1,7 +1,6 @@
 """SSH process handler with hover dialog for permission.
 
-PUBLIC API:
-  - (none - internal module)
+Internal module - no public API.
 """
 
 import logging

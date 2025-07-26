@@ -1,7 +1,6 @@
 """Python process handler.
 
-PUBLIC API:
-  - (none - internal module)
+Internal module - no public API.
 """
 
 from . import ProcessHandler

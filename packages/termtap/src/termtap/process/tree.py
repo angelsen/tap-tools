@@ -1,17 +1,11 @@
 """Process tree analysis using /proc filesystem.
 
-This implementation uses the pstree algorithm: scanning all processes
-to build parent-child relationships from PPID information.
-
 PUBLIC API:
   - ProcessNode: Tree node with process information (dataclass)
   - get_process_tree: Build complete process tree from a root PID
   - get_process_chain: Get main execution chain (parent->child->grandchild)
   - get_all_processes: Scan all processes from /proc (for batch operations)
   - build_tree_from_processes: Build tree from pre-scanned processes
-
-Note: All helper functions (_read_proc_file, _get_process_info, etc.) are internal.
-ProcessNode._to_dict() is also internal - only used for debugging within this module.
 """
 
 import logging
@@ -24,17 +18,17 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ProcessNode:
-    """Node in a process tree with full process information.
+    """Tree node with process information.
 
     Attributes:
-        pid: Process ID
-        name: Process name (comm)
-        cmdline: Full command line with arguments
-        state: Process state (R=running, S=sleeping, etc)
-        ppid: Parent process ID
-        children: List of child ProcessNodes
-        wait_channel: Kernel wait channel (if available)
-        fd_count: Number of open file descriptors
+        pid: Process ID.
+        name: Process name (comm).
+        cmdline: Full command line with arguments.
+        state: Process state (R=running, S=sleeping, etc).
+        ppid: Parent process ID.
+        children: List of child ProcessNodes.
+        wait_channel: Kernel wait channel (if available).
+        fd_count: Number of open file descriptors.
     """
 
     pid: int
@@ -80,7 +74,12 @@ class ProcessNode:
 
 
 def _read_proc_file(path: str, default: str = "") -> str:
-    """Read a /proc file safely."""
+    """Read a /proc file safely.
+
+    Args:
+        path: Path to /proc file.
+        default: Default value if read fails.
+    """
     try:
         with open(path, "r") as f:
             return f.read().strip()
@@ -90,7 +89,11 @@ def _read_proc_file(path: str, default: str = "") -> str:
 
 
 def _read_proc_file_bytes(path: str) -> bytes:
-    """Read a /proc file as bytes."""
+    """Read a /proc file as bytes.
+
+    Args:
+        path: Path to /proc file.
+    """
     try:
         with open(path, "rb") as f:
             return f.read()
@@ -103,7 +106,7 @@ def get_all_processes() -> Dict[int, Dict[str, Any]]:
     """Scan all processes and extract their information.
 
     Returns:
-        Dict mapping PID to process info including PPID
+        Dict mapping PID to process info including PPID.
     """
     processes = {}
 
@@ -124,7 +127,11 @@ def get_all_processes() -> Dict[int, Dict[str, Any]]:
 
 
 def _get_process_info(pid: int) -> Optional[ProcessNode]:
-    """Get information about a single process."""
+    """Get information about a single process.
+
+    Args:
+        pid: Process ID to get info for.
+    """
     try:
         # Get command name
         name = _read_proc_file(f"/proc/{pid}/comm")
@@ -179,11 +186,11 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
     """Build a tree structure from the flat process list.
 
     Args:
-        processes: Dict mapping PID to process info
-        root_pid: PID to use as tree root
+        processes: Dict mapping PID to process info.
+        root_pid: PID to use as tree root.
 
     Returns:
-        ProcessNode tree or None if root not found
+        ProcessNode tree or None if root not found.
     """
     if root_pid not in processes:
         return None
@@ -200,7 +207,7 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
         children_map[ppid].append(pid)
 
     # Recursively attach children
-    def attach_children(node: ProcessNode, visited: Set[int]):
+    def _attach_children(node: ProcessNode, visited: Set[int]):
         """Recursively attach children to a node."""
         if node.pid in visited:
             return  # Prevent cycles
@@ -211,10 +218,10 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
                 if child_pid in processes and child_pid not in visited:
                     child_node = processes[child_pid]["node"]
                     node.children.append(child_node)
-                    attach_children(child_node, visited)
+                    _attach_children(child_node, visited)
 
     visited: Set[int] = set()
-    attach_children(root, visited)
+    _attach_children(root, visited)
 
     return root
 
@@ -222,15 +229,15 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
 def get_process_tree(root_pid: int) -> Optional[ProcessNode]:
     """Build complete process tree starting from a root PID.
 
-    This uses the pstree algorithm: scanning all processes and
+    Uses the pstree algorithm: scanning all processes and
     building relationships from PPID information.
 
     Args:
-        root_pid: PID to start building tree from
+        root_pid: PID to start building tree from.
 
     Returns:
         ProcessNode representing the root with all descendants,
-        or None if the process doesn't exist
+        or None if the process doesn't exist.
     """
     # Get all processes
     processes = get_all_processes()
@@ -246,10 +253,10 @@ def get_process_chain(root_pid: int) -> List[ProcessNode]:
     execution chain (e.g., bash -> python -> subprocess).
 
     Args:
-        root_pid: PID to start from
+        root_pid: PID to start from.
 
     Returns:
-        List of ProcessNodes from root to leaf process
+        List of ProcessNodes from root to leaf process.
     """
     # Get full tree
     tree = get_process_tree(root_pid)

@@ -1,14 +1,10 @@
 """Process state detection for termtap.
 
-High-level detection API that combines tree analysis with handler logic.
-Uses tree.py for process information and handlers for process-specific behavior.
-
 PUBLIC API:
   - detect_process: Get ProcessInfo for a session
-  - detect_all_processes: Batch detection for ls() command
+  - detect_all_processes: Batch detection for multiple sessions
   - interrupt_process: Handler-aware interrupt
-
-Note: _extract_shell_and_process and _get_handler_for_session are internal helpers.
+  - get_handler_for_session: Get handler for a session's process
 """
 
 import logging
@@ -27,6 +23,10 @@ def _extract_shell_and_process(
     chain: list[ProcessNode], skip_processes: list[str]
 ) -> tuple[ProcessNode | None, ProcessNode | None]:
     """Extract shell and active process from chain.
+
+    Args:
+        chain: Process chain from root to leaf.
+        skip_processes: Process names to skip when finding active process.
 
     Returns:
         (shell, process) where shell is the last shell in chain,
@@ -62,10 +62,10 @@ def detect_process(session_id: str) -> ProcessInfo:
     """Detect shell and process state for a session.
 
     Args:
-        session_id: Tmux session ID
+        session_id: Tmux session ID.
 
     Returns:
-        ProcessInfo with shell, process, and state
+        ProcessInfo with shell, process, and state.
     """
     try:
         pid = get_pane_pid(session_id)
@@ -101,10 +101,10 @@ def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
     Single /proc scan for all sessions.
 
     Args:
-        session_names: List of session names
+        session_names: List of session names.
 
     Returns:
-        Dict mapping session name to ProcessInfo
+        Dict mapping session name to ProcessInfo.
     """
     results = {}
 
@@ -154,15 +154,15 @@ def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
     return results
 
 
-def _get_handler_for_session(session_id: str, process_name: str | None = None):
+def get_handler_for_session(session_id: str, process_name: str | None = None):
     """Get handler for a session's process.
 
     Args:
-        session_id: Tmux session ID
+        session_id: Tmux session ID.
         process_name: Optional process name to look for. If None, uses current active process.
 
     Returns:
-        Handler instance or None
+        Handler instance or None.
     """
     try:
         pid = get_pane_pid(session_id)
@@ -195,10 +195,10 @@ def interrupt_process(session_id: str) -> tuple[bool, str]:
     """Send interrupt to a session using handler-specific method.
 
     Args:
-        session_id: Tmux session ID
+        session_id: Tmux session ID.
 
     Returns:
-        (success, message) tuple
+        (success, message) tuple.
     """
     try:
         info = detect_process(session_id)

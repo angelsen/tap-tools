@@ -1,7 +1,6 @@
 """Default handler for standard processes.
 
-PUBLIC API:
-  - (none - internal module)
+Internal module - no public API.
 """
 
 from . import ProcessHandler
