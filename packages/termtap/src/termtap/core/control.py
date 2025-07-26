@@ -1,9 +1,8 @@
 """Process control operations.
 
-PUBLIC API:
-  - send_interrupt: Send Ctrl+C to a session
-  - send_signal: Send arbitrary signal to process
-  - kill_process: Force kill a process
+Internal module - not part of public API.
+Contains utilities for sending signals and interrupts to processes.
+All functions are prefixed with underscore to indicate internal use.
 """
 
 import os
@@ -15,7 +14,7 @@ from ..tmux import send_keys, session_exists, get_pane_for_session
 logger = logging.getLogger(__name__)
 
 
-def send_interrupt(session: str) -> bool:
+def _send_interrupt(session: str) -> bool:
     """Send Ctrl+C to whatever is running in session.
 
     Args:
@@ -38,7 +37,7 @@ def send_interrupt(session: str) -> bool:
         return False
 
 
-def send_signal(pid: int, sig: int = signal.SIGTERM) -> bool:
+def _send_signal(pid: int, sig: int = signal.SIGTERM) -> bool:
     """Send a signal to a specific process.
 
     Args:
@@ -63,7 +62,7 @@ def send_signal(pid: int, sig: int = signal.SIGTERM) -> bool:
         return False
 
 
-def kill_process(pid: int, force: bool = False) -> bool:
+def _kill_process(pid: int, force: bool = False) -> bool:
     """Kill a process, optionally with SIGKILL.
 
     Args:
@@ -74,4 +73,4 @@ def kill_process(pid: int, force: bool = False) -> bool:
         True if process was killed successfully
     """
     sig = signal.SIGKILL if force else signal.SIGTERM
-    return send_signal(pid, sig)
+    return _send_signal(pid, sig)

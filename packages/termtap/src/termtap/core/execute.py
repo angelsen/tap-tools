@@ -3,6 +3,7 @@
 PUBLIC API:
   - execute: Execute command in tmux session with streaming output
   - ExecutorState: State container for stream management
+  - CommandResult: Result dataclass with output, status, session, and process info
 """
 
 import uuid
@@ -13,8 +14,8 @@ from dataclasses import dataclass, field
 from ..types import CommandStatus, Target
 from ..tmux import get_or_create_session, send_keys, session_exists, get_pane_for_session
 from ..tmux.stream import _StreamManager
-from ..config import get_target_config
-from ..process.detector import detect_process, get_handler_for_session
+from ..config import _get_target_config
+from ..process.detector import detect_process, _get_handler_for_session
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def execute(
     """
     # Get configuration - always pass a string
     config_target = target if target != "default" else "default"
-    config = get_target_config(config_target)
+    config = _get_target_config(config_target)
 
     # Determine session - use existing or create new
     if session_exists(target):
@@ -83,7 +84,7 @@ def execute(
             session = get_or_create_session(target, config.absolute_dir)
         else:
             # Get default session
-            config = get_target_config("default")
+            config = _get_target_config("default")
             session = get_or_create_session(target, config.absolute_dir)
 
     # Get pane and start streaming
@@ -99,7 +100,7 @@ def execute(
 
     # HOOK: before_send - based on current process
     send_info = detect_process(session)
-    send_handler = get_handler_for_session(session, send_info.process) if send_info.process else None
+    send_handler = _get_handler_for_session(session, send_info.process) if send_info.process else None
 
     if send_handler:
         modified_command = send_handler.before_send(session, command)
@@ -136,7 +137,7 @@ def execute(
 
     # Detect what process is NOW running (might be different!)
     wait_info = detect_process(session)
-    wait_handler = get_handler_for_session(session, wait_info.process) if wait_info.process else None
+    wait_handler = _get_handler_for_session(session, wait_info.process) if wait_info.process else None
 
     # Wait loop with during_command hook
     while time.time() - start_time < timeout:
