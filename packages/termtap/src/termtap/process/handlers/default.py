@@ -1,24 +1,35 @@
 """Default handler for standard processes.
 
-Internal handler class - not part of public API.
-Used as fallback for processes not handled by specific handlers.
+PUBLIC API:
+  - (none - internal module)
 """
 
 from . import ProcessHandler
 from ..tree import ProcessNode
 
 
-class DefaultHandler(ProcessHandler):
+class _DefaultHandler(ProcessHandler):
     """Default handler - simple 'no children = ready' logic."""
 
     def can_handle(self, process: ProcessNode) -> bool:
-        """Handle everything (must be last in handler list)."""
+        """Handle everything.
+
+        Args:
+            process: The ProcessNode to check.
+
+        Returns:
+            Always True as this is the fallback handler.
+        """
         return True
 
     def is_ready(self, process: ProcessNode) -> tuple[bool, str]:
         """Check readiness using simple rule: has children = working.
 
-        This handles 90% of cases perfectly.
+        Args:
+            process: The ProcessNode to check.
+
+        Returns:
+            Tuple of (is_ready, reason) based on child processes.
         """
         if process.has_children:
             return False, f"{process.name} has subprocess"
