@@ -44,11 +44,24 @@ class TargetConfigDict(TypedDict):
     hover_patterns: NotRequired[HoverPatterns]
 
 
+# Process detection results
+@dataclass
+class ProcessInfo:
+    """Process detection result with shell and active process."""
+
+    shell: str  # Shell name (bash, fish, zsh, etc.)
+    process: str | None  # Active process name or None if at shell
+    state: Literal["ready", "working", "unknown"]  # Process state
+
+
 # Display data structures - API contracts
 class SessionRow(TypedDict):
     """Row data for sessions table."""
 
     Session: str
+    Shell: str
+    Process: str  # "-" if at shell prompt
+    State: Literal["ready", "working", "unknown"]
     Attached: Literal["Yes", "No"]
 
 

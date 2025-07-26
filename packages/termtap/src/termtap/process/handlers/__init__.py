@@ -1,13 +1,14 @@
-"""Process handlers for termtap.
+"""Process-specific handlers for different types of processes.
+
+Provides customized behavior for command execution lifecycle based on process type.
+Handler classes are internal - only the base class and factory function are public.
 
 PUBLIC API:
-  - ProcessHandler: Base class for all handlers
-  - get_handler: Get handler for a process
+  - ProcessHandler: Base abstract class for all process handlers
+  - get_handler: Get the appropriate handler for a given process
 """
 
-import time
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from ..tree import ProcessNode
 
@@ -21,39 +22,62 @@ class ProcessHandler(ABC):
         pass
 
     @abstractmethod
-    def is_ready(self, session_id: str) -> tuple[bool, str]:
-        """Check if process is ready for input."""
+    def is_ready(self, process: ProcessNode) -> tuple[bool, str]:
+        """Check if process is ready for input.
+
+        Args:
+            process: The ProcessNode to check (already has all info)
+
+        Returns:
+            (is_ready, reason) tuple
+        """
         pass
 
-    def wait_until_ready(self, session_id: str, timeout: float = 30.0) -> bool:
-        """Wait until ready with during_command hook."""
-        start = time.time()
-        while True:
-            # Check if ready
-            ready, _ = self.is_ready(session_id)
-            if ready:
-                return True
+    def interrupt(self, session_id: str) -> tuple[bool, str]:
+        """Send interrupt signal to process.
 
-            # Call during hook
-            elapsed = time.time() - start
-            if not self.during_command(session_id, elapsed):
-                return False  # Hook said stop
+        Default: Ctrl+C
+        Override for special behavior.
 
-            # Check timeout
-            if elapsed >= timeout:
-                return False
+        Args:
+            session_id: Tmux session ID
 
-            time.sleep(0.1)
+        Returns:
+            (success, message) tuple
+        """
+        from ...tmux import send_keys
 
-    # Optional hooks
-    def pre_send(self, session_id: str, command: str) -> Optional[str]:
-        """Pre-send hook. Return None to cancel."""
-        return command
+        success = send_keys(session_id, "C-c")
+        return success, "sent Ctrl+C"
+
+    # Hook lifecycle for command execution
+    def before_send(self, session_id: str, command: str) -> str | None:
+        """Called before sending command.
+
+        Can modify or cancel command.
+
+        Args:
+            session_id: Tmux session ID
+            command: Command to be sent
+
+        Returns:
+            Modified command or None to cancel
+        """
+        return command  # Default: pass through
+
+    def after_send(self, session_id: str, command: str) -> None:
+        """Called after command is sent.
+
+        For logging, metrics, etc.
+
+        Args:
+            session_id: Tmux session ID
+            command: Command that was sent
+        """
+        pass  # Default: no-op
 
     def during_command(self, session_id: str, elapsed: float) -> bool:
-        """Called during command execution.
-
-        Can perform any side effects: logging, metrics, abort checks, etc.
+        """Called while waiting for command to complete.
 
         Args:
             session_id: Tmux session ID
@@ -63,6 +87,18 @@ class ProcessHandler(ABC):
             True to continue waiting, False to stop waiting
         """
         return True  # Default: always continue
+
+    def after_complete(self, session_id: str, command: str, duration: float) -> None:
+        """Called after command completes (ready state reached).
+
+        For logging, cleanup, etc.
+
+        Args:
+            session_id: Tmux session ID
+            command: Command that was executed
+            duration: Total execution time in seconds
+        """
+        pass  # Default: no-op
 
 
 # Handler instances - loaded lazily
@@ -75,15 +111,15 @@ def get_handler(process: ProcessNode) -> ProcessHandler:
 
     # Load handlers on first use
     if not _handlers:
-        from .claude import ClaudeHandler
+        from .python import PythonHandler
         from .ssh import SSHHandler
         from .default import DefaultHandler
 
         # Order matters - first match wins
         _handlers = [
-            ClaudeHandler(),
+            PythonHandler(),
             SSHHandler(),
-            DefaultHandler(),  # Must be last
+            DefaultHandler(),  # Must be last - handles everything else
         ]
 
     for handler in _handlers:
@@ -92,3 +128,9 @@ def get_handler(process: ProcessNode) -> ProcessHandler:
 
     # Should never reach here if DefaultHandler is last
     raise RuntimeError(f"No handler for process {process.name}")
+
+
+__all__ = [
+    "ProcessHandler",
+    "get_handler",
+]

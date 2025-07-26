@@ -1,146 +1,221 @@
 """Process state detection for termtap.
 
 PUBLIC API:
-  - is_ready: Check if a session is ready for commands
-  - wait_until_ready: Wait for a session to become ready
-  - get_process_info: Get process information for debugging
-  - get_process_info_batch: Get process info for multiple sessions efficiently
+  - detect_process: Get ProcessInfo for a session
+  - detect_all_processes: Batch detection for ls()
+  - interrupt_process: Handler-aware interrupt
 """
 
 import logging
-from typing import Dict, Any
 
-from .tree import get_process_chain, ProcessNode
+from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_from_processes
 from .handlers import get_handler
 from ..tmux.utils import get_pane_pid
+from ..tmux import send_keys
 from ..config import get_target_config
+from ..types import ProcessInfo
 
 logger = logging.getLogger(__name__)
 
 
-def _find_active_process(chain: list[ProcessNode], skip_processes: list[str]) -> ProcessNode | None:
-    """Find the active process using first non-shell algorithm."""
+def _extract_shell_and_process(
+    chain: list[ProcessNode], skip_processes: list[str]
+) -> tuple[ProcessNode | None, ProcessNode | None]:
+    """Extract shell and active process from chain.
+
+    Returns:
+        (shell, process) where shell is the last shell in chain,
+        process is first non-shell or None if at shell prompt.
+    """
     if not chain:
-        return None
+        return None, None
 
-    # Define shells to skip
     shells = {"bash", "sh", "zsh", "fish", "dash", "tcsh", "csh"}
-
-    # Combine shells and skip_processes
     skip = shells.union(set(skip_processes))
 
-    # Walk forward from root, find first non-skipped process
+    # Find last shell in chain
+    shell = None
+    for proc in chain:
+        if proc.name in shells:
+            shell = proc
+
+    # If no shell found, root is the shell
+    if not shell:
+        shell = chain[0]
+
+    # Find first non-skipped process
+    process = None
     for proc in chain:
         if proc.name not in skip:
-            return proc
+            process = proc
+            break
 
-    # All are shells/skipped, return leaf as fallback
-    return chain[-1]
+    return shell, process
 
 
-def is_ready(session_id: str) -> tuple[bool, str]:
-    """Check if a session is ready for input.
+def detect_process(session_id: str) -> ProcessInfo:
+    """Detect shell and process state for a session.
 
     Args:
         session_id: Tmux session ID
 
     Returns:
-        Tuple of (is_ready, reason)
+        ProcessInfo with shell, process, and state
     """
     try:
-        # Get process chain
         pid = get_pane_pid(session_id)
         chain = get_process_chain(pid)
+
         if not chain:
-            return False, "no process found"
+            return ProcessInfo(shell="unknown", process=None, state="unknown")
 
-        # Get skip list from config
         config = get_target_config()
+        shell, process = _extract_shell_and_process(chain, config.skip_processes)
 
-        # Find active process
-        active = _find_active_process(chain, config.skip_processes)
-        if not active:
-            return False, "no active process"
+        # Determine state
+        if not process or process == shell:
+            # At shell prompt
+            return ProcessInfo(shell=shell.name if shell else "unknown", process=None, state="ready")
 
-        # Use handler to check readiness
-        handler = get_handler(active)
-        is_ready, reason = handler.is_ready(session_id)
+        # Use handler to determine state
+        handler = get_handler(process)
+        ready, _ = handler.is_ready(process)
 
-        return is_ready, reason
+        return ProcessInfo(
+            shell=shell.name if shell else "unknown", process=process.name, state="ready" if ready else "working"
+        )
 
     except Exception as e:
-        logger.error(f"Error checking readiness: {e}")
+        logger.error(f"Error detecting process: {e}")
+        return ProcessInfo(shell="unknown", process=None, state="unknown")
+
+
+def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
+    """Detect process info for multiple sessions efficiently.
+
+    Single /proc scan for all sessions.
+
+    Args:
+        session_names: List of session names
+
+    Returns:
+        Dict mapping session name to ProcessInfo
+    """
+    results = {}
+
+    # Single scan of /proc
+    all_processes = get_all_processes()
+    config = get_target_config()
+
+    for session in session_names:
+        try:
+            pid = get_pane_pid(session)
+            tree = build_tree_from_processes(all_processes, pid)
+
+            if not tree:
+                results[session] = ProcessInfo(shell="unknown", process=None, state="unknown")
+                continue
+
+            # Build chain from tree
+            chain = []
+            current = tree
+            visited = set()
+            while current and current.pid not in visited:
+                visited.add(current.pid)
+                chain.append(current)
+                if current.children:
+                    current = current.children[0]
+                else:
+                    break
+
+            shell, process = _extract_shell_and_process(chain, config.skip_processes)
+
+            # Determine state
+            if not process or process == shell:
+                results[session] = ProcessInfo(shell=shell.name if shell else "unknown", process=None, state="ready")
+            else:
+                handler = get_handler(process)
+                ready, _ = handler.is_ready(process)
+                results[session] = ProcessInfo(
+                    shell=shell.name if shell else "unknown",
+                    process=process.name,
+                    state="ready" if ready else "working",
+                )
+
+        except Exception as e:
+            logger.error(f"Error detecting {session}: {e}")
+            results[session] = ProcessInfo(shell="unknown", process=None, state="unknown")
+
+    return results
+
+
+def get_handler_for_session(session_id: str, process_name: str | None = None):
+    """Get handler for a session's process.
+
+    Args:
+        session_id: Tmux session ID
+        process_name: Optional process name to look for. If None, uses current active process.
+
+    Returns:
+        Handler instance or None
+    """
+    try:
+        pid = get_pane_pid(session_id)
+        chain = get_process_chain(pid)
+
+        if not chain:
+            return None
+
+        config = get_target_config()
+        _, process = _extract_shell_and_process(chain, config.skip_processes)
+
+        if process_name:
+            # Look for specific process
+            for node in chain:
+                if node.name == process_name:
+                    return get_handler(node)
+            return None
+        else:
+            # Use active process
+            if process:
+                return get_handler(process)
+            return None
+
+    except Exception as e:
+        logger.error(f"Error getting handler: {e}")
+        return None
+
+
+def interrupt_process(session_id: str) -> tuple[bool, str]:
+    """Send interrupt to a session using handler-specific method.
+
+    Args:
+        session_id: Tmux session ID
+
+    Returns:
+        (success, message) tuple
+    """
+    try:
+        info = detect_process(session_id)
+
+        if not info.process:
+            # At shell prompt - just send Ctrl+C
+            success = send_keys(session_id, "C-c")
+            return success, "sent Ctrl+C to shell"
+
+        # Get handler for the process
+        pid = get_pane_pid(session_id)
+        chain = get_process_chain(pid)
+        config = get_target_config()
+        _, process = _extract_shell_and_process(chain, config.skip_processes)
+
+        if process:
+            handler = get_handler(process)
+            return handler.interrupt(session_id)
+        else:
+            success = send_keys(session_id, "C-c")
+            return success, "sent Ctrl+C"
+
+    except Exception as e:
+        logger.error(f"Error interrupting {session_id}: {e}")
         return False, f"error: {e}"
-
-
-def wait_until_ready(session_id: str, timeout: float = 5.0) -> bool:
-    """Wait for a session to become ready.
-
-    Args:
-        session_id: Tmux session ID
-        timeout: Maximum seconds to wait
-
-    Returns:
-        True if became ready, False if timeout
-    """
-    try:
-        # Get current process to find handler
-        pid = get_pane_pid(session_id)
-        chain = get_process_chain(pid)
-        if not chain:
-            return False
-
-        # Get skip list from config
-        config = get_target_config()
-        active = _find_active_process(chain, config.skip_processes)
-        if not active:
-            return False
-
-        # Use handler's wait method
-        handler = get_handler(active)
-        return handler.wait_until_ready(session_id, timeout)
-
-    except Exception as e:
-        logger.error(f"Error waiting for ready: {e}")
-        return False
-
-
-def get_process_info(session_id: str) -> Dict[str, Any]:
-    """Get process information for debugging.
-
-    Args:
-        session_id: Tmux session ID
-
-    Returns:
-        Dict with process chain and active process
-    """
-    try:
-        pid = get_pane_pid(session_id)
-        chain = get_process_chain(pid)
-
-        if not chain:
-            return {"error": "no process found"}
-
-        # Get skip list from config
-        config = get_target_config()
-        active = _find_active_process(chain, config.skip_processes)
-
-        return {
-            "pid": pid,
-            "chain": [
-                {
-                    "name": p.name,
-                    "pid": p.pid,
-                    "state": p.state,
-                    "cmd": p.cmdline[:50] + "..." if len(p.cmdline) > 50 else p.cmdline,
-                }
-                for p in chain
-            ],
-            "active": {"name": active.name, "pid": active.pid, "state": active.state, "is_sleeping": active.is_sleeping}
-            if active
-            else None,
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting process info: {e}")
-        return {"error": str(e)}

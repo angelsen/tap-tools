@@ -1,15 +1,15 @@
 """Process detection and state inspection for termtap.
 
 PUBLIC API:
-- is_ready: Check if a tmux session is ready for commands
-- wait_until_ready: Wait for a process to become ready
-- get_process_info: Get detailed process information
+- detect_process: Get ProcessInfo for a session
+- detect_all_processes: Batch detection for multiple sessions
+- interrupt_process: Handler-aware interrupt
 """
 
-from .detector import is_ready, wait_until_ready, get_process_info
+from .detector import detect_process, detect_all_processes, interrupt_process
 
 __all__ = [
-    "is_ready",
-    "wait_until_ready",
-    "get_process_info",
+    "detect_process",
+    "detect_all_processes",
+    "interrupt_process",
 ]

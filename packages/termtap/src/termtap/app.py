@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 
 from replkit2 import App
 
-from .types import Target
+from .types import Target, ProcessInfo
 from .config import get_target_config
-from .core import execute, ExecutorState, send_interrupt
+from .core import execute, ExecutorState
 from .tmux import list_sessions, capture_visible, capture_all, capture_last_n
-from .process import get_process_info
+from .process.detector import detect_all_processes, interrupt_process
 
 
 @dataclass
@@ -35,9 +35,22 @@ app = App(
 )
 
 
+# Register custom formatter for codeblock display
+@app.formatter.register("codeblock")
+def format_codeblock(data, meta, formatter):
+    """Format output as markdown code block with process type."""
+    if isinstance(data, dict) and "process" in data and "content" in data:
+        process = data["process"]
+        content = data["content"].rstrip()
+        return f"```{process}\n{content}\n```"
+    else:
+        # Fallback for unexpected data
+        return str(data)
+
+
 # MCP Tool: Execute command
 @app.command(
-    display="text",
+    display="codeblock",
     fastmcp={"type": "tool", "description": "Execute command in tmux session"},
 )
 def bash(
@@ -46,7 +59,7 @@ def bash(
     target: Target = "default",
     wait: bool = True,
     timeout: float = 30.0,
-) -> str:
+) -> dict:
     """Execute command in target tmux session.
 
     Args:
@@ -57,16 +70,19 @@ def bash(
         timeout: Timeout in seconds. Defaults to 30.0.
 
     Returns:
-        Command output or status message.
+        Dict with process and content for codeblock display.
     """
     result = execute(state.executor, command, target, wait, timeout)
 
+    # Determine content based on status
     if result.status == "running":
-        return f"Command started in session {result.session}"
+        content = f"Command started in session {result.session}"
     elif result.status == "timeout":
-        return f"{result.output}\n\n[Timeout after {timeout}s]"
+        content = f"{result.output}\n\n[Timeout after {timeout}s]"
     else:
-        return result.output
+        content = result.output
+
+    return {"process": result.process or "text", "content": content}
 
 
 # MCP Resource: Read session output
@@ -100,7 +116,7 @@ def read(state: TermTapState, target: Target = "default", lines: int | None = No
 
 
 # REPL command: List sessions with process info
-@app.command(display="table", headers=["Session", "Process", "State", "Attached"], fastmcp={"enabled": False})
+@app.command(display="table", headers=["Session", "Shell", "Process", "State", "Attached"], fastmcp={"enabled": False})
 def ls(state: TermTapState) -> list[dict]:
     """List all tmux sessions with their current process.
 
@@ -110,91 +126,26 @@ def ls(state: TermTapState) -> list[dict]:
     Returns:
         List of session info with process details.
     """
-    from .process.tree import get_all_processes, build_tree_from_processes
-    from .process.detector import _find_active_process
-    from .tmux.utils import get_pane_pid
-    from .config import get_target_config
 
     sessions = list_sessions()
+    session_names = [s.name for s in sessions]
+
+    # Get process info for all sessions in one scan
+    process_infos = detect_all_processes(session_names)
+
     results = []
-
-    # Scan /proc once for all processes
-    all_processes = get_all_processes()
-
-    # Get config once
-    config = get_target_config()
-
     for session in sessions:
-        try:
-            # Get pane PID
-            pid = get_pane_pid(session.name)
-
-            # Build tree from cached process data
-            tree = build_tree_from_processes(all_processes, pid)
-
-            if not tree:
-                process_display = "unknown"
-                state_display = "error"
-            else:
-                # Extract chain from tree
-                chain = []
-                current = tree
-                visited = set()
-                while current and current.pid not in visited:
-                    visited.add(current.pid)
-                    chain.append(current)
-                    if current.children:
-                        current = current.children[0]
-                    else:
-                        break
-
-                # Find active process
-                active = _find_active_process(chain, config.skip_processes)
-
-                if active:
-                    process_display = active.name
-                    state_display = "ready" if active.is_sleeping else "running"
-                else:
-                    process_display = "none"
-                    state_display = "empty"
-
-        except Exception:
-            process_display = "unknown"
-            state_display = "error"
+        info = process_infos.get(session.name, ProcessInfo(shell="unknown", process=None, state="unknown"))
 
         results.append(
             {
                 "Session": session.name,
-                "Process": process_display,
-                "State": state_display,
+                "Shell": info.shell,
+                "Process": info.process or "-",  # Show "-" if at shell prompt
+                "State": info.state,
                 "Attached": "Yes" if session.attached != "0" else "No",
             }
         )
-
-    return results
-
-
-# REPL command: Show active (working) processes
-@app.command(display="table", headers=["Session", "Process", "PID"], fastmcp={"enabled": False})
-def active(state: TermTapState) -> list[dict]:
-    """Show sessions with processes doing work (not waiting for input).
-
-    Args:
-        state: Application state.
-
-    Returns:
-        List of active processes.
-    """
-    sessions = list_sessions()
-    results = []
-
-    for session in sessions:
-        info = get_process_info(session.name)
-
-        # Check if process is actively running
-        if info.get("active") and not info["active"]["is_sleeping"]:
-            active = info["active"]
-            results.append({"Session": session.name, "Process": active["name"], "PID": str(active["pid"])})
 
     return results
 
@@ -211,9 +162,10 @@ def interrupt(state: TermTapState, session: str) -> str:
     Returns:
         Status message.
     """
-    if send_interrupt(session):
-        return f"Sent interrupt to {session}"
-    return f"Failed to interrupt {session}"
+    success, message = interrupt_process(session)
+    if success:
+        return f"{session}: {message}"
+    return f"Failed to interrupt {session}: {message}"
 
 
 # REPL helper: Reload config
