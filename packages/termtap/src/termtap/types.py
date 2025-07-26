@@ -102,29 +102,29 @@ type Result[T] = Ok[T] | Err
 
 
 # Target type guards
-def is_pane_id(target: str) -> bool:
+def _is_pane_id(target: str) -> bool:
     """Check if target is a pane ID format."""
     return target.startswith("%")
 
 
-def is_window_id(target: str) -> bool:
+def _is_window_id(target: str) -> bool:
     """Check if target is a window ID format."""
     return target.startswith("@")
 
 
-def is_session_window_pane(target: str) -> bool:
+def _is_session_window_pane(target: str) -> bool:
     """Check if target is session:window.pane format."""
     return ":" in target and "." in target.split(":", 1)[1]
 
 
-def parse_target(target: str) -> tuple[Literal["session", "pane", "window", "swp"], str]:
+def _parse_target(target: str) -> tuple[Literal["session", "pane", "window", "swp"], str]:
     """Parse target string and return its type and value."""
     match target:
-        case s if is_pane_id(s):
+        case s if _is_pane_id(s):
             return ("pane", s)
-        case s if is_window_id(s):
+        case s if _is_window_id(s):
             return ("window", s)
-        case s if is_session_window_pane(s):
+        case s if _is_session_window_pane(s):
             return ("swp", s)
         case _:
             return ("session", target)

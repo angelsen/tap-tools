@@ -55,7 +55,7 @@ def _find_config_file() -> Optional[Path]:
     return None
 
 
-def load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
+def _load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
     """Load configuration from file.
 
     Args:
@@ -83,7 +83,7 @@ def load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
     return configs
 
 
-def get_target_config(target: str = "default") -> TargetConfig:
+def _get_target_config(target: str = "default") -> TargetConfig:
     """Get config for specific target.
 
     Args:
@@ -92,5 +92,5 @@ def get_target_config(target: str = "default") -> TargetConfig:
     Returns:
         TargetConfig instance for the specified target.
     """
-    configs = load_config()
+    configs = _load_config()
     return configs.get(target, configs["default"])

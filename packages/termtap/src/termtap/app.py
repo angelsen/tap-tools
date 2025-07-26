@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from replkit2 import App
 
 from .types import Target, ProcessInfo
-from .config import get_target_config
+from .config import _get_target_config
 from .core import execute, ExecutorState
 from .tmux import list_sessions, capture_visible, capture_all, capture_last_n
 from .process.detector import detect_all_processes, interrupt_process
@@ -36,8 +36,8 @@ app = App(
 
 
 # Register custom formatter for codeblock display
-@app.formatter.register("codeblock")
-def format_codeblock(data, meta, formatter):
+@app.formatter.register("codeblock")  # pyright: ignore[reportAttributeAccessIssue]
+def _format_codeblock(data, meta, formatter):
     """Format output as markdown code block with process type."""
     if isinstance(data, dict) and "process" in data and "content" in data:
         process = data["process"]
@@ -180,7 +180,7 @@ def reload(state: TermTapState) -> str:
         Reload confirmation message.
     """
     # Config is loaded on demand, so just confirm
-    _ = get_target_config()  # Force reload
+    _ = _get_target_config()  # Force reload
     return "Configuration reloaded"
 
 

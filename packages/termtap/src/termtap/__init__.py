@@ -5,7 +5,7 @@ and provides process state detection using syscalls. Built on ReplKit2 for dual
 REPL/MCP functionality.
 
 PUBLIC API:
-- app: ReplKit2 application instance
+  - app: ReplKit2 application instance with termtap commands
 """
 
 from .app import app
