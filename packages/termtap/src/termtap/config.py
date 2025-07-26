@@ -27,9 +27,7 @@ class TargetConfig:
         self.start = config.get("start")
         self.env = config.get("env", {})
         self.hover_patterns = config.get("hover_patterns", [])
-        self.skip_processes = config.get("skip_processes", [
-            "uv", "npm", "yarn", "poetry", "pipenv", "nix-shell"
-        ])
+        self.skip_processes = config.get("skip_processes", ["uv", "npm", "yarn", "poetry", "pipenv", "nix-shell"])
 
     @property
     def absolute_dir(self) -> str:

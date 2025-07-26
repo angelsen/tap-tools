@@ -17,17 +17,17 @@ logger = logging.getLogger(__name__)
 
 def send_interrupt(session: str) -> bool:
     """Send Ctrl+C to whatever is running in session.
-    
+
     Args:
         session: Tmux session name
-        
+
     Returns:
         True if interrupt was sent successfully
     """
     if not session_exists(session):
         logger.error(f"Session {session} does not exist")
         return False
-        
+
     try:
         pane_id = get_pane_for_session(session)
         send_keys(pane_id, "\x03")  # Ctrl+C
@@ -40,11 +40,11 @@ def send_interrupt(session: str) -> bool:
 
 def send_signal(pid: int, sig: int = signal.SIGTERM) -> bool:
     """Send a signal to a specific process.
-    
+
     Args:
         pid: Process ID
         sig: Signal number (default: SIGTERM)
-        
+
     Returns:
         True if signal was sent successfully
     """
@@ -65,11 +65,11 @@ def send_signal(pid: int, sig: int = signal.SIGTERM) -> bool:
 
 def kill_process(pid: int, force: bool = False) -> bool:
     """Kill a process, optionally with SIGKILL.
-    
+
     Args:
         pid: Process ID
         force: Use SIGKILL instead of SIGTERM
-        
+
     Returns:
         True if process was killed successfully
     """

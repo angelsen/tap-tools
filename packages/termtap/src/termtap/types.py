@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 # Tmux target identifiers - not derivable from syscalls
 type SessionName = str  # e.g., "epic-swan", "my-session"
-type PaneID = str      # e.g., "%42", "%55"
-type WindowID = str    # e.g., "@12", "@24"
+type PaneID = str  # e.g., "%42", "%55"
+type WindowID = str  # e.g., "@12", "@24"
 type SessionWindowPane = str  # e.g., "session:0.0", "session:1.2"
 type Target = SessionName | PaneID | WindowID | SessionWindowPane
 
@@ -37,6 +37,7 @@ type HoverPatterns = list[str]
 
 class TargetConfigDict(TypedDict):
     """Raw configuration dictionary for a target."""
+
     dir: NotRequired[str]
     start: NotRequired[str]
     env: NotRequired[EnvironmentVars]
@@ -46,12 +47,14 @@ class TargetConfigDict(TypedDict):
 # Display data structures - API contracts
 class SessionRow(TypedDict):
     """Row data for sessions table."""
+
     Session: str
     Attached: Literal["Yes", "No"]
 
 
 class ProcessRow(TypedDict):
     """Row data for session processes."""
+
     Session: str
     Process: str
     Command: str
@@ -60,6 +63,7 @@ class ProcessRow(TypedDict):
 
 class DashboardData(TypedDict):
     """Complete dashboard data structure."""
+
     summary: str
     sessions: list[SessionRow]
     active: list[ProcessRow]
@@ -70,12 +74,14 @@ class DashboardData(TypedDict):
 @dataclass
 class Ok[T]:
     """Success result wrapper."""
+
     value: T
 
 
 @dataclass
 class Err:
     """Error result wrapper."""
+
     error: str
 
 

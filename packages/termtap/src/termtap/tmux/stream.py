@@ -185,8 +185,6 @@ class _StreamManager:
                 stream_file.unlink()
 
 
-
-
 def _send_command(pane_id: str, command: str) -> str:
     """Send command and return command ID for tracking.
 

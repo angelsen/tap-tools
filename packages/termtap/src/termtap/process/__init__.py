@@ -10,6 +10,6 @@ from .detector import is_ready, wait_until_ready, get_process_info
 
 __all__ = [
     "is_ready",
-    "wait_until_ready", 
+    "wait_until_ready",
     "get_process_info",
 ]

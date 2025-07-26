@@ -5,11 +5,22 @@ description = "A suite of tools for tapping into terminals, web pages, and logs 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
-authors = [{name = "Fredrik Angelsen"}]
+authors = [{ name = "Fredrik Angelsen" }]
 
 [tool.uv.workspace]
-members = [
-    "packages/termtap",
-    "packages/webtap",
-    "packages/logtap",
-]
+members = ["packages/termtap", "packages/webtap", "packages/logtap"]
+
+[tool.ruff]
+line-length = 120
+include = ["packages/**/src/**/*.py", "packages/**/tests/**/*.py"]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+include = ["packages/**/src/**/*.py"]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
+
+[dependency-groups]
+dev = ["basedpyright>=1.31.0", "ruff>=0.12.4"]

@@ -76,23 +76,21 @@ def _is_current_pane(target: Target) -> bool:
 
 def get_pane_pid(session_id: str) -> int:
     """Get the PID of a session's active pane.
-    
+
     Args:
         session_id: Tmux session ID
-        
+
     Returns:
         PID of the pane process
-        
+
     Raises:
         RuntimeError: If PID cannot be obtained
     """
-    code, stdout, stderr = _run_tmux([
-        "display-message", "-t", session_id, "-p", "#{pane_pid}"
-    ])
-    
+    code, stdout, stderr = _run_tmux(["display-message", "-t", session_id, "-p", "#{pane_pid}"])
+
     if code != 0:
         raise RuntimeError(f"Failed to get pane PID: {stderr}")
-    
+
     try:
         return int(stdout.strip())
     except ValueError:
@@ -101,10 +99,10 @@ def get_pane_pid(session_id: str) -> int:
 
 def get_pane_for_session(session: str) -> str:
     """Get the default pane for a session.
-    
+
     Args:
         session: Session name
-        
+
     Returns:
         Pane identifier in format 'session:0.0'
     """

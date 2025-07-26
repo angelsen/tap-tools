@@ -41,15 +41,15 @@ def _capture_pane(target: Target, lines: Optional[int] = None) -> str:
     code, out, _ = _run_tmux(args)
     if code != 0:
         return ""
-    
+
     # Strip trailing empty lines that tmux adds to fill the pane height
     # This preserves empty lines within the content but removes padding
     lines_list = out.splitlines()
     while lines_list and not lines_list[-1].strip():
         lines_list.pop()
-    
+
     # Reconstruct with original line endings
-    return '\n'.join(lines_list) + '\n' if lines_list else ""
+    return "\n".join(lines_list) + "\n" if lines_list else ""
 
 
 def capture_visible(target: Target) -> str:

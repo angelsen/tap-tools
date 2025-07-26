@@ -6,7 +6,8 @@ Process-native tmux session manager with MCP support. Successor to debug-bridge'
 ### Key Features
 - Auto-detects shell type and wraps non-bash commands
 - Works with ANY tmux session (not just termtap-created ones)
-- Process state detection using syscalls (no more "radio silence")
+- Process state detection using pstree algorithm (accurate child tracking)
+- First non-shell process display in ls() output
 - Docker-style session names by default
 - Pattern-based hover dialogs for dangerous commands
 
@@ -20,19 +21,43 @@ mcp__debug-brdige__terminal_read(session_id="epic-swan", lines=50)
 
 ### Architecture
 - `tmux/` - Pure tmux operations, no shell logic
-- `process/` - Process detection and state analysis  
-- `core/command.py` - All shell handling in ONE place
-- `core/execute.py` - Clean orchestration
+- `process/` - Process detection using pstree algorithm
+  - `tree.py` - Builds complete process trees from /proc
+  - `detector.py` - First non-shell process selection
+  - `handlers/` - Process-specific detection logic
+- `core/` - Command execution and control
+- `hover/` - Interactive dialogs for dangerous commands
+- `app.py` - ReplKit2 app with MCP tools/resources
+
+### Style Guide
+When working on termtap code, follow these conventions to maintain consistency:
+
+1. **Naming**: Add underscore prefix to ALL non-public functions (helps users distinguish internal vs public API)
+2. **Exports**: `__init__.py` must import/export ONLY PUBLIC API items (prevents linting errors)
+3. **Docstrings**: Module docs list PUBLIC API only; use provided templates (ensures clear documentation)
+4. **Comments**: Explain WHY not WHAT (code shows what, comments explain reasoning)
+5. **Workflow**: First `make format`, then `make conform-module TARGET=path`, then fix any errors
+
+### Design Philosophy
+**Don't recreate what syscalls already tell us.** Termtap is "process-native" - leverage OS-level information:
+
+- Process tree built using pstree algorithm (scanning /proc/*/stat for PPID relationships)
+- First non-shell process selection for meaningful display names
+- Use `/proc` information instead of pattern matching when possible
+- Query tmux state directly rather than maintaining shadow state
+- Only create types/abstractions for: unique identifiers, configuration, UI contracts, and API structures
+- Avoid duplicating information already available from the system
 
 ### Testing
 ```bash
-# Run linting
+# Run linting and type checking
 ruff check packages/termtap/ --fix
+basedpyright packages/termtap/
 
 # Test in REPL
 bash("echo 'test'")  # Auto-detects shell, wraps if needed
-status("cmd-id")     # Shows process tree and ready state
-read("session-name", include_state=True)  # Rich process info
+ls()                 # Shows sessions with first non-shell process
+read("session-name") # Get session output
 ```
 
 ### ReplKit2 Integration

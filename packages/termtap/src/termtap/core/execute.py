@@ -27,6 +27,7 @@ class CommandResult:
         status: Completion status (completed, timeout, running)
         session: Session name where command ran
     """
+
     output: str
     status: CommandStatus
     session: str
@@ -35,6 +36,7 @@ class CommandResult:
 @dataclass
 class ExecutorState:
     """State for executor - just holds the stream manager."""
+
     stream_manager: _StreamManager = field(default_factory=lambda: _StreamManager())
 
 
@@ -81,37 +83,25 @@ def execute(
     # Get pane and start streaming
     pane_id = get_pane_for_session(session)
     stream = state.stream_manager.get_stream(pane_id)
-    
+
     if not stream.start():
         logger.error(f"Failed to start streaming for pane {pane_id}")
 
     # Mark position before sending command
     mark_id = str(uuid.uuid4())[:8]
     stream.mark_position(mark_id)
-    
+
     # Send the command
     send_keys(pane_id, command)
-    
+
     if not wait:
-        return CommandResult(
-            output="",
-            status="running",
-            session=session
-        )
-    
+        return CommandResult(output="", status="running", session=session)
+
     # Wait for process to be ready
     if wait_until_ready(session, timeout=timeout):
         output = stream.read_from(mark_id)
-        return CommandResult(
-            output=output,
-            status="completed",
-            session=session
-        )
+        return CommandResult(output=output, status="completed", session=session)
     else:
         # Timeout
         output = stream.read_from(mark_id)
-        return CommandResult(
-            output=output,
-            status="timeout",
-            session=session
-        )
+        return CommandResult(output=output, status="timeout", session=session)
