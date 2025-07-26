@@ -4,11 +4,14 @@ This implementation uses the pstree algorithm: scanning all processes
 to build parent-child relationships from PPID information.
 
 PUBLIC API:
+  - ProcessNode: Tree node with process information (dataclass)
   - get_process_tree: Build complete process tree from a root PID
   - get_process_chain: Get main execution chain (parent->child->grandchild)
-  - ProcessNode: Tree node with process information
-  - get_all_processes: Scan all processes (for batch operations)
+  - get_all_processes: Scan all processes from /proc (for batch operations)
   - build_tree_from_processes: Build tree from pre-scanned processes
+
+Note: All helper functions (_read_proc_file, _get_process_info, etc.) are internal.
+ProcessNode._to_dict() is also internal - only used for debugging within this module.
 """
 
 import logging
@@ -43,7 +46,7 @@ class ProcessNode:
     wait_channel: Optional[str] = None
     fd_count: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def _to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
         d = {
             "pid": self.pid,
@@ -57,7 +60,7 @@ class ProcessNode:
         if self.fd_count is not None:
             d["fd_count"] = self.fd_count
         if self.children:
-            d["children"] = [c.to_dict() for c in self.children]
+            d["children"] = [c._to_dict() for c in self.children]
         return d
 
     @property

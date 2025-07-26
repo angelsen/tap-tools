@@ -1,9 +1,14 @@
 """Process state detection for termtap.
 
+High-level detection API that combines tree analysis with handler logic.
+Uses tree.py for process information and handlers for process-specific behavior.
+
 PUBLIC API:
   - detect_process: Get ProcessInfo for a session
-  - detect_all_processes: Batch detection for ls()
+  - detect_all_processes: Batch detection for ls() command
   - interrupt_process: Handler-aware interrupt
+
+Note: _extract_shell_and_process and _get_handler_for_session are internal helpers.
 """
 
 import logging
@@ -12,7 +17,7 @@ from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_
 from .handlers import get_handler
 from ..tmux.utils import get_pane_pid
 from ..tmux import send_keys
-from ..config import get_target_config
+from ..config import _get_target_config
 from ..types import ProcessInfo
 
 logger = logging.getLogger(__name__)
@@ -69,7 +74,7 @@ def detect_process(session_id: str) -> ProcessInfo:
         if not chain:
             return ProcessInfo(shell="unknown", process=None, state="unknown")
 
-        config = get_target_config()
+        config = _get_target_config()
         shell, process = _extract_shell_and_process(chain, config.skip_processes)
 
         # Determine state
@@ -105,7 +110,7 @@ def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
 
     # Single scan of /proc
     all_processes = get_all_processes()
-    config = get_target_config()
+    config = _get_target_config()
 
     for session in session_names:
         try:
@@ -149,7 +154,7 @@ def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
     return results
 
 
-def get_handler_for_session(session_id: str, process_name: str | None = None):
+def _get_handler_for_session(session_id: str, process_name: str | None = None):
     """Get handler for a session's process.
 
     Args:
@@ -166,7 +171,7 @@ def get_handler_for_session(session_id: str, process_name: str | None = None):
         if not chain:
             return None
 
-        config = get_target_config()
+        config = _get_target_config()
         _, process = _extract_shell_and_process(chain, config.skip_processes)
 
         if process_name:
@@ -206,7 +211,7 @@ def interrupt_process(session_id: str) -> tuple[bool, str]:
         # Get handler for the process
         pid = get_pane_pid(session_id)
         chain = get_process_chain(pid)
-        config = get_target_config()
+        config = _get_target_config()
         _, process = _extract_shell_and_process(chain, config.skip_processes)
 
         if process:
