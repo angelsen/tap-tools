@@ -16,32 +16,45 @@ Process-native tmux session manager with MCP support. Built on ReplKit2 for dual
 ### Module Structure
 ```
 packages/termtap/src/termtap/
-├── app.py               # ReplKit2 app with minimal commands
+├── __init__.py          # Package exports (app, __version__)
+├── __main__.py          # Entry point for python -m termtap
+├── app.py               # ReplKit2 app with commands
 ├── config.py            # Configuration with skip_processes support
-├── types.py             # Type definitions (Target, CommandStatus, etc.)
+├── types.py             # Type definitions (Target, CommandStatus, ProcessInfo, etc.)
 ├── core/
-│   ├── control.py       # Process control (interrupt, signal, kill)
+│   ├── __init__.py      # Exports: execute, ExecutorState, CommandResult
+│   ├── control.py       # Internal process control functions
 │   └── execute.py       # Command execution with streaming
 ├── tmux/
+│   ├── __init__.py      # Exports all tmux functions and exceptions
 │   ├── session.py       # Session management
 │   ├── pane.py          # Pane capture functions  
 │   ├── stream.py        # Streaming sidecar for output
-│   └── utils.py         # Low-level tmux operations
+│   ├── utils.py         # Low-level tmux operations
+│   ├── names.py         # Session name generation
+│   └── exceptions.py    # TmuxError, SessionNotFoundError, CurrentPaneError
 ├── process/
+│   ├── __init__.py      # Exports process detection functions
 │   ├── detector.py      # Process state detection
 │   ├── tree.py          # Process tree analysis
 │   └── handlers/        # Pluggable handlers per process type
+│       ├── __init__.py  # Exports: ProcessHandler, get_handler
+│       ├── default.py   # Generic process handler
+│       ├── python.py    # Python REPL/script handler
+│       └── ssh.py       # SSH session handler with safety
 └── hover/               # Interactive dialogs (used by handlers)
+    ├── __init__.py      # Exports: show_hover
+    └── dialog.sh        # Shell script for hover UI
 ```
 
 ### Key APIs
 
-#### app.py - Essential Commands
-- `bash(command, target, wait, timeout)` - Execute with streaming output
-- `read(target, lines)` - Direct tmux capture
-- `ls()` - List sessions with process info
-- `active()` - Show only working processes
-- `interrupt(session)` - Send Ctrl+C
+#### app.py - ReplKit2 Commands
+- `bash(command, target, wait, timeout)` - Execute with streaming output (MCP tool)
+- `read(target, lines)` - Direct tmux capture (MCP resource)
+- `ls()` - List sessions with process info (REPL only)
+- `interrupt(session)` - Send Ctrl+C (MCP tool)
+- `reload()` - Reload configuration (REPL only)
 
 #### tmux Module - Public API
 - `list_sessions()` - Get all sessions
@@ -49,16 +62,20 @@ packages/termtap/src/termtap/
 - `capture_visible()`, `capture_all()`, `capture_last_n()`
 - `get_pane_pid()`, `get_pane_for_session()`
 - `send_keys()` - Send keystrokes
+- `TmuxError`, `SessionNotFoundError`, `CurrentPaneError` - Exception types
 
 #### process Module - Public API
-- `is_ready(session)` - Check if ready for input
-- `wait_until_ready(session, timeout)` - Wait for readiness
-- `get_process_info(session)` - Debug information
+- `detect_process(session)` - Get current process info for a session
+- `detect_all_processes(sessions)` - Batch process detection
+- `interrupt_process(session)` - Interrupt with appropriate handler
+- `get_handler_for_session(session, process_node)` - Get handler for process
+- `ProcessHandler` - Base class for process handlers
+- `get_handler(process)` - Get handler instance
 
 #### core Module - Public API
 - `execute(state, command, target, wait, timeout)` - Main execution
-- `send_interrupt()`, `send_signal()`, `kill_process()`
-- `ExecutorState` - Just holds StreamManager
+- `ExecutorState` - State container with StreamManager
+- `CommandResult` - Result type with output, status, session, process
 
 ### Streaming Architecture
 
@@ -79,9 +96,20 @@ Process handlers in `process/handlers/` provide:
 - Custom behavior per process type
 
 Current handlers:
-- `default.py` - Generic processes
-- `claude.py` - Claude/AI assistants
-- `ssh.py` - SSH sessions with safety checks
+- `default.py` - Generic processes (simple "no children = ready" logic)
+- `python.py` - Python REPL and scripts (uses wait channels)
+- `ssh.py` - SSH sessions with hover dialog for safety
+
+### Type System
+
+Key types in `types.py`:
+- `Target` - Union type for session targets
+- `CommandStatus` - Literal types for command status
+- `ProcessInfo` - Process detection result
+- `ProcessNode` - Process tree node with full info
+- `TargetConfig` - Configuration for a target
+- `HoverPattern` - Pattern matching for dialogs
+- `HoverResult` - Dialog interaction result
 
 ### Configuration
 
@@ -99,9 +127,17 @@ Current handlers:
 mcp__debug-brdige__terminal_send(session_id="epic-swan", command="uv run python -m termtap")
 mcp__debug-brdige__terminal_read(session_id="epic-swan", lines=50)
 
-# Or run directly
-uv run python -m termtap          # REPL mode
-uv run python -m termtap --mcp    # MCP server mode
+# MCP server mode
+uv run python -m termtap --mcp
+
+# Lint and type check
+ruff check packages/termtap --fix
+basedpyright packages/termtap
+ruff format packages/termtap
+
+# Apply conventions to modules
+make conform-module TARGET=packages/termtap/src/termtap/MODULE_NAME
+make conform-file TARGET=packages/termtap/src/termtap/FILE.py
 ```
 
 ## Future Enhancements
