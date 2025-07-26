@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from ..types import CommandStatus, Target
 from ..tmux import get_or_create_session, send_keys, session_exists, get_pane_for_session
 from ..tmux.stream import _StreamManager
-from ..config import _get_target_config
+from ..config import get_target_config
 from ..process.detector import detect_process, get_handler_for_session
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def execute(
         CommandResult with output and status.
     """
     config_target = target if target != "default" else "default"
-    config = _get_target_config(config_target)
+    config = get_target_config(config_target)
 
     # Determine session - use existing or create new
     if session_exists(target):
@@ -86,7 +86,7 @@ def execute(
             session = get_or_create_session(target, config.absolute_dir)
         else:
             # Get default session
-            config = _get_target_config("default")
+            config = get_target_config("default")
             session = get_or_create_session(target, config.absolute_dir)
 
     pane_id = get_pane_for_session(session)

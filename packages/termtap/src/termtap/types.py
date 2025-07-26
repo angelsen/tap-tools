@@ -22,7 +22,7 @@ type WatcherReason = Literal["silence", "timeout", "aborted", "pattern_abort", "
 
 # Shell detection - needed to determine command wrapping strategy
 type ShellType = Literal["bash", "fish", "zsh", "sh", "dash", "unknown"]
-BASH_COMPATIBLE_SHELLS: frozenset[str] = frozenset({"bash", "sh", "dash"})
+_BASH_COMPATIBLE_SHELLS: frozenset[str] = frozenset({"bash", "sh", "dash"})
 
 
 # Hover dialog - UI-specific, not derivable
@@ -36,7 +36,14 @@ type HoverPatterns = list[str]
 
 
 class TargetConfigDict(TypedDict):
-    """Raw configuration dictionary for a target."""
+    """Raw configuration dictionary for a target.
+
+    Attributes:
+        dir: Working directory for the target.
+        start: Initial command to run when starting target.
+        env: Environment variables to set.
+        hover_patterns: Patterns that trigger hover dialogs.
+    """
 
     dir: NotRequired[str]
     start: NotRequired[str]
@@ -47,26 +54,47 @@ class TargetConfigDict(TypedDict):
 # Process detection results
 @dataclass
 class ProcessInfo:
-    """Process detection result with shell and active process."""
+    """Process detection result with shell and active process.
 
-    shell: str  # Shell name (bash, fish, zsh, etc.)
-    process: str | None  # Active process name or None if at shell
-    state: Literal["ready", "working", "unknown"]  # Process state
+    Attributes:
+        shell: Shell name (bash, fish, zsh, etc.).
+        process: Active process name or None if at shell.
+        state: Current process state.
+    """
+
+    shell: str
+    process: str | None
+    state: Literal["ready", "working", "unknown"]
 
 
 # Display data structures - API contracts
 class SessionRow(TypedDict):
-    """Row data for sessions table."""
+    """Row data for sessions table.
+
+    Attributes:
+        Session: Session name.
+        Shell: Shell type running in session.
+        Process: Active process name, "-" if at shell prompt.
+        State: Current process state.
+        Attached: Whether session is currently attached.
+    """
 
     Session: str
     Shell: str
-    Process: str  # "-" if at shell prompt
+    Process: str
     State: Literal["ready", "working", "unknown"]
     Attached: Literal["Yes", "No"]
 
 
 class ProcessRow(TypedDict):
-    """Row data for session processes."""
+    """Row data for session processes.
+
+    Attributes:
+        Session: Session name.
+        Process: Process name.
+        Command: Command being executed.
+        State: Current process state.
+    """
 
     Session: str
     Process: str
@@ -75,7 +103,14 @@ class ProcessRow(TypedDict):
 
 
 class DashboardData(TypedDict):
-    """Complete dashboard data structure."""
+    """Complete dashboard data structure.
+
+    Attributes:
+        summary: Summary text for dashboard.
+        sessions: List of session rows.
+        active: List of active process rows.
+        targets: Mapping of target names to their sessions.
+    """
 
     summary: str
     sessions: list[SessionRow]
@@ -86,14 +121,22 @@ class DashboardData(TypedDict):
 # Result types for better error handling
 @dataclass
 class Ok[T]:
-    """Success result wrapper."""
+    """Success result wrapper.
+
+    Attributes:
+        value: The successful result value.
+    """
 
     value: T
 
 
 @dataclass
 class Err:
-    """Error result wrapper."""
+    """Error result wrapper.
+
+    Attributes:
+        error: Error message describing what went wrong.
+    """
 
     error: str
 
@@ -103,22 +146,50 @@ type Result[T] = Ok[T] | Err
 
 # Target type guards
 def _is_pane_id(target: str) -> bool:
-    """Check if target is a pane ID format."""
+    """Check if target is a pane ID format.
+
+    Args:
+        target: Target string to check.
+
+    Returns:
+        True if target matches pane ID format (starts with %).
+    """
     return target.startswith("%")
 
 
 def _is_window_id(target: str) -> bool:
-    """Check if target is a window ID format."""
+    """Check if target is a window ID format.
+
+    Args:
+        target: Target string to check.
+
+    Returns:
+        True if target matches window ID format (starts with @).
+    """
     return target.startswith("@")
 
 
 def _is_session_window_pane(target: str) -> bool:
-    """Check if target is session:window.pane format."""
+    """Check if target is session:window.pane format.
+
+    Args:
+        target: Target string to check.
+
+    Returns:
+        True if target matches session:window.pane format.
+    """
     return ":" in target and "." in target.split(":", 1)[1]
 
 
 def _parse_target(target: str) -> tuple[Literal["session", "pane", "window", "swp"], str]:
-    """Parse target string and return its type and value."""
+    """Parse target string and return its type and value.
+
+    Args:
+        target: Target string to parse.
+
+    Returns:
+        Tuple of (target_type, original_value).
+    """
     match target:
         case s if _is_pane_id(s):
             return ("pane", s)

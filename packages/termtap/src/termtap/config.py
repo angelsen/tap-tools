@@ -83,7 +83,7 @@ def _load_config(path: Optional[Path] = None) -> Dict[str, TargetConfig]:
     return configs
 
 
-def _get_target_config(target: str = "default") -> TargetConfig:
+def get_target_config(target: str = "default") -> TargetConfig:
     """Get config for specific target.
 
     Args:

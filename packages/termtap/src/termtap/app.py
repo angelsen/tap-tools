@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from replkit2 import App
 
 from .types import Target, ProcessInfo
-from .config import _get_target_config
+from .config import get_target_config
 from .core import execute, ExecutorState
 from .tmux import list_sessions, capture_visible, capture_all, capture_last_n
 from .process.detector import detect_all_processes, interrupt_process
@@ -17,7 +17,11 @@ from .process.detector import detect_all_processes, interrupt_process
 
 @dataclass
 class TermTapState:
-    """Application state for termtap - just holds the executor."""
+    """Application state for termtap session management.
+
+    Attributes:
+        executor: ExecutorState instance managing command execution state.
+    """
 
     executor: ExecutorState = field(default_factory=ExecutorState)
 
@@ -38,13 +42,18 @@ app = App(
 # Register custom formatter for codeblock display
 @app.formatter.register("codeblock")  # pyright: ignore[reportAttributeAccessIssue]
 def _format_codeblock(data, meta, formatter):
-    """Format output as markdown code block with process type."""
+    """Format output as markdown code block with process type.
+
+    Args:
+        data: Dict with 'process' and 'content' keys or fallback data.
+        meta: Display metadata (unused).
+        formatter: Formatter instance (unused).
+    """
     if isinstance(data, dict) and "process" in data and "content" in data:
         process = data["process"]
         content = data["content"].rstrip()
         return f"```{process}\n{content}\n```"
     else:
-        # Fallback for unexpected data
         return str(data)
 
 
@@ -74,7 +83,6 @@ def bash(
     """
     result = execute(state.executor, command, target, wait, timeout)
 
-    # Determine content based on status
     if result.status == "running":
         content = f"Command started in session {result.session}"
     elif result.status == "timeout":
@@ -126,11 +134,9 @@ def ls(state: TermTapState) -> list[dict]:
     Returns:
         List of session info with process details.
     """
-
     sessions = list_sessions()
     session_names = [s.name for s in sessions]
 
-    # Get process info for all sessions in one scan
     process_infos = detect_all_processes(session_names)
 
     results = []
@@ -141,7 +147,7 @@ def ls(state: TermTapState) -> list[dict]:
             {
                 "Session": session.name,
                 "Shell": info.shell,
-                "Process": info.process or "-",  # Show "-" if at shell prompt
+                "Process": info.process or "-",
                 "State": info.state,
                 "Attached": "Yes" if session.attached != "0" else "No",
             }
@@ -179,8 +185,7 @@ def reload(state: TermTapState) -> str:
     Returns:
         Reload confirmation message.
     """
-    # Config is loaded on demand, so just confirm
-    _ = _get_target_config()  # Force reload
+    _ = get_target_config()
     return "Configuration reloaded"
 
 
