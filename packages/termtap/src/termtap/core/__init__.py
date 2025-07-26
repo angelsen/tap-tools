@@ -7,7 +7,7 @@ internal process control utilities.
 PUBLIC API:
   - execute: Execute command in tmux session with streaming output
   - ExecutorState: State container for stream management
-  - CommandResult: Result of command execution (returned by execute)
+  - CommandResult: Result of command execution
 """
 
 from .execute import execute, ExecutorState, CommandResult
