@@ -1,0 +1,30 @@
+# Demo configuration for backend/frontend development
+
+[default]
+# Default timeout for all sessions
+timeout = 30.0
+
+[sessions.backend]
+# Pattern to detect when FastAPI is ready
+ready_pattern = "Uvicorn running on"
+# Override default timeout if needed
+timeout = 10.0
+
+# Future: Init command to setup session environment
+# init = "cd ./backend && source .venv/bin/activate"
+
+[sessions.frontend]  
+# Pattern to detect when Vite/SvelteKit is ready (regex supported)
+ready_pattern = "Local:\\s+https?://localhost:\\d+"
+timeout = 15.0
+
+# Future: Init with proper node version
+# init = "cd ./frontend && nvm use 20"
+
+# Example: Database session with longer timeout
+[sessions.db]
+ready_pattern = "database system is ready|ready to accept connections"
+timeout = 60.0
+
+# Future: Init with environment variables
+# init = "cd ./db && export POSTGRES_DB=demo"
