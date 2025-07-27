@@ -59,6 +59,10 @@ def execute(
     Returns:
         CommandResult with output and status.
     """
+    # Generate unique command ID
+    cmd_id = f"cmd_{uuid.uuid4().hex[:8]}"
+    start_time = time.time()
+    
     # Resolve target to pane
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
@@ -71,7 +75,9 @@ def execute(
                 status="running",
                 pane_id="",
                 session_window_pane="",
-                process=None
+                process=None,
+                command_id=cmd_id,
+                start_time=start_time,
             )
         
         # Create new session for convenience format
@@ -88,7 +94,7 @@ def execute(
     if not stream.start():
         logger.error(f"Failed to start streaming for pane {pane_id}")
 
-    cmd_id = f"cmd_{uuid.uuid4().hex[:8]}"
+    # Mark command start
     stream.mark_command(cmd_id, command)
 
     # HOOK: before_send - based on current process in pane
@@ -104,6 +110,8 @@ def execute(
                 pane_id=pane_id,
                 session_window_pane=session_window_pane,
                 process=send_info.process if send_info.process else send_info.shell,
+                command_id=cmd_id,
+                start_time=start_time,
             )
         command = modified_command
 
@@ -121,9 +129,9 @@ def execute(
             pane_id=pane_id,
             session_window_pane=session_window_pane,
             process=send_info.process if send_info.process else send_info.shell,
+            command_id=cmd_id,
+            start_time=start_time,
         )
-
-    start_time = time.time()
 
     # Small delay to let process start
     time.sleep(0.1)
@@ -139,20 +147,24 @@ def execute(
 
         # HOOK: during_command - let handler check execution
         if wait_handler and not wait_handler.during_command(pane_id, elapsed):
-            output = stream.read_from_mark(cmd_id)
-            stream.mark_read("last_read")  # Mark as read for bash command
+            output = stream.read_command_output(cmd_id)
+            stream.mark_command_end(cmd_id)  # Mark completion
+            duration = time.time() - start_time
             return CommandResult(
                 output=output, 
                 status="aborted", 
                 pane_id=pane_id,
                 session_window_pane=session_window_pane,
-                process=info.process if info.process else info.shell
+                process=info.process if info.process else info.shell,
+                command_id=cmd_id,
+                duration=duration,
+                start_time=start_time,
             )
 
         if info.state == "ready":
             # Process is ready - command completed
-            output = stream.read_from_mark(cmd_id)
-            stream.mark_read("last_read")  # Mark as read for bash command
+            output = stream.read_command_output(cmd_id)
+            stream.mark_command_end(cmd_id)  # Mark completion
             duration = time.time() - start_time
 
             # HOOK: after_complete
@@ -166,19 +178,27 @@ def execute(
                 status="completed", 
                 pane_id=pane_id,
                 session_window_pane=session_window_pane,
-                process=process_type
+                process=process_type,
+                command_id=cmd_id,
+                duration=duration,
+                start_time=start_time,
             )
 
         time.sleep(0.1)
 
     # Timeout reached
     final_info = detect_process(pane_id)
-    output = stream.read_from_mark(cmd_id)
-    stream.mark_read("last_read")  # Mark as read even on timeout
+    output = stream.read_command_output(cmd_id)
+    stream.mark_command_end(cmd_id)  # Mark completion
+    duration = time.time() - start_time
+    
     return CommandResult(
         output=output,
         status="timeout",
         pane_id=pane_id,
         session_window_pane=session_window_pane,
         process=final_info.process if final_info.process else final_info.shell,
+        command_id=cmd_id,
+        duration=duration,
+        start_time=start_time,
     )

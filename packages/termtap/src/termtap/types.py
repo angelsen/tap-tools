@@ -17,6 +17,9 @@ type Target = PaneID | SessionWindowPane | str  # str for convenience resolution
 # Command execution states
 type CommandStatus = Literal["completed", "timeout", "aborted", "running"]
 
+# Read mode types (start simple, add others when needed)
+type ReadMode = Literal["direct", "stream", "since_command"]
+
 # Known shells - single source of truth
 KNOWN_SHELLS = frozenset(["bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
 
@@ -184,6 +187,9 @@ class CommandResult:
     pane_id: str  # Which pane it ran in
     session_window_pane: SessionWindowPane  # Full identifier
     process: str | None
+    command_id: str  # Unique identifier for this command
+    duration: float | None = None  # Execution time if waited
+    start_time: float | None = None  # When command started
 
 
 # Display types for ls() command

@@ -4,6 +4,7 @@ Sidecar files are the source of truth. No in-memory state.
 Each pane has one stream file and one metadata file.
 """
 
+import os
 import time
 import json
 from pathlib import Path
@@ -38,6 +39,30 @@ class _StreamHandle:
         self.stream_file = self.stream_dir / f"{safe_id}.stream"
         self.metadata_file = self.stream_dir / f"{safe_id}.meta.json"
 
+    def _get_default_metadata(self) -> dict:
+        """Get default metadata structure."""
+        return {
+            "pane_id": self.pane_id,
+            "session_window_pane": self.session_window_pane,
+            "stream_started": datetime.now().isoformat(),
+            "stream_inode": self._get_stream_file_inode(),  # Current inode or None
+            
+            # Command tracking by ID
+            "commands": {},  # cmd_id -> {position, end_position, time, command}
+            
+            # SEPARATE read positions - this is the key insight
+            "positions": {
+                "bash_last": 0,      # Last position after bash() command
+                "user_last": 0,      # Last position after read() by user
+                "stream_start": 0,   # When streaming began
+            },
+            
+            # Named bookmarks for future advanced use
+            "bookmarks": {},
+            
+            "last_activity": None
+        }
+
     def _read_metadata(self) -> dict:
         """Read metadata from file. Returns empty dict if not exists."""
         if self.metadata_file.exists():
@@ -47,19 +72,27 @@ class _StreamHandle:
             except (json.JSONDecodeError, IOError):
                 pass
         
-        # Return default structure
-        return {
-            "pane_id": self.pane_id,
-            "session_window_pane": self.session_window_pane,
-            "stream_started": datetime.now().isoformat(),
-            "bash_marks": {},
-            "last_read": 0,
-            "read_bookmarks": {},
-            "last_activity": None
-        }
+        return self._get_default_metadata()
+    
+    def _get_valid_metadata(self) -> dict:
+        """Get metadata, resetting if invalid for current stream file."""
+        metadata = self._read_metadata()
+        
+        # Check if metadata is valid for current stream file
+        stored_inode = metadata.get("stream_inode")
+        current_inode = self._get_stream_file_inode()
+        
+        # If inodes don't match, reset to defaults
+        if stored_inode != current_inode:
+            metadata = self._get_default_metadata()
+            self._write_metadata(metadata)
+        
+        return metadata
     
     def _write_metadata(self, metadata: dict) -> None:
         """Write metadata to file."""
+        # Ensure directory exists (pipe command also does this, but async)
+        self.metadata_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.metadata_file, "w") as f:
             json.dump(metadata, f, indent=2)
 
@@ -67,10 +100,27 @@ class _StreamHandle:
         """Start streaming from pane to file."""
         code, out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
-            return True
+            # Already piping - check if it has our mkdir safety
+            # We check for the pattern rather than exact match to be flexible
+            cmd_code, cmd_out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_command}"])
+            if cmd_code == 0 and "mkdir -p" in cmd_out and str(self.stream_file) in cmd_out:
+                # Has our safety pattern - just ensure metadata is valid
+                self._get_valid_metadata()  # This will reset if needed
+                return True
+            else:
+                # Old or unknown pipe format - restart with safe command
+                self.stop()
+                # Fall through to start new pipe
 
-        shell_cmd = f"cat >> {self.stream_file}"
+        # Ensure directory exists and use cat >> for efficiency
+        shell_cmd = f"bash -c 'mkdir -p {self.stream_dir} && exec cat >> {self.stream_file}'"
         code, _, _ = _run_tmux(["pipe-pane", "-o", "-t", self.pane_id, shell_cmd])
+        
+        if code == 0:
+            # Initialize metadata for new stream
+            metadata = self._get_default_metadata()
+            self._write_metadata(metadata)
+        
         return code == 0
 
     def stop(self) -> bool:
@@ -86,19 +136,44 @@ class _StreamHandle:
     def _get_file_position(self) -> int:
         """Get current position in stream file."""
         return self.stream_file.stat().st_size if self.stream_file.exists() else 0
+    
+    def _get_stream_file_inode(self) -> int | None:
+        """Get inode of stream file if it exists."""
+        try:
+            return os.stat(self.stream_file).st_ino
+        except (OSError, FileNotFoundError):
+            return None
+    
 
     def mark_command(self, cmd_id: str, command: str) -> None:
         """Mark position for a bash command."""
-        metadata = self._read_metadata()
+        metadata = self._get_valid_metadata()
         pos = self._get_file_position()
         
-        metadata["bash_marks"][cmd_id] = {
+        metadata["commands"][cmd_id] = {
             "position": pos,
             "time": datetime.now().isoformat(),
-            "command": command
+            "command": command,
+            "end_position": None  # Updated when command completes
         }
         metadata["last_activity"] = datetime.now().isoformat()
         
+        self._write_metadata(metadata)
+    
+    def mark_command_end(self, cmd_id: str) -> None:
+        """Mark end position for a command."""
+        metadata = self._get_valid_metadata()
+        if cmd_id in metadata["commands"]:
+            end_pos = self._get_file_position()
+            metadata["commands"][cmd_id]["end_position"] = end_pos
+            metadata["positions"]["bash_last"] = end_pos  # Update bash position
+            self._write_metadata(metadata)
+    
+    def mark_user_read(self) -> None:
+        """Mark position for user read() operation - SEPARATE from bash."""
+        metadata = self._get_valid_metadata()
+        metadata["positions"]["user_last"] = self._get_file_position()
+        metadata["last_activity"] = datetime.now().isoformat()
         self._write_metadata(metadata)
 
     def mark_read(self, mark_name: str = "last_read") -> None:
@@ -113,16 +188,44 @@ class _StreamHandle:
         
         metadata["last_activity"] = datetime.now().isoformat()
         self._write_metadata(metadata)
+    
+    def read_since_user_last(self) -> str:
+        """Read new content since last user read()."""
+        metadata = self._get_valid_metadata()
+        last_pos = metadata["positions"].get("user_last", 0)
+        return self._read_from_position(last_pos)
+    
+    def read_command_output(self, cmd_id: str) -> str:
+        """Read output from specific command."""
+        metadata = self._read_metadata()
+        cmd_info = metadata["commands"].get(cmd_id)
+        
+        if not cmd_info:
+            return ""
+        
+        start = cmd_info["position"]
+        end = cmd_info.get("end_position")
+        if end is None:
+            end = self._get_file_position()
+        
+        if not self.stream_file.exists():
+            return ""
+        
+        with open(self.stream_file, "rb") as f:
+            f.seek(start)
+            content = f.read(end - start) if end > start else b""
+        
+        return content.decode("utf-8", errors="replace")
 
     def read_from_mark(self, cmd_id: str) -> str:
         """Read output from a specific command mark."""
         metadata = self._read_metadata()
-        mark = metadata["bash_marks"].get(cmd_id)
+        cmd_info = metadata["commands"].get(cmd_id)
         
-        if not mark:
+        if not cmd_info:
             return ""
         
-        return self._read_from_position(mark["position"])
+        return self._read_from_position(cmd_info["position"])
 
     def read_since_last(self) -> str:
         """Read new content since last read() call."""
@@ -149,14 +252,14 @@ class _StreamHandle:
     def read_between_commands(self, start_cmd: str, end_cmd: str) -> str:
         """Read output between two command marks."""
         metadata = self._read_metadata()
-        start_mark = metadata["bash_marks"].get(start_cmd)
-        end_mark = metadata["bash_marks"].get(end_cmd)
+        start_info = metadata["commands"].get(start_cmd)
+        end_info = metadata["commands"].get(end_cmd)
         
-        if not start_mark or not end_mark:
+        if not start_info or not end_info:
             return ""
         
-        start_pos = start_mark["position"]
-        end_pos = end_mark["position"]
+        start_pos = start_info["position"]
+        end_pos = end_info["position"]
         
         if not self.stream_file.exists() or end_pos <= start_pos:
             return ""

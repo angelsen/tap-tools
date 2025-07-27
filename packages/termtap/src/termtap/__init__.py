@@ -6,9 +6,24 @@ REPL/MCP functionality.
 
 PUBLIC API:
   - app: ReplKit2 application instance with termtap commands
+  - main: Entry point for CLI
 """
 
+import sys
 from .app import app
 
 __version__ = "0.1.0"
-__all__ = ["app"]
+__all__ = ["app", "main"]
+
+
+def main():
+    """Run termtap as REPL or MCP server based on command line arguments.
+
+    Checks for --mcp flag to determine mode:
+    - With --mcp: Runs as MCP server for integration
+    - Without --mcp: Runs as interactive REPL
+    """
+    if "--mcp" in sys.argv:
+        app.mcp.run()
+    else:
+        app.run(title="termtap - Terminal Pane Manager")
