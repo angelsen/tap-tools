@@ -1,168 +1,212 @@
-"""Tmux streaming operations.
+"""Tmux streaming operations - pane-first architecture.
 
-PUBLIC API: (none)
+Sidecar files are the source of truth. No in-memory state.
+Each pane has one stream file and one metadata file.
 """
 
 import time
 import json
 from pathlib import Path
-from typing import Dict, Tuple, Optional
-import uuid
+from typing import Dict, Optional
+from datetime import datetime
 
+from ..types import SessionWindowPane
 from .utils import _run_tmux
 
 
 class _StreamHandle:
-    """Handle for a tmux pane stream.
-
+    """Handle for a tmux pane stream - stateless, file-based.
+    
+    All state is read from/written to sidecar files immediately.
+    No in-memory caching of metadata.
+    
     Attributes:
-        pane_id: Pane identifier string.
+        pane_id: Pane identifier string (e.g., "%42").
+        session_window_pane: Full identifier (e.g., "epic-swan:0.0").
         stream_dir: Directory for stream files.
         stream_file: Path to stream output file.
-        positions_file: Path to command positions file.
-        positions: Dict mapping command IDs to file positions.
+        metadata_file: Path to metadata file.
     """
 
-    def __init__(self, pane_id: str, stream_dir: Optional[Path] = None):
+    def __init__(self, pane_id: str, session_window_pane: SessionWindowPane, stream_dir: Optional[Path] = None):
         self.pane_id = pane_id
+        self.session_window_pane = session_window_pane
         self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
         self.stream_dir.mkdir(parents=True, exist_ok=True)
 
         safe_id = pane_id.replace(":", "_").replace("%", "")
         self.stream_file = self.stream_dir / f"{safe_id}.stream"
-        self.positions_file = self.stream_dir / f"{safe_id}.positions"
+        self.metadata_file = self.stream_dir / f"{safe_id}.meta.json"
 
-        self.positions: Dict[str, int] = {}
-        if self.positions_file.exists():
+    def _read_metadata(self) -> dict:
+        """Read metadata from file. Returns empty dict if not exists."""
+        if self.metadata_file.exists():
             try:
-                with open(self.positions_file, "r") as f:
-                    self.positions = json.load(f)
+                with open(self.metadata_file, "r") as f:
+                    return json.load(f)
             except (json.JSONDecodeError, IOError):
                 pass
+        
+        # Return default structure
+        return {
+            "pane_id": self.pane_id,
+            "session_window_pane": self.session_window_pane,
+            "stream_started": datetime.now().isoformat(),
+            "bash_marks": {},
+            "last_read": 0,
+            "read_bookmarks": {},
+            "last_activity": None
+        }
+    
+    def _write_metadata(self, metadata: dict) -> None:
+        """Write metadata to file."""
+        with open(self.metadata_file, "w") as f:
+            json.dump(metadata, f, indent=2)
 
     def start(self) -> bool:
-        """Start streaming from pane to file.
-
-        Returns:
-            True if streaming started successfully.
-        """
+        """Start streaming from pane to file."""
         code, out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
             return True
 
-        # Start piping to our stream file
-        # Note: shell command must be a single argument
-        # Use -o flag to only open if not already piping
         shell_cmd = f"cat >> {self.stream_file}"
         code, _, _ = _run_tmux(["pipe-pane", "-o", "-t", self.pane_id, shell_cmd])
         return code == 0
 
     def stop(self) -> bool:
-        """Stop streaming from pane.
-
-        Returns:
-            True if streaming stopped successfully.
-        """
+        """Stop streaming from pane."""
         code, _, _ = _run_tmux(["pipe-pane", "-t", self.pane_id])
         return code == 0
 
-    def mark_position(self, cmd_id: str) -> int:
-        """Mark current position in stream for a command.
+    def is_running(self) -> bool:
+        """Check if streaming is active."""
+        code, out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
+        return code == 0 and out.strip() == "1"
 
-        Args:
-            cmd_id: Command identifier to mark position for.
+    def _get_file_position(self) -> int:
+        """Get current position in stream file."""
+        return self.stream_file.stat().st_size if self.stream_file.exists() else 0
 
-        Returns:
-            Current file position.
-        """
-        pos = self.stream_file.stat().st_size if self.stream_file.exists() else 0
-        self.positions[cmd_id] = pos
+    def mark_command(self, cmd_id: str, command: str) -> None:
+        """Mark position for a bash command."""
+        metadata = self._read_metadata()
+        pos = self._get_file_position()
+        
+        metadata["bash_marks"][cmd_id] = {
+            "position": pos,
+            "time": datetime.now().isoformat(),
+            "command": command
+        }
+        metadata["last_activity"] = datetime.now().isoformat()
+        
+        self._write_metadata(metadata)
 
-        # Save to sidecar file with indent for debuggability
-        import json
+    def mark_read(self, mark_name: str = "last_read") -> None:
+        """Mark position for a read operation."""
+        metadata = self._read_metadata()
+        pos = self._get_file_position()
+        
+        if mark_name == "last_read":
+            metadata["last_read"] = pos
+        else:
+            metadata["read_bookmarks"][mark_name] = pos
+        
+        metadata["last_activity"] = datetime.now().isoformat()
+        self._write_metadata(metadata)
 
-        with open(self.positions_file, "w") as f:
-            json.dump(self.positions, f, indent=2)
-
-        return pos
-
-    def read_from(self, cmd_id: str) -> str:
-        """Read stream content from a command's position.
-
-        Args:
-            cmd_id: Command identifier to read from.
-
-        Returns:
-            Content from command position to end of stream.
-        """
-        if cmd_id not in self.positions:
+    def read_from_mark(self, cmd_id: str) -> str:
+        """Read output from a specific command mark."""
+        metadata = self._read_metadata()
+        mark = metadata["bash_marks"].get(cmd_id)
+        
+        if not mark:
             return ""
+        
+        return self._read_from_position(mark["position"])
 
-        start_pos = self.positions[cmd_id]
+    def read_since_last(self) -> str:
+        """Read new content since last read() call."""
+        metadata = self._read_metadata()
+        last_pos = metadata.get("last_read", 0)
+        return self._read_from_position(last_pos)
 
+    def read_all(self) -> str:
+        """Read entire stream file."""
+        return self._read_from_position(0)
+
+    def read_last_lines(self, lines: int) -> str:
+        """Read last N lines from stream."""
         if not self.stream_file.exists():
             return ""
+        
+        # Simple implementation - can be optimized later
+        content = self.read_all()
+        lines_list = content.splitlines()
+        if len(lines_list) <= lines:
+            return content
+        return '\n'.join(lines_list[-lines:])
 
+    def read_between_commands(self, start_cmd: str, end_cmd: str) -> str:
+        """Read output between two command marks."""
+        metadata = self._read_metadata()
+        start_mark = metadata["bash_marks"].get(start_cmd)
+        end_mark = metadata["bash_marks"].get(end_cmd)
+        
+        if not start_mark or not end_mark:
+            return ""
+        
+        start_pos = start_mark["position"]
+        end_pos = end_mark["position"]
+        
+        if not self.stream_file.exists() or end_pos <= start_pos:
+            return ""
+        
         with open(self.stream_file, "rb") as f:
             f.seek(start_pos)
-            content = f.read()
-
+            content = f.read(end_pos - start_pos)
+        
         return content.decode("utf-8", errors="replace")
 
-    def read_new(self, last_pos: int) -> Tuple[str, int]:
-        """Read new content since last_pos, return (content, new_pos).
-
-        Args:
-            last_pos: Last known position in file.
-
-        Returns:
-            Tuple of (new content, current position).
-        """
+    def _read_from_position(self, position: int) -> str:
+        """Read from specific position to end of file."""
         if not self.stream_file.exists():
-            return "", last_pos
-
-        current_size = self.stream_file.stat().st_size
-        if current_size <= last_pos:
-            return "", last_pos
-
+            return ""
+        
         with open(self.stream_file, "rb") as f:
-            f.seek(last_pos)
+            f.seek(position)
             content = f.read()
-
-        return content.decode("utf-8", errors="replace"), current_size
+        
+        return content.decode("utf-8", errors="replace")
 
     def clear(self):
-        """Clear stream file (useful for testing)."""
+        """Clear stream file and metadata (useful for testing)."""
         if self.stream_file.exists():
             self.stream_file.unlink()
-        self.positions.clear()
+        if self.metadata_file.exists():
+            self.metadata_file.unlink()
 
 
 class _StreamManager:
-    """Manages streams for all panes.
-
+    """Manages streams for all panes - stateless.
+    
     Attributes:
         stream_dir: Directory for stream files.
-        streams: Dict mapping pane IDs to stream handles.
+        streams: Dict mapping pane IDs to stream handles (lightweight).
     """
 
     def __init__(self, stream_dir: Optional[Path] = None):
         self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
         self.streams: Dict[str, _StreamHandle] = {}
 
-    def get_stream(self, pane_id: str) -> _StreamHandle:
-        """Get or create stream for pane.
-
-        Args:
-            pane_id: Pane identifier to get stream for.
-
-        Returns:
-            Stream handle for the pane.
-        """
+    def get_stream(self, pane_id: str, session_window_pane: SessionWindowPane) -> _StreamHandle:
+        """Get or create stream for pane."""
         if pane_id not in self.streams:
-            self.streams[pane_id] = _StreamHandle(pane_id, self.stream_dir)
-            self.streams[pane_id].start()
+            self.streams[pane_id] = _StreamHandle(pane_id, session_window_pane, self.stream_dir)
         return self.streams[pane_id]
+
+    def get_stream_if_exists(self, pane_id: str) -> _StreamHandle | None:
+        """Get stream only if it already exists in our map."""
+        return self.streams.get(pane_id)
 
     def stop_all(self):
         """Stop all active streams."""
@@ -170,11 +214,7 @@ class _StreamManager:
             stream.stop()
 
     def cleanup_old_streams(self, max_age_hours: int = 24):
-        """Remove old stream files.
-
-        Args:
-            max_age_hours: Maximum age in hours before removal. Defaults to 24.
-        """
+        """Remove old stream files."""
         if not self.stream_dir.exists():
             return
 
@@ -183,20 +223,7 @@ class _StreamManager:
         for stream_file in self.stream_dir.glob("*.stream"):
             if stream_file.stat().st_mtime < cutoff_time:
                 stream_file.unlink()
-
-
-def _send_command(pane_id: str, command: str) -> str:
-    """Send command and return command ID for tracking.
-
-    Args:
-        pane_id: Target pane identifier.
-        command: Command to send.
-
-    Returns:
-        Unique command ID for tracking.
-    """
-    from .session import send_keys
-
-    cmd_id = str(uuid.uuid4())[:8]
-    send_keys(pane_id, command)
-    return cmd_id
+                
+        for meta_file in self.stream_dir.glob("*.meta.json"):
+            if meta_file.stat().st_mtime < cutoff_time:
+                meta_file.unlink()

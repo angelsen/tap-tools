@@ -1,19 +1,18 @@
-"""Core execution and control functionality for termtap.
+"""Core execution functionality for termtap - pane-first architecture.
 
-Provides command execution with streaming output and process control operations.
-The execute module handles command orchestration while control.py contains
-internal process control utilities.
+Provides command execution with streaming output in specific panes.
+CommandResult is now imported from types module for consistency.
 
 PUBLIC API:
-  - execute: Execute command in tmux session with streaming output
+  - execute: Execute command in tmux pane with streaming output
   - ExecutorState: State container for stream management
-  - CommandResult: Result of command execution
 """
 
-from .execute import execute, ExecutorState, CommandResult
+from .execute import execute, ExecutorState
+from ..types import CommandResult
 
 __all__ = [
     "execute",
-    "ExecutorState",
+    "ExecutorState", 
     "CommandResult",
 ]

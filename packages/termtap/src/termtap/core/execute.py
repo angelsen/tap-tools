@@ -1,9 +1,9 @@
-"""Command execution orchestration with hook-native design.
+"""Command execution - pane-first architecture.
 
 PUBLIC API:
-  - execute: Execute command in tmux session with streaming output
+  - execute: Execute command in tmux pane with streaming output
   - ExecutorState: State container for stream management
-  - CommandResult: Result of command execution
+  - CommandResult: Result of command execution (imported from types)
 """
 
 import uuid
@@ -11,30 +11,14 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from ..types import CommandStatus, Target
-from ..tmux import get_or_create_session, send_keys, session_exists, get_pane_for_session
+from ..types import Target, CommandResult
+from ..tmux import get_or_create_session, send_keys
+from ..tmux.utils import resolve_target_to_pane
 from ..tmux.stream import _StreamManager
-from ..config import get_target_config
-from ..process.detector import detect_process, get_handler_for_session
+from ..config import get_pane_config
+from ..process.detector import detect_process, get_handler_for_pane
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class CommandResult:
-    """Result of command execution.
-
-    Attributes:
-        output: Command output text.
-        status: Completion status (completed, timeout, running, aborted).
-        session: Session name where command ran.
-        process: Process that executed the command.
-    """
-
-    output: str
-    status: CommandStatus
-    session: str
-    process: str | None
 
 
 @dataclass
@@ -55,7 +39,7 @@ def execute(
     wait: bool = True,
     timeout: float = 30.0,
 ) -> CommandResult:
-    """Execute command in tmux session with hook support.
+    """Execute command in tmux pane with hook support.
 
     Hook flow:
     1. before_send - Can modify/cancel command based on current process
@@ -68,47 +52,57 @@ def execute(
     Args:
         state: Executor state for stream management.
         command: Command to execute.
-        target: Target specification (session name or "default"). Defaults to "default".
+        target: Target specification (pane ID, session:window.pane, or convenience).
         wait: Whether to wait for completion. Defaults to True.
         timeout: Maximum seconds to wait. Defaults to 30.0.
 
     Returns:
         CommandResult with output and status.
     """
-    config_target = target if target != "default" else "default"
-    config = get_target_config(config_target)
-
-    # Determine session - use existing or create new
-    if session_exists(target):
+    # Resolve target to pane
+    try:
+        pane_id, session_window_pane = resolve_target_to_pane(target)
+    except RuntimeError:
+        # Target doesn't exist - might be new session
+        if target == "default" or ":" in target or target.startswith("%"):
+            # Can't create these formats
+            return CommandResult(
+                output=f"Target not found: {target}",
+                status="running",
+                pane_id="",
+                session_window_pane="",
+                process=None
+            )
+        
+        # Create new session for convenience format
         session = target
-    else:
-        if target != "default":
-            session = get_or_create_session(target, config.absolute_dir)
-        else:
-            # Get default session
-            config = get_target_config("default")
-            session = get_or_create_session(target, config.absolute_dir)
-
-    pane_id = get_pane_for_session(session)
-    stream = state.stream_manager.get_stream(pane_id)
-
+        config = get_pane_config(f"{session}:0.0")
+        get_or_create_session(session, config.absolute_dir)
+        
+        # Now resolve again
+        pane_id, session_window_pane = resolve_target_to_pane(target)
+    
+    # Get stream for this pane
+    stream = state.stream_manager.get_stream(pane_id, session_window_pane)
+    
     if not stream.start():
         logger.error(f"Failed to start streaming for pane {pane_id}")
 
-    mark_id = str(uuid.uuid4())[:8]
-    stream.mark_position(mark_id)
+    cmd_id = f"cmd_{uuid.uuid4().hex[:8]}"
+    stream.mark_command(cmd_id, command)
 
-    # HOOK: before_send - based on current process
-    send_info = detect_process(session)
-    send_handler = get_handler_for_session(session, send_info.process) if send_info.process else None
+    # HOOK: before_send - based on current process in pane
+    send_info = detect_process(pane_id)
+    send_handler = get_handler_for_pane(pane_id, send_info.process) if send_info.process else None
 
     if send_handler:
-        modified_command = send_handler.before_send(session, command)
+        modified_command = send_handler.before_send(pane_id, command)
         if modified_command is None:
             return CommandResult(
                 output="Command cancelled by handler",
                 status="aborted",
-                session=session,
+                pane_id=pane_id,
+                session_window_pane=session_window_pane,
                 process=send_info.process if send_info.process else send_info.shell,
             )
         command = modified_command
@@ -117,14 +111,15 @@ def execute(
 
     # HOOK: after_send
     if send_handler:
-        send_handler.after_send(session, command)
+        send_handler.after_send(pane_id, command)
 
     if not wait:
         # For non-wait, return the process that received the command
         return CommandResult(
             output="",
             status="running",
-            session=session,
+            pane_id=pane_id,
+            session_window_pane=session_window_pane,
             process=send_info.process if send_info.process else send_info.shell,
         )
 
@@ -134,41 +129,56 @@ def execute(
     time.sleep(0.1)
 
     # Detect what process is NOW running (might be different!)
-    wait_info = detect_process(session)
-    wait_handler = get_handler_for_session(session, wait_info.process) if wait_info.process else None
+    wait_info = detect_process(pane_id)
+    wait_handler = get_handler_for_pane(pane_id, wait_info.process) if wait_info.process else None
 
     # Wait loop with during_command hook
     while time.time() - start_time < timeout:
-        info = detect_process(session)
+        info = detect_process(pane_id)
         elapsed = time.time() - start_time
 
         # HOOK: during_command - let handler check execution
-        if wait_handler and not wait_handler.during_command(session, elapsed):
-            output = stream.read_from(mark_id)
+        if wait_handler and not wait_handler.during_command(pane_id, elapsed):
+            output = stream.read_from_mark(cmd_id)
+            stream.mark_read("last_read")  # Mark as read for bash command
             return CommandResult(
-                output=output, status="aborted", session=session, process=info.process if info.process else info.shell
+                output=output, 
+                status="aborted", 
+                pane_id=pane_id,
+                session_window_pane=session_window_pane,
+                process=info.process if info.process else info.shell
             )
 
         if info.state == "ready":
             # Process is ready - command completed
-            output = stream.read_from(mark_id)
+            output = stream.read_from_mark(cmd_id)
+            stream.mark_read("last_read")  # Mark as read for bash command
             duration = time.time() - start_time
 
             # HOOK: after_complete
             if wait_handler:
-                wait_handler.after_complete(session, command, duration)
+                wait_handler.after_complete(pane_id, command, duration)
 
             # Use process if available, otherwise use shell
             process_type = info.process if info.process else info.shell
-            return CommandResult(output=output, status="completed", session=session, process=process_type)
+            return CommandResult(
+                output=output, 
+                status="completed", 
+                pane_id=pane_id,
+                session_window_pane=session_window_pane,
+                process=process_type
+            )
 
         time.sleep(0.1)
 
-    final_info = detect_process(session)
-    output = stream.read_from(mark_id)
+    # Timeout reached
+    final_info = detect_process(pane_id)
+    output = stream.read_from_mark(cmd_id)
+    stream.mark_read("last_read")  # Mark as read even on timeout
     return CommandResult(
         output=output,
         status="timeout",
-        session=session,
+        pane_id=pane_id,
+        session_window_pane=session_window_pane,
         process=final_info.process if final_info.process else final_info.shell,
     )

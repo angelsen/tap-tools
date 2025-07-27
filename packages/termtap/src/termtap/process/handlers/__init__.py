@@ -41,23 +41,23 @@ class ProcessHandler(ABC):
         """
         pass
 
-    def interrupt(self, session_id: str) -> tuple[bool, str]:
+    def interrupt(self, pane_id: str) -> tuple[bool, str]:
         """Send interrupt signal to process.
 
         Default implementation sends Ctrl+C. Override for special behavior.
 
         Args:
-            session_id: Tmux session ID.
+            pane_id: Tmux pane ID.
 
         Returns:
             Tuple of (success, message) indicating result.
         """
         from ...tmux import send_keys
 
-        success = send_keys(session_id, "C-c")
+        success = send_keys(pane_id, "C-c")
         return success, "sent Ctrl+C"
 
-    def before_send(self, session_id: str, command: str) -> str | None:
+    def before_send(self, pane_id: str, command: str) -> str | None:
         """Called before sending command.
 
         Can modify or cancel command execution.
@@ -71,7 +71,7 @@ class ProcessHandler(ABC):
         """
         return command
 
-    def after_send(self, session_id: str, command: str) -> None:
+    def after_send(self, pane_id: str, command: str) -> None:
         """Called after command is sent.
 
         Args:
@@ -80,7 +80,7 @@ class ProcessHandler(ABC):
         """
         pass
 
-    def during_command(self, session_id: str, elapsed: float) -> bool:
+    def during_command(self, pane_id: str, elapsed: float) -> bool:
         """Called while waiting for command to complete.
 
         Args:
@@ -92,7 +92,7 @@ class ProcessHandler(ABC):
         """
         return True
 
-    def after_complete(self, session_id: str, command: str, duration: float) -> None:
+    def after_complete(self, pane_id: str, command: str, duration: float) -> None:
         """Called after command completes.
 
         Args:

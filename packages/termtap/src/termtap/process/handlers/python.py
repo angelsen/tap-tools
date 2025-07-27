@@ -45,16 +45,16 @@ class _PythonHandler(ProcessHandler):
 
         return False, f"python {process.wait_channel or 'running'}"
 
-    def interrupt(self, session_id: str) -> tuple[bool, str]:
+    def interrupt(self, pane_id: str) -> tuple[bool, str]:
         """Interrupt Python process.
 
         Args:
-            session_id: Tmux session ID.
+            pane_id: Tmux pane ID.
 
         Returns:
             Tuple of (success, message) indicating result.
         """
         from ...tmux import send_keys
 
-        success = send_keys(session_id, "C-c")
+        success = send_keys(pane_id, "C-c")
         return success, "sent KeyboardInterrupt"

@@ -1,4 +1,4 @@
-"""Process-native tmux session manager with MCP support.
+"""Process-native tmux pane manager with MCP support.
 
 Entry point for termtap application that can run as either a REPL interface
 or MCP server depending on command line arguments.
@@ -23,7 +23,7 @@ def main():
     if "--mcp" in sys.argv:
         app.mcp.run()
     else:
-        app.run(title="termtap - Terminal Session Manager")
+        app.run(title="termtap - Terminal Pane Manager")
 
 
 if __name__ == "__main__":

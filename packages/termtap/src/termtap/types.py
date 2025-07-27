@@ -1,201 +1,212 @@
-"""Type definitions for termtap using Python 3.12 features.
+"""Type definitions for termtap - pane-first architecture.
 
-Focuses on types that represent unique identifiers, configuration structures,
-and API contracts. Avoids duplicating information available through syscalls.
+Everything happens in panes. Sessions are just containers for organizing panes.
+Target resolution is explicit and unambiguous.
 """
 
 from typing import TypedDict, NotRequired, Literal
 from dataclasses import dataclass
+import re
 
 
-# Tmux target identifiers - not derivable from syscalls
-type SessionName = str  # e.g., "epic-swan", "my-session"
-type PaneID = str  # e.g., "%42", "%55"
-type WindowID = str  # e.g., "@12", "@24"
-type SessionWindowPane = str  # e.g., "session:0.0", "session:1.2"
-type Target = SessionName | PaneID | WindowID | SessionWindowPane
+# Pane-first identifiers
+type PaneID = str  # e.g., "%42", "%55" - tmux native pane ID
+type SessionWindowPane = str  # e.g., "session:0.0", "session:1.2" - our canonical format
+type Target = PaneID | SessionWindowPane | str  # str for convenience resolution
 
-# Command execution - result types only, no tracking
-type CommandStatus = Literal["completed", "timeout", "aborted", "running", "not_found", "unknown", "deprecated"]
-type WatcherReason = Literal["silence", "timeout", "aborted", "pattern_abort", "pattern_complete"]
+# Command execution states
+type CommandStatus = Literal["completed", "timeout", "aborted", "running"]
 
+# Known shells - single source of truth
+KNOWN_SHELLS = frozenset(["bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
 
-# Shell detection - needed to determine command wrapping strategy
-type ShellType = Literal["bash", "fish", "zsh", "sh", "dash", "unknown"]
-_BASH_COMPATIBLE_SHELLS: frozenset[str] = frozenset({"bash", "sh", "dash"})
+# Shell types for command wrapping (includes "unknown" for unrecognized shells)
+type ShellType = Literal["bash", "fish", "zsh", "sh", "dash", "ksh", "tcsh", "csh", "unknown"]
 
 
-# Hover dialog - UI-specific, not derivable
-type HoverMode = Literal["before", "pattern", "during", "complete"]
-type HoverAction = Literal["execute", "edit", "cancel", "join", "abort", "finish", "rerun"]
+@dataclass
+class PaneIdentifier:
+    """Parsed pane identifier with all components."""
+    session: str
+    window: int
+    pane: int
+    
+    @property
+    def swp(self) -> SessionWindowPane:
+        """Get session:window.pane format."""
+        return f"{self.session}:{self.window}.{self.pane}"
+    
+    @property
+    def display(self) -> str:
+        """Get display format for ls() output."""
+        return self.swp
+    
+    @classmethod
+    def parse(cls, target: str) -> "PaneIdentifier":
+        """Parse session:window.pane format.
+        
+        Args:
+            target: String like "epic-swan:0.0" or "backend:1.2"
+            
+        Returns:
+            PaneIdentifier instance
+            
+        Raises:
+            ValueError: If format is invalid
+        """
+        match = re.match(r'^([^:]+):(\d+)\.(\d+)$', target)
+        if not match:
+            raise ValueError(f"Invalid pane identifier format: {target}")
+        
+        session, window, pane = match.groups()
+        return cls(session=session, window=int(window), pane=int(pane))
 
 
-# Configuration - from TOML files
-type EnvironmentVars = dict[str, str]
-type HoverPatterns = list[str]
+def is_pane_id(target: str) -> bool:
+    """Check if target is a tmux pane ID (%number)."""
+    return target.startswith('%') and target[1:].isdigit()
 
 
-class TargetConfigDict(TypedDict):
-    """Raw configuration dictionary for a target.
+def is_session_window_pane(target: str) -> bool:
+    """Check if target is session:window.pane format."""
+    try:
+        PaneIdentifier.parse(target)
+        return True
+    except ValueError:
+        return False
 
-    Attributes:
-        dir: Working directory for the target.
-        start: Initial command to run when starting target.
-        env: Environment variables to set.
-        hover_patterns: Patterns that trigger hover dialogs.
+
+def resolve_target(target: Target) -> tuple[Literal["pane_id", "swp", "convenience"], str]:
+    """Resolve target to its type and normalized value.
+    
+    Args:
+        target: Any target string
+        
+    Returns:
+        Tuple of (target_type, normalized_value)
+        - pane_id: Direct tmux pane ID like "%42"
+        - swp: Explicit session:window.pane like "epic-swan:0.0"
+        - convenience: Session name that needs resolution like "epic-swan"
     """
+    if is_pane_id(target):
+        return ("pane_id", target)
+    elif is_session_window_pane(target):
+        return ("swp", target)
+    else:
+        # Convenience format - might be session, session:window, or invalid
+        return ("convenience", target)
 
-    dir: NotRequired[str]
-    start: NotRequired[str]
-    env: NotRequired[EnvironmentVars]
-    hover_patterns: NotRequired[HoverPatterns]
+
+def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
+    """Parse convenience formats into components.
+    
+    Supports:
+    - "session" -> (session, None, None)
+    - "session:1" -> (session, 1, None)
+    - "session:1.2" -> (session, 1, 2)  # Already handled by resolve_target
+    
+    Args:
+        target: Convenience format string
+        
+    Returns:
+        Tuple of (session, window_or_none, pane_or_none)
+    """
+    if ':' not in target:
+        return (target, None, None)
+    
+    parts = target.split(':', 1)
+    session = parts[0]
+    
+    if '.' in parts[1]:
+        # This is actually a full swp - shouldn't reach here
+        window, pane = parts[1].split('.', 1)
+        return (session, int(window), int(pane))
+    else:
+        # session:window format
+        return (session, int(parts[1]), None)
 
 
-# Process detection results
+# Process detection types
 @dataclass
 class ProcessInfo:
-    """Process detection result with shell and active process.
-
-    Attributes:
-        shell: Shell name (bash, fish, zsh, etc.).
-        process: Active process name or None if at shell.
-        state: Current process state.
-    """
-
+    """Information about a process in a pane."""
     shell: str
     process: str | None
     state: Literal["ready", "working", "unknown"]
+    pane_id: str  # The pane this process is in
 
 
-# Display data structures - API contracts
-class SessionRow(TypedDict):
-    """Row data for sessions table.
+# Configuration types
+@dataclass
+class PaneConfig:
+    """Configuration for a specific pane."""
+    pane_id: SessionWindowPane
+    dir: str | None = None
+    start: str | None = None
+    name: str | None = None  # Human-friendly name
+    env: dict[str, str] | None = None
 
-    Attributes:
-        Session: Session name.
-        Shell: Shell type running in session.
-        Process: Active process name, "-" if at shell prompt.
-        State: Current process state.
-        Attached: Whether session is currently attached.
-    """
 
-    Session: str
+@dataclass
+class SessionConfig:
+    """Configuration for a session (applies to all its panes)."""
+    session: str
+    dir: str | None = None
+    env: dict[str, str] | None = None
+
+
+@dataclass
+class TargetConfig:
+    """Resolved configuration for a target."""
+    target: SessionWindowPane  # Always resolved to explicit format
+    dir: str
+    env: dict[str, str]
+    start: str | None = None
+    name: str | None = None
+    
+    @property
+    def absolute_dir(self) -> str:
+        """Get absolute directory path."""
+        import os
+        return os.path.abspath(os.path.expanduser(self.dir))
+
+
+# Note: Streaming metadata is stored directly in JSON sidecar files
+# No need for in-memory types since sidecar is the source of truth
+
+
+# Command result type
+@dataclass
+class CommandResult:
+    """Result of command execution in a pane."""
+    output: str
+    status: CommandStatus
+    pane_id: str  # Which pane it ran in
+    session_window_pane: SessionWindowPane  # Full identifier
+    process: str | None
+
+
+# Display types for ls() command
+class PaneRow(TypedDict):
+    """Row data for pane listing."""
+    Pane: str  # session:window.pane
     Shell: str
     Process: str
     State: Literal["ready", "working", "unknown"]
     Attached: Literal["Yes", "No"]
 
 
-class ProcessRow(TypedDict):
-    """Row data for session processes.
-
-    Attributes:
-        Session: Session name.
-        Process: Process name.
-        Command: Command being executed.
-        State: Current process state.
-    """
-
-    Session: str
-    Process: str
-    Command: str
-    State: str
-
-
-class DashboardData(TypedDict):
-    """Complete dashboard data structure.
-
-    Attributes:
-        summary: Summary text for dashboard.
-        sessions: List of session rows.
-        active: List of active process rows.
-        targets: Mapping of target names to their sessions.
-    """
-
-    summary: str
-    sessions: list[SessionRow]
-    active: list[ProcessRow]
-    targets: dict[str, list[str]]
-
-
-# Result types for better error handling
-@dataclass
-class Ok[T]:
-    """Success result wrapper.
-
-    Attributes:
-        value: The successful result value.
-    """
-
-    value: T
+# Hover dialog types (for dangerous commands)
+class HoverPattern(TypedDict):
+    """Pattern for triggering hover dialogs."""
+    pattern: str
+    message: str
+    confirm: NotRequired[bool]
 
 
 @dataclass
-class Err:
-    """Error result wrapper.
-
-    Attributes:
-        error: Error message describing what went wrong.
-    """
-
-    error: str
-
-
-type Result[T] = Ok[T] | Err
-
-
-# Target type guards
-def _is_pane_id(target: str) -> bool:
-    """Check if target is a pane ID format.
-
-    Args:
-        target: Target string to check.
-
-    Returns:
-        True if target matches pane ID format (starts with %).
-    """
-    return target.startswith("%")
-
-
-def _is_window_id(target: str) -> bool:
-    """Check if target is a window ID format.
-
-    Args:
-        target: Target string to check.
-
-    Returns:
-        True if target matches window ID format (starts with @).
-    """
-    return target.startswith("@")
-
-
-def _is_session_window_pane(target: str) -> bool:
-    """Check if target is session:window.pane format.
-
-    Args:
-        target: Target string to check.
-
-    Returns:
-        True if target matches session:window.pane format.
-    """
-    return ":" in target and "." in target.split(":", 1)[1]
-
-
-def _parse_target(target: str) -> tuple[Literal["session", "pane", "window", "swp"], str]:
-    """Parse target string and return its type and value.
-
-    Args:
-        target: Target string to parse.
-
-    Returns:
-        Tuple of (target_type, original_value).
-    """
-    match target:
-        case s if _is_pane_id(s):
-            return ("pane", s)
-        case s if _is_window_id(s):
-            return ("window", s)
-        case s if _is_session_window_pane(s):
-            return ("swp", s)
-        case _:
-            return ("session", target)
+class HoverResult:
+    """Result from hover dialog interaction."""
+    confirmed: bool
+    cancelled: bool
+    message: str | None = None

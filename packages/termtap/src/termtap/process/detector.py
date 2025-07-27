@@ -1,10 +1,10 @@
-"""Process state detection for termtap.
+"""Process state detection for termtap - pane-first architecture.
 
 PUBLIC API:
-  - detect_process: Get ProcessInfo for a session
-  - detect_all_processes: Batch detection for multiple sessions
+  - detect_process: Get ProcessInfo for a pane
+  - detect_all_processes: Batch detection for multiple panes
   - interrupt_process: Handler-aware interrupt
-  - get_handler_for_session: Get handler for a session's process
+  - get_handler_for_pane: Get handler for a pane's process
 """
 
 import logging
@@ -13,8 +13,8 @@ from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_
 from .handlers import get_handler
 from ..tmux.utils import get_pane_pid
 from ..tmux import send_keys
-from ..config import get_target_config
-from ..types import ProcessInfo
+from ..config import get_config_manager
+from ..types import ProcessInfo, KNOWN_SHELLS
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +35,10 @@ def _extract_shell_and_process(
     if not chain:
         return None, None
 
-    shells = {"bash", "sh", "zsh", "fish", "dash", "tcsh", "csh"}
-    skip = shells.union(set(skip_processes))
-
     # Find last shell in chain
     shell = None
     for proc in chain:
-        if proc.name in shells:
+        if proc.name in KNOWN_SHELLS:
             shell = proc
 
     # If no shell found, root is the shell
@@ -49,6 +46,9 @@ def _extract_shell_and_process(
         shell = chain[0]
 
     # Find first non-skipped process
+    # Skip all shells and configured skip processes
+    skip = KNOWN_SHELLS.union(set(skip_processes))
+    
     process = None
     for proc in chain:
         if proc.name not in skip:
@@ -58,67 +58,70 @@ def _extract_shell_and_process(
     return shell, process
 
 
-def detect_process(session_id: str) -> ProcessInfo:
-    """Detect shell and process state for a session.
+def detect_process(pane_id: str) -> ProcessInfo:
+    """Detect shell and process state for a pane.
 
     Args:
-        session_id: Tmux session ID.
+        pane_id: Tmux pane ID.
 
     Returns:
         ProcessInfo with shell, process, and state.
     """
     try:
-        pid = get_pane_pid(session_id)
+        pid = get_pane_pid(pane_id)
         chain = get_process_chain(pid)
 
         if not chain:
-            return ProcessInfo(shell="unknown", process=None, state="unknown")
+            return ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
 
-        config = get_target_config()
-        shell, process = _extract_shell_and_process(chain, config.skip_processes)
+        config_manager = get_config_manager()
+        shell, process = _extract_shell_and_process(chain, config_manager.skip_processes)
 
         # Determine state
         if not process or process == shell:
             # At shell prompt
-            return ProcessInfo(shell=shell.name if shell else "unknown", process=None, state="ready")
+            return ProcessInfo(shell=shell.name if shell else "unknown", process=None, state="ready", pane_id=pane_id)
 
         # Use handler to determine state
         handler = get_handler(process)
         ready, _ = handler.is_ready(process)
 
         return ProcessInfo(
-            shell=shell.name if shell else "unknown", process=process.name, state="ready" if ready else "working"
+            shell=shell.name if shell else "unknown", 
+            process=process.name, 
+            state="ready" if ready else "working",
+            pane_id=pane_id
         )
 
     except Exception as e:
         logger.error(f"Error detecting process: {e}")
-        return ProcessInfo(shell="unknown", process=None, state="unknown")
+        return ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
 
 
-def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
-    """Detect process info for multiple sessions efficiently.
+def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
+    """Detect process info for multiple panes efficiently.
 
-    Single /proc scan for all sessions.
+    Single /proc scan for all panes.
 
     Args:
-        session_names: List of session names.
+        pane_ids: List of pane IDs.
 
     Returns:
-        Dict mapping session name to ProcessInfo.
+        Dict mapping pane ID to ProcessInfo.
     """
     results = {}
 
     # Single scan of /proc
     all_processes = get_all_processes()
-    config = get_target_config()
+    config_manager = get_config_manager()
 
-    for session in session_names:
+    for pane_id in pane_ids:
         try:
-            pid = get_pane_pid(session)
+            pid = get_pane_pid(pane_id)
             tree = build_tree_from_processes(all_processes, pid)
 
             if not tree:
-                results[session] = ProcessInfo(shell="unknown", process=None, state="unknown")
+                results[pane_id] = ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
                 continue
 
             # Build chain from tree
@@ -133,94 +136,100 @@ def detect_all_processes(session_names: list[str]) -> dict[str, ProcessInfo]:
                 else:
                     break
 
-            shell, process = _extract_shell_and_process(chain, config.skip_processes)
+            shell, process = _extract_shell_and_process(chain, config_manager.skip_processes)
 
             # Determine state
             if not process or process == shell:
-                results[session] = ProcessInfo(shell=shell.name if shell else "unknown", process=None, state="ready")
+                results[pane_id] = ProcessInfo(
+                    shell=shell.name if shell else "unknown", 
+                    process=None, 
+                    state="ready",
+                    pane_id=pane_id
+                )
             else:
                 handler = get_handler(process)
                 ready, _ = handler.is_ready(process)
-                results[session] = ProcessInfo(
+                results[pane_id] = ProcessInfo(
                     shell=shell.name if shell else "unknown",
                     process=process.name,
                     state="ready" if ready else "working",
+                    pane_id=pane_id
                 )
 
         except Exception as e:
-            logger.error(f"Error detecting {session}: {e}")
-            results[session] = ProcessInfo(shell="unknown", process=None, state="unknown")
+            logger.error(f"Error detecting {pane_id}: {e}")
+            results[pane_id] = ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
 
     return results
 
 
-def get_handler_for_session(session_id: str, process_name: str | None = None):
-    """Get handler for a session's process.
+def get_handler_for_pane(pane_id: str, process_name: str | None = None):
+    """Get handler for a pane's process.
 
     Args:
-        session_id: Tmux session ID.
+        pane_id: Tmux pane ID.
         process_name: Optional process name to look for. If None, uses current active process.
 
     Returns:
         Handler instance or None.
     """
     try:
-        pid = get_pane_pid(session_id)
+        pid = get_pane_pid(pane_id)
         chain = get_process_chain(pid)
 
         if not chain:
             return None
 
-        config = get_target_config()
-        _, process = _extract_shell_and_process(chain, config.skip_processes)
+        config_manager = get_config_manager()
+        _, process = _extract_shell_and_process(chain, config_manager.skip_processes)
 
+        # If specific process requested, find it in chain
         if process_name:
-            # Look for specific process
-            for node in chain:
-                if node.name == process_name:
-                    return get_handler(node)
+            for proc in chain:
+                if proc.name == process_name:
+                    return get_handler(proc)
             return None
-        else:
-            # Use active process
-            if process:
-                return get_handler(process)
-            return None
+
+        # Otherwise use detected process
+        if process:
+            return get_handler(process)
+        return None
 
     except Exception as e:
         logger.error(f"Error getting handler: {e}")
         return None
 
 
-def interrupt_process(session_id: str) -> tuple[bool, str]:
-    """Send interrupt to a session using handler-specific method.
+def interrupt_process(pane_id: str) -> tuple[bool, str]:
+    """Send interrupt to a pane using handler-specific method.
 
     Args:
-        session_id: Tmux session ID.
+        pane_id: Tmux pane ID.
 
     Returns:
         (success, message) tuple.
     """
     try:
-        info = detect_process(session_id)
+        info = detect_process(pane_id)
 
         if not info.process:
             # At shell prompt - just send Ctrl+C
-            success = send_keys(session_id, "C-c")
+            success = send_keys(pane_id, "C-c")
             return success, "sent Ctrl+C to shell"
 
         # Get handler for the process
-        pid = get_pane_pid(session_id)
+        pid = get_pane_pid(pane_id)
         chain = get_process_chain(pid)
-        config = get_target_config()
-        _, process = _extract_shell_and_process(chain, config.skip_processes)
+        config_manager = get_config_manager()
+        _, process = _extract_shell_and_process(chain, config_manager.skip_processes)
 
         if process:
             handler = get_handler(process)
-            return handler.interrupt(session_id)
+            return handler.interrupt(pane_id)
         else:
-            success = send_keys(session_id, "C-c")
+            success = send_keys(pane_id, "C-c")
             return success, "sent Ctrl+C"
 
     except Exception as e:
-        logger.error(f"Error interrupting {session_id}: {e}")
+        logger.error(f"Error interrupting {pane_id}: {e}")
         return False, f"error: {e}"

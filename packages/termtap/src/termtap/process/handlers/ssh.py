@@ -40,7 +40,7 @@ class _SSHHandler(ProcessHandler):
         """
         return True, "ssh proxy ready"
 
-    def interrupt(self, session_id: str) -> tuple[bool, str]:
+    def interrupt(self, pane_id: str) -> tuple[bool, str]:
         """Interrupt SSH session.
 
         Args:
@@ -51,14 +51,14 @@ class _SSHHandler(ProcessHandler):
         """
         from ...tmux import send_keys
 
-        success = send_keys(session_id, "C-c")
+        success = send_keys(pane_id, "C-c")
         return success, "sent Ctrl+C to remote"
 
-    def before_send(self, session_id: str, command: str) -> str | None:
+    def before_send(self, pane_id: str, command: str) -> str | None:
         """Always show hover dialog for SSH commands.
 
         Args:
-            session_id: Tmux session ID.
+            pane_id: Tmux pane ID.
             command: Command to be sent.
 
         Returns:
@@ -68,7 +68,7 @@ class _SSHHandler(ProcessHandler):
 
         from ...hover import show_hover
 
-        result = show_hover(session=session_id, command=command, mode="before", title="SSH Command Confirmation")
+        result = show_hover(session=pane_id, command=command, mode="before", title="SSH Command Confirmation")
 
         logger.info(f"SSHHandler.before_send: Hover dialog returned: action={result.action}, choice={result.choice}")
 
@@ -82,16 +82,16 @@ class _SSHHandler(ProcessHandler):
             logger.info(f"SSHHandler.before_send: Command cancelled, action was: {result.action}")
             return None
 
-    def after_send(self, session_id: str, command: str) -> None:
+    def after_send(self, pane_id: str, command: str) -> None:
         """Log SSH commands for audit trail.
 
         Args:
-            session_id: Tmux session ID.
+            pane_id: Tmux pane ID.
             command: Command that was sent.
         """
-        logger.info(f"SSHHandler.after_send: Command sent to {session_id}: {command}")
+        logger.info(f"SSHHandler.after_send: Command sent to {pane_id}: {command}")
 
-    def during_command(self, session_id: str, elapsed: float) -> bool:
+    def during_command(self, pane_id: str, elapsed: float) -> bool:
         """Monitor SSH command execution.
 
         Args:
@@ -105,6 +105,6 @@ class _SSHHandler(ProcessHandler):
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.warning(f"SSH command running for {elapsed:.1f}s in {session_id}")
+            logger.warning(f"SSH command running for {elapsed:.1f}s in {pane_id}")
 
         return True

@@ -1,6 +1,6 @@
-"""Process-native tmux session manager with MCP support.
+"""Process-native tmux pane manager with MCP support.
 
-Terminal session manager that auto-detects shell types, works with any tmux session,
+Terminal pane manager that auto-detects shell types, works with any tmux pane,
 and provides process state detection using syscalls. Built on ReplKit2 for dual
 REPL/MCP functionality.
 

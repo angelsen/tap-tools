@@ -1,23 +1,23 @@
-"""termtap ReplKit2 application.
+"""termtap ReplKit2 application - pane-first architecture.
 
-Process-native tmux session manager with MCP support. Provides command execution,
-session management, and process monitoring through both REPL and MCP interfaces.
+Process-native tmux pane manager with MCP support. Everything happens
+in panes; sessions are just containers for organizing panes.
 """
 
 from dataclasses import dataclass, field
 
 from replkit2 import App
 
-from .types import Target, ProcessInfo
-from .config import get_target_config
+from .types import Target, ProcessInfo, PaneRow
 from .core import execute, ExecutorState
-from .tmux import list_sessions, capture_visible, capture_all, capture_last_n
-from .process.detector import detect_all_processes, interrupt_process
+from .tmux import capture_visible, capture_all, capture_last_n
+from .tmux.utils import resolve_target_to_pane, list_panes
+from .process.detector import detect_process, detect_all_processes, interrupt_process
 
 
 @dataclass
 class TermTapState:
-    """Application state for termtap session management.
+    """Application state for termtap pane management.
 
     Attributes:
         executor: ExecutorState instance managing command execution state.
@@ -33,7 +33,7 @@ app = App(
     uri_scheme="bash",
     fastmcp={
         "name": "termtap",
-        "description": "Terminal session manager with tmux",
+        "description": "Terminal pane manager with tmux",
         "tags": {"terminal", "automation", "tmux"},
     },
 )
@@ -42,13 +42,7 @@ app = App(
 # Register custom formatter for codeblock display
 @app.formatter.register("codeblock")  # pyright: ignore[reportAttributeAccessIssue]
 def _format_codeblock(data, meta, formatter):
-    """Format output as markdown code block with process type.
-
-    Args:
-        data: Dict with 'process' and 'content' keys or fallback data.
-        meta: Display metadata (unused).
-        formatter: Formatter instance (unused).
-    """
+    """Format output as markdown code block with process type."""
     if isinstance(data, dict) and "process" in data and "content" in data:
         process = data["process"]
         content = data["content"].rstrip()
@@ -60,7 +54,7 @@ def _format_codeblock(data, meta, formatter):
 # MCP Tool: Execute command
 @app.command(
     display="codeblock",
-    fastmcp={"type": "tool", "description": "Execute command in tmux session"},
+    fastmcp={"type": "tool", "description": "Execute command in tmux pane"},
 )
 def bash(
     state: TermTapState,
@@ -69,12 +63,12 @@ def bash(
     wait: bool = True,
     timeout: float = 30.0,
 ) -> dict:
-    """Execute command in target tmux session.
+    """Execute command in target pane.
 
     Args:
         state: Application state.
         command: Command to execute.
-        target: Target session name. Defaults to "default".
+        target: Target pane (session:window.pane, %pane_id, or session name).
         wait: Whether to wait for completion. Defaults to True.
         timeout: Timeout in seconds. Defaults to 30.0.
 
@@ -84,7 +78,7 @@ def bash(
     result = execute(state.executor, command, target, wait, timeout)
 
     if result.status == "running":
-        content = f"Command started in session {result.session}"
+        content = f"Command started in pane {result.session_window_pane}"
     elif result.status == "timeout":
         content = f"{result.output}\n\n[Timeout after {timeout}s]"
     else:
@@ -93,85 +87,136 @@ def bash(
     return {"process": result.process or "text", "content": content}
 
 
-# MCP Resource: Read session output
+# MCP Resource: Read pane output
 @app.command(
-    display="text",
+    display="codeblock",
     fastmcp={
         "type": "resource",
-        "description": "Read output from tmux session",
+        "description": "Read output from tmux pane",
         "uri": "bash://{target}/{lines}",
     },
 )
-def read(state: TermTapState, target: Target = "default", lines: int | None = None) -> str:
-    """Read output from target tmux session.
+def read(state: TermTapState, target: Target = "default", lines: int | None = None, since_last: bool = False) -> dict:
+    """Read output from target pane.
 
     Args:
         state: Application state.
-        target: Target session name. Defaults to "default".
-        lines: Number of lines to read. None=visible, -1=all. Defaults to None.
+        target: Target pane (session:window.pane, %pane_id, or session name).
+        lines: Number of lines to read. None=visible, -1=all.
+        since_last: Read only new content since last read() call.
 
     Returns:
-        Session output string.
+        Dict with process and content for codeblock display.
     """
-    session = target
-
-    if lines == -1:
-        return capture_all(session)
-    elif lines:
-        return capture_last_n(session, lines)
+    # Resolve target to pane
+    try:
+        pane_id, session_window_pane = resolve_target_to_pane(target)
+    except RuntimeError as e:
+        return {"process": "text", "content": f"Error: {e}"}
+    
+    # Try to get existing stream
+    stream = state.executor.stream_manager.get_stream_if_exists(pane_id)
+    
+    # Determine read strategy
+    if stream and stream.is_running():
+        # Stream exists - use it
+        if since_last:
+            content = stream.read_since_last()
+        elif lines == -1:
+            content = stream.read_all()
+        elif lines:
+            content = stream.read_last_lines(lines)
+        else:
+            # Default: read since last
+            content = stream.read_since_last()
+        
+        # Always update last read position
+        stream.mark_read("last_read")
+        
     else:
-        return capture_visible(session)
+        # No stream yet - fall back to direct tmux capture
+        if since_last:
+            # Can't do since_last without stream, get visible instead
+            content = capture_visible(pane_id)
+            # Now start stream for future reads
+            stream = state.executor.stream_manager.get_stream(pane_id, session_window_pane)
+            stream.start()
+            stream.mark_read("last_read")
+        elif lines == -1:
+            content = capture_all(pane_id)
+        elif lines:
+            content = capture_last_n(pane_id, lines)
+        else:
+            content = capture_visible(pane_id)
+    
+    # Detect process for syntax highlighting
+    info = detect_process(pane_id)
+    process = info.process if info.process else info.shell
+    
+    return {"process": process, "content": content}
 
 
-# REPL command: List sessions with process info
-@app.command(display="table", headers=["Session", "Shell", "Process", "State", "Attached"], fastmcp={"enabled": False})
-def ls(state: TermTapState) -> list[dict]:
-    """List all tmux sessions with their current process.
+# REPL command: List panes with process info
+@app.command(
+    display="table", 
+    headers=["Pane", "Shell", "Process", "State", "Attached"], 
+    fastmcp={"enabled": False}
+)
+def ls(state: TermTapState) -> list[PaneRow]:
+    """List all tmux panes with their current process.
 
     Args:
         state: Application state.
 
     Returns:
-        List of session info with process details.
+        List of pane info with process details.
     """
-    sessions = list_sessions()
-    session_names = [s.name for s in sessions]
-
-    process_infos = detect_all_processes(session_names)
-
+    panes = list_panes()
+    pane_ids = [p.pane_id for p in panes]
+    
+    # Batch detect all processes in a single /proc scan
+    process_infos = detect_all_processes(pane_ids)
+    
     results = []
-    for session in sessions:
-        info = process_infos.get(session.name, ProcessInfo(shell="unknown", process=None, state="unknown"))
-
-        results.append(
-            {
-                "Session": session.name,
-                "Shell": info.shell,
-                "Process": info.process or "-",
-                "State": info.state,
-                "Attached": "Yes" if session.attached != "0" else "No",
-            }
+    for pane in panes:
+        # Get process info from batch detection
+        info = process_infos.get(
+            pane.pane_id, 
+            ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane.pane_id)
         )
-
+        
+        results.append(PaneRow(
+            Pane=pane.swp,
+            Shell=info.shell,
+            Process=info.process or "-",
+            State=info.state,
+            Attached="Yes" if pane.is_current else "No",
+        ))
+    
     return results
 
 
-# MCP Tool: Send interrupt to session
-@app.command(fastmcp={"type": "tool", "description": "Send interrupt (Ctrl+C) to a session"})
-def interrupt(state: TermTapState, session: str) -> str:
-    """Send interrupt (Ctrl+C) to a session.
+# MCP Tool: Send interrupt to pane
+@app.command(fastmcp={"type": "tool", "description": "Send interrupt (Ctrl+C) to a pane"})
+def interrupt(state: TermTapState, target: Target) -> str:
+    """Send interrupt (Ctrl+C) to a pane.
 
     Args:
         state: Application state.
-        session: Session name to interrupt.
+        target: Target pane to interrupt.
 
     Returns:
         Status message.
     """
-    success, message = interrupt_process(session)
+    try:
+        pane_id, session_window_pane = resolve_target_to_pane(target)
+    except RuntimeError as e:
+        return f"Failed to resolve target: {e}"
+    
+    success, message = interrupt_process(pane_id)
     if success:
-        return f"{session}: {message}"
-    return f"Failed to interrupt {session}: {message}"
+        return f"{session_window_pane}: {message}"
+    return f"Failed to interrupt {session_window_pane}: {message}"
 
 
 # REPL helper: Reload config
@@ -185,7 +230,8 @@ def reload(state: TermTapState) -> str:
     Returns:
         Reload confirmation message.
     """
-    _ = get_target_config()
+    from . import config
+    config._config_manager = None
     return "Configuration reloaded"
 
 

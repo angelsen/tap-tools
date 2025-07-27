@@ -9,31 +9,26 @@ import os
 import signal
 import logging
 
-from ..tmux import send_keys, session_exists, get_pane_for_session
+from ..tmux import send_keys
 
 logger = logging.getLogger(__name__)
 
 
-def _send_interrupt(session: str) -> bool:
-    """Send Ctrl+C to whatever is running in session.
+def _send_interrupt(pane_id: str) -> bool:
+    """Send Ctrl+C to whatever is running in pane.
 
     Args:
-        session: Tmux session name
+        pane_id: Tmux pane ID
 
     Returns:
         True if interrupt was sent successfully
     """
-    if not session_exists(session):
-        logger.error(f"Session {session} does not exist")
-        return False
-
     try:
-        pane_id = get_pane_for_session(session)
-        send_keys(pane_id, "\x03")  # Ctrl+C
-        logger.info(f"Sent interrupt to session {session}")
+        send_keys(pane_id, "C-c")
+        logger.info(f"Sent interrupt to pane {pane_id}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send interrupt to {session}: {e}")
+        logger.error(f"Failed to send interrupt to {pane_id}: {e}")
         return False
 
 

@@ -1,12 +1,13 @@
 """Session name generation utilities.
 
-PUBLIC API: (none)
+PUBLIC API:
+  - generate_session_name: Generate Docker-style session names
 """
 
 import random
 
 
-def _generate_session_name() -> str:
+def generate_session_name() -> str:
     """Generate a Docker-style session name (adjective-animal)."""
     adjectives = [
         "awesome",

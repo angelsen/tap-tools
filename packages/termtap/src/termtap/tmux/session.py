@@ -56,6 +56,40 @@ def _create_session(name: str, start_dir: Optional[str] = None) -> bool:
     return code == 0
 
 
+def new_session(name: str, start_dir: Optional[str] = None, attach: bool = False) -> bool:
+    """Create a new tmux session.
+    
+    Args:
+        name: Session name.
+        start_dir: Starting directory for the session.
+        attach: Whether to attach to the session after creation.
+        
+    Returns:
+        True if session was created successfully.
+    """
+    if attach:
+        args = ["new-session", "-s", name]
+        if start_dir:
+            args.extend(["-c", start_dir])
+        code, _, _ = _run_tmux(args)
+        return code == 0
+    else:
+        return _create_session(name, start_dir)
+
+
+def attach_session(name: str) -> bool:
+    """Attach to an existing tmux session.
+    
+    Args:
+        name: Session name to attach to.
+        
+    Returns:
+        True if attached successfully.
+    """
+    code, _, _ = _run_tmux(["attach-session", "-t", name])
+    return code == 0
+
+
 def kill_session(name: str) -> bool:
     """Kill a tmux session.
 
@@ -105,10 +139,10 @@ def get_or_create_session(target: Optional[str] = None, start_dir: Optional[str]
         Session name.
     """
     if target is None:
-        from .names import _generate_session_name
+        from .names import generate_session_name
 
         while True:
-            name = _generate_session_name()
+            name = generate_session_name()
             if not session_exists(name):
                 break
     else:
