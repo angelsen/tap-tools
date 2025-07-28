@@ -15,7 +15,7 @@ type SessionWindowPane = str  # e.g., "session:0.0", "session:1.2" - our canonic
 type Target = PaneID | SessionWindowPane | str  # str for convenience resolution
 
 # Command execution states
-type CommandStatus = Literal["completed", "timeout", "aborted", "running"]
+type CommandStatus = Literal["completed", "timeout", "aborted", "running", "ready"]
 
 # Read mode types (start simple, add others when needed)
 type ReadMode = Literal["direct", "stream", "since_command"]
@@ -30,44 +30,45 @@ type ShellType = Literal["bash", "fish", "zsh", "sh", "dash", "ksh", "tcsh", "cs
 @dataclass
 class PaneIdentifier:
     """Parsed pane identifier with all components."""
+
     session: str
     window: int
     pane: int
-    
+
     @property
     def swp(self) -> SessionWindowPane:
         """Get session:window.pane format."""
         return f"{self.session}:{self.window}.{self.pane}"
-    
+
     @property
     def display(self) -> str:
         """Get display format for ls() output."""
         return self.swp
-    
+
     @classmethod
     def parse(cls, target: str) -> "PaneIdentifier":
         """Parse session:window.pane format.
-        
+
         Args:
             target: String like "epic-swan:0.0" or "backend:1.2"
-            
+
         Returns:
             PaneIdentifier instance
-            
+
         Raises:
             ValueError: If format is invalid
         """
-        match = re.match(r'^([^:]+):(\d+)\.(\d+)$', target)
+        match = re.match(r"^([^:]+):(\d+)\.(\d+)$", target)
         if not match:
             raise ValueError(f"Invalid pane identifier format: {target}")
-        
+
         session, window, pane = match.groups()
         return cls(session=session, window=int(window), pane=int(pane))
 
 
 def is_pane_id(target: str) -> bool:
     """Check if target is a tmux pane ID (%number)."""
-    return target.startswith('%') and target[1:].isdigit()
+    return target.startswith("%") and target[1:].isdigit()
 
 
 def is_session_window_pane(target: str) -> bool:
@@ -81,10 +82,10 @@ def is_session_window_pane(target: str) -> bool:
 
 def resolve_target(target: Target) -> tuple[Literal["pane_id", "swp", "convenience"], str]:
     """Resolve target to its type and normalized value.
-    
+
     Args:
         target: Any target string
-        
+
     Returns:
         Tuple of (target_type, normalized_value)
         - pane_id: Direct tmux pane ID like "%42"
@@ -102,27 +103,27 @@ def resolve_target(target: Target) -> tuple[Literal["pane_id", "swp", "convenien
 
 def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
     """Parse convenience formats into components.
-    
+
     Supports:
     - "session" -> (session, None, None)
     - "session:1" -> (session, 1, None)
     - "session:1.2" -> (session, 1, 2)  # Already handled by resolve_target
-    
+
     Args:
         target: Convenience format string
-        
+
     Returns:
         Tuple of (session, window_or_none, pane_or_none)
     """
-    if ':' not in target:
+    if ":" not in target:
         return (target, None, None)
-    
-    parts = target.split(':', 1)
+
+    parts = target.split(":", 1)
     session = parts[0]
-    
-    if '.' in parts[1]:
+
+    if "." in parts[1]:
         # This is actually a full swp - shouldn't reach here
-        window, pane = parts[1].split('.', 1)
+        window, pane = parts[1].split(".", 1)
         return (session, int(window), int(pane))
     else:
         # session:window format
@@ -133,6 +134,7 @@ def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
 @dataclass
 class ProcessInfo:
     """Information about a process in a pane."""
+
     shell: str
     process: str | None
     state: Literal["ready", "working", "unknown"]
@@ -141,60 +143,35 @@ class ProcessInfo:
 
 # Configuration types
 @dataclass
-class PaneConfig:
-    """Configuration for a specific pane."""
-    pane_id: SessionWindowPane
-    dir: str | None = None
-    start: str | None = None
-    name: str | None = None  # Human-friendly name
-    env: dict[str, str] | None = None
-
-
-@dataclass
 class SessionConfig:
-    """Configuration for a session (applies to all its panes)."""
+    """Configuration for a session."""
+
     session: str
-    dir: str | None = None
-    env: dict[str, str] | None = None
+    ready_pattern: str | None = None
+    timeout: float | None = None
 
 
 @dataclass
-class TargetConfig:
-    """Resolved configuration for a target."""
-    target: SessionWindowPane  # Always resolved to explicit format
-    dir: str
-    env: dict[str, str]
-    start: str | None = None
-    name: str | None = None
-    
-    @property
-    def absolute_dir(self) -> str:
-        """Get absolute directory path."""
-        import os
-        return os.path.abspath(os.path.expanduser(self.dir))
+class ExecutionConfig:
+    """Resolved configuration for command execution."""
+
+    session_window_pane: SessionWindowPane
+    ready_pattern: str | None = None
+    timeout: float | None = None
+    compiled_pattern: re.Pattern[str] | None = None
 
 
 # Note: Streaming metadata is stored directly in JSON sidecar files
 # No need for in-memory types since sidecar is the source of truth
 
 
-# Command result type
-@dataclass
-class CommandResult:
-    """Result of command execution in a pane."""
-    output: str
-    status: CommandStatus
-    pane_id: str  # Which pane it ran in
-    session_window_pane: SessionWindowPane  # Full identifier
-    process: str | None
-    command_id: str  # Unique identifier for this command
-    duration: float | None = None  # Execution time if waited
-    start_time: float | None = None  # When command started
+# Note: CommandResult removed - commands return their own structures directly
 
 
 # Display types for ls() command
 class PaneRow(TypedDict):
     """Row data for pane listing."""
+
     Pane: str  # session:window.pane
     Shell: str
     Process: str
@@ -205,6 +182,7 @@ class PaneRow(TypedDict):
 # Hover dialog types (for dangerous commands)
 class HoverPattern(TypedDict):
     """Pattern for triggering hover dialogs."""
+
     pattern: str
     message: str
     confirm: NotRequired[bool]
@@ -213,6 +191,7 @@ class HoverPattern(TypedDict):
 @dataclass
 class HoverResult:
     """Result from hover dialog interaction."""
+
     confirmed: bool
     cancelled: bool
     message: str | None = None

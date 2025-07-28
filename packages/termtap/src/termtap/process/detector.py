@@ -48,7 +48,7 @@ def _extract_shell_and_process(
     # Find first non-skipped process
     # Skip all shells and configured skip processes
     skip = KNOWN_SHELLS.union(set(skip_processes))
-    
+
     process = None
     for proc in chain:
         if proc.name not in skip:
@@ -87,10 +87,10 @@ def detect_process(pane_id: str) -> ProcessInfo:
         ready, _ = handler.is_ready(process)
 
         return ProcessInfo(
-            shell=shell.name if shell else "unknown", 
-            process=process.name, 
+            shell=shell.name if shell else "unknown",
+            process=process.name,
             state="ready" if ready else "working",
-            pane_id=pane_id
+            pane_id=pane_id,
         )
 
     except Exception as e:
@@ -141,10 +141,7 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
             # Determine state
             if not process or process == shell:
                 results[pane_id] = ProcessInfo(
-                    shell=shell.name if shell else "unknown", 
-                    process=None, 
-                    state="ready",
-                    pane_id=pane_id
+                    shell=shell.name if shell else "unknown", process=None, state="ready", pane_id=pane_id
                 )
             else:
                 handler = get_handler(process)
@@ -153,7 +150,7 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
                     shell=shell.name if shell else "unknown",
                     process=process.name,
                     state="ready" if ready else "working",
-                    pane_id=pane_id
+                    pane_id=pane_id,
                 )
 
         except Exception as e:

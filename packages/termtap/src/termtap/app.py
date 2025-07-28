@@ -10,6 +10,7 @@ from .core import ExecutorState
 @dataclass
 class TermTapState:
     """Application state for termtap pane management."""
+
     executor: ExecutorState = field(default_factory=ExecutorState)
 
 
@@ -26,13 +27,13 @@ app = App(
 )
 
 
-# Import formatters and commands (triggers registration)
-from . import formatters  # noqa: E402, F401
+# Import commands (triggers registration)
 from . import commands  # noqa: E402, F401
 
 
 if __name__ == "__main__":
     import sys
+
     if "--mcp" in sys.argv:
         app.mcp.run()
     else:

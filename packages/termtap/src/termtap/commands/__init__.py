@@ -1,13 +1,17 @@
-"""Termtap commands - minimal set."""
+"""Termtap commands - one command per file."""
 
 # Import to trigger @app.command decorators
-from . import execution  # noqa: F401
-from . import inspection  # noqa: F401
-from . import utils  # noqa: F401
+from . import bash as _bash  # noqa: F401
+from . import interrupt as _interrupt  # noqa: F401
+from . import read as _read  # noqa: F401
+from . import ls as _ls  # noqa: F401
+from . import reload as _reload  # noqa: F401
 
-# Export for convenience
-from .execution import bash, interrupt
-from .inspection import read, ls
-from .utils import reload
+# Export for convenience (imported from their own modules)
+from .bash import bash
+from .interrupt import interrupt
+from .read import read
+from .ls import ls
+from .reload import reload
 
 __all__ = ["bash", "interrupt", "read", "ls", "reload"]

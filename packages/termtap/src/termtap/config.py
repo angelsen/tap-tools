@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional, Dict
 import tomllib
 
-from .types import TargetConfig as TypedTargetConfig, PaneConfig, SessionConfig, SessionWindowPane
+import re
+from .types import ExecutionConfig, SessionConfig, SessionWindowPane
 
 
 def _find_config_file() -> Optional[Path]:
@@ -36,107 +37,90 @@ def _load_config(path: Optional[Path] = None) -> dict:
 
 
 class ConfigManager:
-    """Manages pane and session configurations."""
-    
+    """Manages session configurations for execution."""
+
     def __init__(self):
         self.data = _load_config()
         self._default_config = self.data.get("default", {})
         self._session_configs: Dict[str, SessionConfig] = {}
-        self._pane_configs: Dict[SessionWindowPane, PaneConfig] = {}
-        
-        # Load session configs
+
+        # Load session configs with ready_pattern and timeout
         sessions = self.data.get("sessions", {})
         for session_name, config in sessions.items():
             if isinstance(config, dict):
                 self._session_configs[session_name] = SessionConfig(
-                    session=session_name,
-                    dir=config.get("dir"),
-                    env=config.get("env", {})
+                    session=session_name, ready_pattern=config.get("ready_pattern"), timeout=config.get("timeout")
                 )
-        
-        # Load pane configs
-        panes = self.data.get("panes", {})
-        for pane_id, config in panes.items():
-            if isinstance(config, dict):
-                self._pane_configs[pane_id] = PaneConfig(
-                    pane_id=pane_id,
-                    dir=config.get("dir"),
-                    start=config.get("start"),
-                    name=config.get("name"),
-                    env=config.get("env", {})
-                )
-    
-    def get_config_for_pane(self, session_window_pane: SessionWindowPane) -> TypedTargetConfig:
-        """Get resolved configuration for a specific pane.
-        
+
+    def get_execution_config(self, session_window_pane: SessionWindowPane) -> ExecutionConfig:
+        """Get execution configuration for a pane.
+
         Resolution order:
-        1. Pane-specific config
-        2. Session-level config
+        1. Exact pane match (backend:0.0)
+        2. Session match (backend)
         3. Default config
-        
+
         Args:
             session_window_pane: Full pane identifier (e.g., "backend:0.0")
-            
+
         Returns:
-            Resolved TargetConfig with all values filled
+            ExecutionConfig with ready_pattern compiled if present
         """
+        # Get defaults
+        ready_pattern = self._default_config.get("ready_pattern")
+        timeout = self._default_config.get("timeout")
+
         # Extract session name
-        session = session_window_pane.split(':')[0]
-        
-        # Start with defaults
-        dir = self._default_config.get("dir", ".")
-        env = self._default_config.get("env", {}).copy()
-        start = None
-        name = None
-        
-        # Apply session config if exists
+        session = session_window_pane.split(":")[0]
+
+        # Check for session-level config
         if session in self._session_configs:
             session_config = self._session_configs[session]
-            if session_config.dir:
-                dir = session_config.dir
-            if session_config.env:
-                env.update(session_config.env)
-        
-        # Apply pane config if exists
-        if session_window_pane in self._pane_configs:
-            pane_config = self._pane_configs[session_window_pane]
-            if pane_config.dir:
-                dir = pane_config.dir
-            if pane_config.env:
-                env.update(pane_config.env)
-            if pane_config.start:
-                start = pane_config.start
-            if pane_config.name:
-                name = pane_config.name
-        
-        return TypedTargetConfig(
-            target=session_window_pane,
-            dir=dir,
-            env=env,
-            start=start,
-            name=name
+            if session_config.ready_pattern is not None:
+                ready_pattern = session_config.ready_pattern
+            if session_config.timeout is not None:
+                timeout = session_config.timeout
+
+        # Check for exact pane match (overrides session config)
+        if session_window_pane in self._session_configs:
+            pane_config = self._session_configs[session_window_pane]
+            if pane_config.ready_pattern is not None:
+                ready_pattern = pane_config.ready_pattern
+            if pane_config.timeout is not None:
+                timeout = pane_config.timeout
+
+        # Compile pattern if present
+        compiled_pattern = None
+        if ready_pattern:
+            try:
+                compiled_pattern = re.compile(ready_pattern)
+            except re.error:
+                # Invalid regex - just skip it
+                pass
+
+        return ExecutionConfig(
+            session_window_pane=session_window_pane,
+            ready_pattern=ready_pattern,
+            timeout=timeout,
+            compiled_pattern=compiled_pattern,
         )
-    
-    def get_config_for_new_session(self, session: str) -> TypedTargetConfig:
+
+    def get_config_for_new_session(self, session: str) -> ExecutionConfig:
         """Get config for creating a new session.
-        
-        Used when session doesn't exist yet, defaults to first pane.
-        
+
         Args:
             session: Session name
-            
+
         Returns:
             Config for session:0.0
         """
-        return self.get_config_for_pane(f"{session}:0.0")
-    
+        return self.get_execution_config(f"{session}:0.0")
+
     @property
     def skip_processes(self) -> list[str]:
         """Get list of wrapper processes to skip in detection."""
-        return self._default_config.get("skip_processes", [
-            "uv", "npm", "yarn", "poetry", "pipenv", "nix-shell"
-        ])
-    
+        return self._default_config.get("skip_processes", ["uv", "npm", "yarn", "poetry", "pipenv", "nix-shell"])
+
     @property
     def hover_patterns(self) -> list[dict]:
         """Get hover dialog patterns."""
@@ -155,28 +139,13 @@ def get_config_manager() -> ConfigManager:
     return _config_manager
 
 
-def get_pane_config(session_window_pane: SessionWindowPane) -> TypedTargetConfig:
-    """Get configuration for a specific pane.
-    
+def get_execution_config(session_window_pane: SessionWindowPane) -> ExecutionConfig:
+    """Get execution configuration for a pane.
+
     Args:
         session_window_pane: Full pane identifier
-        
-    Returns:
-        Resolved configuration
-    """
-    return get_config_manager().get_config_for_pane(session_window_pane)
 
-
-def get_target_config(target: str = "default") -> TypedTargetConfig:
-    """Legacy compatibility - converts to pane config.
-    
-    Args:
-        target: Session name or "default"
-        
     Returns:
-        Config for first pane of session
+        ExecutionConfig with compiled pattern
     """
-    if target == "default":
-        return get_pane_config("default:0.0")
-    else:
-        return get_config_manager().get_config_for_new_session(target)
+    return get_config_manager().get_execution_config(session_window_pane)
