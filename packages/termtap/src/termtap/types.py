@@ -5,7 +5,7 @@ Target resolution is explicit and unambiguous.
 """
 
 from typing import TypedDict, NotRequired, Literal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 
 
@@ -80,8 +80,8 @@ def is_session_window_pane(target: str) -> bool:
         return False
 
 
-def resolve_target(target: Target) -> tuple[Literal["pane_id", "swp", "convenience"], str]:
-    """Resolve target to its type and normalized value.
+def classify_target(target: Target) -> tuple[Literal["pane_id", "swp", "service", "convenience"], str]:
+    """Classify target string to its type and normalized value.
 
     Args:
         target: Any target string
@@ -90,14 +90,18 @@ def resolve_target(target: Target) -> tuple[Literal["pane_id", "swp", "convenien
         Tuple of (target_type, normalized_value)
         - pane_id: Direct tmux pane ID like "%42"
         - swp: Explicit session:window.pane like "epic-swan:0.0"
+        - service: Service name like "demo.backend"
         - convenience: Session name that needs resolution like "epic-swan"
     """
     if is_pane_id(target):
         return ("pane_id", target)
     elif is_session_window_pane(target):
         return ("swp", target)
+    elif "." in target and ":" not in target:
+        # Could be a service name (demo.backend)
+        return ("service", target)
     else:
-        # Convenience format - might be session, session:window, or invalid
+        # Convenience format - session name or session:window
         return ("convenience", target)
 
 
@@ -143,15 +147,6 @@ class ProcessInfo:
 
 # Configuration types
 @dataclass
-class SessionConfig:
-    """Configuration for a session."""
-
-    session: str
-    ready_pattern: str | None = None
-    timeout: float | None = None
-
-
-@dataclass
 class ExecutionConfig:
     """Resolved configuration for command execution."""
 
@@ -168,10 +163,62 @@ class ExecutionConfig:
 # Note: CommandResult removed - commands return their own structures directly
 
 
+# Init system types
+@dataclass
+class ServiceConfig:
+    """Configuration for a service in an init group."""
+
+    name: str  # e.g., "backend"
+    group: str  # e.g., "demo"
+    pane: int
+    command: str
+    ready_pattern: str | None = None
+    timeout: float | None = None
+    depends_on: list[str] | None = None
+
+    @property
+    def full_name(self) -> str:
+        """Get full service name (group.name)."""
+        return f"{self.group}.{self.name}"
+
+    @property
+    def session_window_pane(self) -> SessionWindowPane:
+        """Get session:window.pane for this service."""
+        return f"{self.group}:0.{self.pane}"
+
+
+@dataclass
+class InitGroup:
+    """Configuration for an init group."""
+
+    name: str
+    layout: str = "even-horizontal"
+    services: list[ServiceConfig] = field(default_factory=list)
+
+    def get_service(self, name: str) -> ServiceConfig | None:
+        """Get service by name."""
+        for service in self.services:
+            if service.name == name:
+                return service
+        return None
+
+
 # Display types for ls() command
 class PaneRow(TypedDict):
     """Row data for pane listing."""
 
+    Pane: str  # session:window.pane
+    Shell: str
+    Process: str
+    State: Literal["ready", "working", "unknown"]
+    Attached: Literal["Yes", "No"]
+
+
+# Enhanced for status display
+class PaneRowWithStatus(TypedDict):
+    """Enhanced pane row with status icon."""
+
+    Status: str  # Icon from replkit2
     Pane: str  # session:window.pane
     Shell: str
     Process: str

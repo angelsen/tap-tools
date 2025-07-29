@@ -1,17 +1,17 @@
 # termtap Architecture
 
 ## Overview
-Process-native tmux session manager with MCP support. Built on ReplKit2 for dual REPL/MCP functionality, using a handler-based architecture for intelligent process detection.
+Process-native tmux session manager with MCP support. Built on ReplKit2 for dual REPL/MCP functionality, emphasizing simplicity and direct tmux integration.
 
 ## Core Design Principles
 
-1. **Process-Native**: Leverage OS-level syscalls instead of pattern matching
-2. **Clean Module Boundaries**: Public APIs only, no cross-module private function usage
-3. **Streaming Sidecar**: Reliable output capture through tmux pipe streams
-4. **Handler Architecture**: Extensible system for different process types
-5. **Minimal State**: No command tracking, just stream management
+1. **Process-Native**: Leverage OS-level information from /proc instead of pattern matching
+2. **Command Ownership**: Each command owns its complete workflow - no hidden orchestration
+3. **Direct tmux Integration**: Work with tmux's native concepts (panes, not sessions)
+4. **Minimal Abstractions**: Only create types for unique identifiers, config, and API contracts
+5. **Error Transparency**: Clear error messages without hiding implementation details
 
-## Architecture
+## Current Architecture
 
 ### Module Structure
 ```
@@ -19,138 +19,121 @@ packages/termtap/src/termtap/
 ├── __init__.py          # Package exports (app, __version__)
 ├── __main__.py          # Entry point for python -m termtap
 ├── app.py               # ReplKit2 app with commands
-├── config.py            # Configuration with skip_processes support
-├── types.py             # Type definitions (Target, CommandStatus, ProcessInfo, etc.)
-├── core/
-│   ├── __init__.py      # Exports: execute, ExecutorState, CommandResult
-│   ├── control.py       # Internal process control functions
-│   └── execute.py       # Command execution with streaming
-├── tmux/
-│   ├── __init__.py      # Exports all tmux functions and exceptions
+├── config.py            # Configuration management
+├── types.py             # Core type definitions
+├── errors.py            # Error response formatters
+├── commands/            # Command implementations (each owns its workflow)
+│   ├── __init__.py      # Exports command registration
+│   ├── bash.py          # bash() command with full workflow
+│   ├── read.py          # read() command implementation
+│   ├── ls.py            # ls() command with fuzzy filtering
+│   ├── interrupt.py     # interrupt() command
+│   └── init.py          # init(), init_list(), kill() commands
+├── tmux/                # Pure tmux operations
+│   ├── __init__.py      # Exports all public tmux functions
+│   ├── core.py          # Core tmux operations (run_tmux, get_pane_id)
+│   ├── resolution.py    # Target resolution logic
+│   ├── structure.py     # Complex session/window/pane creation
 │   ├── session.py       # Session management
-│   ├── pane.py          # Pane capture functions  
-│   ├── stream.py        # Streaming sidecar for output
-│   ├── utils.py         # Low-level tmux operations
+│   ├── pane.py          # Pane operations and PaneInfo
+│   ├── stream.py        # Stream-based output capture
 │   ├── names.py         # Session name generation
-│   └── exceptions.py    # TmuxError, SessionNotFoundError, CurrentPaneError
-├── process/
+│   └── exceptions.py    # TmuxError, PaneNotFoundError, CurrentPaneError
+├── process/             # Process detection
 │   ├── __init__.py      # Exports process detection functions
 │   ├── detector.py      # Process state detection
-│   ├── tree.py          # Process tree analysis
-│   └── handlers/        # Pluggable handlers per process type
-│       ├── __init__.py  # Exports: ProcessHandler, get_handler
-│       ├── default.py   # Generic process handler
-│       ├── python.py    # Python REPL/script handler
-│       └── ssh.py       # SSH session handler with safety
-└── hover/               # Interactive dialogs (used by handlers)
-    ├── __init__.py      # Exports: show_hover
-    └── dialog.sh        # Shell script for hover UI
+│   ├── tree.py          # Process tree analysis using /proc
+│   └── handlers/        # Process-specific handlers
+│       ├── __init__.py  # Handler registry and base class
+│       ├── default.py   # Default handler (no children = ready)
+│       ├── python.py    # Python REPL/script detection
+│       └── ssh.py       # SSH session safety
+└── hover/               # Interactive dialogs
+    ├── __init__.py      # Hover dialog interface
+    └── dialog.sh        # Shell script for UI
 ```
 
-### Key APIs
+### Key Design Changes (Post-Refactor)
 
-#### app.py - ReplKit2 Commands
-- `bash(command, target, wait, timeout)` - Execute with streaming output (MCP tool)
-- `read(target, lines)` - Direct tmux capture (MCP resource)
-- `ls()` - List sessions with process info (REPL only)
-- `interrupt(session)` - Send Ctrl+C (MCP tool)
-- `reload()` - Reload configuration (REPL only)
+1. **Pane-First Architecture**: All operations work with pane IDs, not session names
+2. **Command Independence**: Each command in `commands/` handles its complete workflow
+3. **No CommandResult Type**: Commands return what makes sense for their display type
+4. **Direct Markdown**: Commands return markdown dicts directly, no formatter indirection
+5. **Simplified Error Handling**: Consistent error patterns without complex hierarchies
 
-#### tmux Module - Public API
-- `list_sessions()` - Get all sessions
-- `session_exists()`, `get_or_create_session()`, `kill_session()`
-- `capture_visible()`, `capture_all()`, `capture_last_n()`
-- `get_pane_pid()`, `get_pane_for_session()`
-- `send_keys()` - Send keystrokes
-- `TmuxError`, `SessionNotFoundError`, `CurrentPaneError` - Exception types
+### Command Patterns
 
-#### process Module - Public API
-- `detect_process(session)` - Get current process info for a session
-- `detect_all_processes(sessions)` - Batch process detection
-- `interrupt_process(session)` - Interrupt with appropriate handler
-- `get_handler_for_session(session, process_node)` - Get handler for process
-- `ProcessHandler` - Base class for process handlers
-- `get_handler(process)` - Get handler instance
+Each command follows a simple pattern:
+```python
+@app.command(display="markdown")  # or "table", etc.
+def command_name(state, arg1: str, arg2: Optional[int] = None):
+    """Docstring becomes help text."""
+    try:
+        # Resolve targets
+        # Perform operations
+        # Return display-appropriate data
+    except SpecificError as e:
+        # Return user-friendly error
+        return markdown_error_response(str(e))
+```
 
-#### core Module - Public API
-- `execute(state, command, target, wait, timeout)` - Main execution
-- `ExecutorState` - State container with StreamManager
-- `CommandResult` - Result type with output, status, session, process
+### Error Handling Architecture
 
-### Streaming Architecture
+- **Modules raise**: Descriptive RuntimeError or domain exceptions
+- **Commands catch**: Transform to user-friendly messages
+- **No raw tracebacks**: All errors are formatted for users
+- **Consistent format**: `{"elements": [...], "frontmatter": {"status": "error"}}`
 
-The streaming sidecar provides reliable output capture:
-1. Mark position before sending command
-2. Send command via tmux send-keys
-3. Stream captures all output to file
-4. Read from mark when ready/timeout
+### Target Resolution
 
-This avoids tmux capture timing issues and provides complete output.
+Supports multiple target formats:
+- **Pane ID**: `%42` - Direct tmux pane reference
+- **Session:Window.Pane**: `demo:0.0` - Full specification
+- **Session**: `demo` - May resolve to multiple panes
+- **Service**: `demo.backend` - Resolves via config
 
-### Handler System
+### Process Detection
 
-Process handlers in `process/handlers/` provide:
-- Process type detection
-- Ready state determination  
-- Pre/post command hooks
-- Custom behavior per process type
+Uses pstree algorithm scanning `/proc/*/stat`:
+- Builds complete process tree from PPID relationships
+- Selects first non-shell process for display
+- Returns sensible defaults on failure
+- No exceptions for non-critical operations
 
-Current handlers:
-- `default.py` - Generic processes (simple "no children = ready" logic)
-- `python.py` - Python REPL and scripts (uses wait channels)
-- `ssh.py` - SSH sessions with hover dialog for safety
-
-### Type System
-
-Key types in `types.py`:
-- `Target` - Union type for session targets
-- `CommandStatus` - Literal types for command status
-- `ProcessInfo` - Process detection result
-- `ProcessNode` - Process tree node with full info
-- `TargetConfig` - Configuration for a target
-- `HoverPattern` - Pattern matching for dialogs
-- `HoverResult` - Dialog interaction result
-
-### Configuration
-
-`termtap.toml` supports:
-- Working directories
-- Startup commands
-- Environment variables
-- Skip processes list (wrappers to ignore)
-- Hover patterns (for interactive dialogs)
-
-## Development Workflow
+## Testing & Development
 
 ```bash
+# Run termtap REPL
+uv run termtap
+
+# Run tests
+ruff check packages/termtap/ --fix
+basedpyright packages/termtap/
+
 # Test with debug-bridge
-mcp__debug-brdige__terminal_send(session_id="epic-swan", command="uv run python -m termtap")
-mcp__debug-brdige__terminal_read(session_id="epic-swan", lines=50)
-
-# MCP server mode
-uv run python -m termtap --mcp
-
-# Lint and type check
-ruff check packages/termtap --fix
-basedpyright packages/termtap
-ruff format packages/termtap
-
-# Apply conventions to modules
-make conform-module TARGET=packages/termtap/src/termtap/MODULE_NAME
-make conform-file TARGET=packages/termtap/src/termtap/FILE.py
+mcp__debug-brdige__terminal_send(session_id="epic-swan", command="uv run termtap")
 ```
 
-## Future Enhancements
+## Recent Improvements
 
-1. **More Handlers**: Database shells, containers, notebooks
-2. **Session Templates**: Pre-configured session types
-3. **Process Hooks**: User-defined pre/post command scripts
-4. **Better Debugging**: Enhanced process state visibility
-5. **Performance**: Lazy loading, connection pooling
+1. **Unified Error Handling**: All commands follow ERROR_HANDLING_SPEC.md
+2. **Type Safety**: Full basedpyright compliance with proper Optional handling
+3. **Fuzzy ls()**: Added filter parameter for flexible session/process search
+4. **Domain Exceptions**: Added PaneNotFoundError, WindowNotFoundError
+5. **Cleaner Architecture**: Removed complex orchestration in favor of direct command ownership
+
+## Future Considerations
+
+1. **More Handlers**: Container, database, notebook process handlers
+2. **Better Process Info**: Enhanced metadata from /proc
+3. **Session Templates**: Pre-configured multi-service setups
+4. **Performance**: Batch operations for large session counts
+5. **Testing**: Comprehensive test suite for error paths
 
 ## Philosophy
 
-- **Don't recreate what syscalls tell us** - Use /proc and process info
-- **Clean over clever** - Simple, direct API usage
-- **Extensible not configurable** - Handlers over config options
-- **Process-native** - Work with processes, not patterns
+- **Simplicity over cleverness**: Direct, obvious implementations
+- **User experience first**: Clear errors, helpful messages
+- **Leverage the OS**: Use /proc, tmux state, system tools
+- **Fail gracefully**: Return defaults, not exceptions
+- **Progressive disclosure**: Simple commands, powerful options

@@ -5,10 +5,10 @@ from typing import Any
 
 from ..app import app
 from ..types import Target
-from ..tmux import send_keys
-from ..tmux.utils import resolve_target_to_pane
+from ..tmux import send_keys, resolve_or_create_target, CurrentPaneError, resolve_target
 from ..process.detector import detect_process
-from ..config import get_execution_config
+from ..config import get_execution_config, get_config_manager
+from ..errors import markdown_error_response
 
 
 @app.command(
@@ -23,46 +23,70 @@ def bash(
     timeout: float | None = None,
 ) -> dict[str, Any]:
     """Execute command in target pane."""
-    # 1. Resolution & Creation
-    session_created = False
-    pane_id: str
-    session_window_pane: str
+    # 1. Resolution - get or create single pane
+    try:
+        pane_id, session_window_pane = resolve_or_create_target(target)
+    except RuntimeError as e:
+        error_str = str(e)
+
+        # Handle ambiguous target with service suggestions
+        if "matches" in error_str and "panes" in error_str:
+            try:
+                panes = resolve_target(target)
+                targets = [swp for _, swp in panes]
+
+                # Add service targets if available
+                session = panes[0][1].split(":")[0]
+                cm = get_config_manager()
+                if session in cm._init_groups:
+                    group = cm._init_groups[session]
+                    targets.extend([s.full_name for s in group.services])
+
+                message = f"Target '{target}' has {len(panes)} panes. Please specify:\n" + "\n".join(
+                    f"  - {t}" for t in targets
+                )
+                return markdown_error_response(message)
+            except Exception:
+                # Fallback to original error
+                return markdown_error_response(f"Target error: {error_str}")
+
+        # Handle service not found
+        elif "Service" in error_str and "not found" in error_str:
+            message = f"Service not found: {target}\nUse 'init_list()' to see available init groups."
+            return markdown_error_response(message)
+
+        # Generic target error
+        else:
+            return markdown_error_response(f"Target error: {error_str}")
+
+    except Exception as e:
+        # Catch any other unexpected errors
+        return markdown_error_response(f"Unexpected error: {e}")
 
     try:
-        resolved_pane_id, resolved_swp = resolve_target_to_pane(target)
-        if resolved_pane_id is None or resolved_swp is None:
-            raise RuntimeError("Failed to resolve target")
-        pane_id = resolved_pane_id
-        session_window_pane = resolved_swp
-    except RuntimeError:
-        # Create new session if it's a simple name
-        if isinstance(target, str) and not (":" in target or target.startswith("%")):
-            from ..tmux.session import _create_session
+        # 2. Get config for ready patterns
+        config = get_execution_config(session_window_pane)
+        if timeout is None:
+            timeout = config.timeout or 30.0
 
-            pane_id, session_window_pane = _create_session(target, ".")
-            session_created = True
-        else:
-            # Can't create this target format
-            return {
-                "elements": [{"type": "text", "content": f"Target not found: {target}"}],
-                "frontmatter": {"command": command, "status": "error"},
-            }
+        # 3. Setup streaming
+        stream = state.executor.stream_manager.get_stream(pane_id, session_window_pane)
+        stream.start()
 
-    # 2. Get config for ready patterns
-    config = get_execution_config(session_window_pane)
-    if timeout is None:
-        timeout = config.timeout or 30.0
-
-    # 3. Setup streaming
-    stream = state.executor.stream_manager.get_stream(pane_id, session_window_pane)
-    stream.start()
-
-    # Mark command start for output tracking
-    cmd_id = f"cmd_{int(time.time() * 1000)}"
-    stream.mark_command(cmd_id, command)
+        # Mark command start for output tracking
+        cmd_id = f"cmd_{int(time.time() * 1000)}"
+        stream.mark_command(cmd_id, command)
+    except Exception as e:
+        return markdown_error_response(f"Failed to initialize command: {e}")
 
     # 4. Send command
-    send_keys(pane_id, command)
+    try:
+        send_keys(pane_id, command)
+    except CurrentPaneError:
+        return markdown_error_response(f"Cannot send commands to current pane ({pane_id})")
+    except RuntimeError as e:
+        # Tmux operation failed
+        return markdown_error_response(str(e))
 
     # Early return for non-wait
     if not wait:
@@ -115,13 +139,6 @@ def bash(
 
     # 6. Build response
     elements = []
-
-    # Session creation message
-    if session_created:
-        session_name = target if isinstance(target, str) else "default"
-        elements.append(
-            {"type": "blockquote", "content": f"Session '{session_name}' not found. Creating new session..."}
-        )
 
     # Main output
     elements.append(

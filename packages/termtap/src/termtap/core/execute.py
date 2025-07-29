@@ -5,7 +5,7 @@ The actual execution logic lives in commands/bash.py
 """
 
 from dataclasses import dataclass, field
-from ..tmux.stream import _StreamManager
+from ..tmux import StreamManager
 
 
 @dataclass
@@ -16,4 +16,4 @@ class ExecutorState:
         stream_manager: Manager for tmux pane streams.
     """
 
-    stream_manager: _StreamManager = field(default_factory=_StreamManager)
+    stream_manager: StreamManager = field(default_factory=StreamManager)

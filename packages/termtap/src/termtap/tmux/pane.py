@@ -1,89 +1,231 @@
-"""Pane capture operations for tmux.
+"""Pane operations - all pane-related functionality."""
 
-PUBLIC API:
-  - capture_visible: Capture visible pane content
-  - capture_all: Capture entire pane history
-  - capture_last_n: Capture last N lines from pane
-"""
+from typing import List, Optional
+from dataclasses import dataclass
+import json
 
-from typing import Optional
-from ..types import Target
-from .utils import _run_tmux, _is_current_pane
-from .exceptions import CurrentPaneError
+from .core import run_tmux, is_current_pane, get_current_pane
+from .exceptions import CurrentPaneError, PaneNotFoundError
+from ..types import SessionWindowPane
 
 
-def _capture_pane(target: Target, lines: Optional[int] = None) -> str:
-    """Capture pane output from target.
+@dataclass
+class PaneInfo:
+    """Complete information about a tmux pane."""
+
+    pane_id: str  # %42
+    session: str
+    window_index: int
+    window_name: str
+    pane_index: int
+    pane_title: str
+    pane_pid: int
+    is_active: bool
+    is_current: bool
+    swp: SessionWindowPane  # session:window.pane
+
+
+def send_keys(pane_id: str, command: str, enter: bool = True) -> bool:
+    """Send keystrokes to a pane.
 
     Args:
-        target: Target specification (session, pane ID, window ID, or session:window.pane)
-        lines: Number of lines to capture (None = visible, -1 = all history)
+        pane_id: Target pane ID
+        command: Command text to send
+        enter: Whether to send Enter key after command
 
     Returns:
-        Captured output as string
+        True if successful
 
     Raises:
-        CurrentPaneError: If attempting to capture from current pane.
+        CurrentPaneError: If attempting to send to current pane
     """
-    if _is_current_pane(target):
-        raise CurrentPaneError(f"Cannot capture from current pane ({target}). Use a different target.")
+    if is_current_pane(pane_id):
+        raise CurrentPaneError(f"Cannot send commands to current pane ({pane_id})")
 
-    args = ["capture-pane", "-t", target, "-p"]
+    args = ["send-keys", "-t", pane_id, command]
+    if enter:
+        args.append("Enter")
 
-    if lines is not None:
-        if lines == -1:
-            # Full scrollback history
-            args.extend(["-S", "-"])
-        else:
-            # Last N lines
-            args.extend(["-S", f"-{lines}"])
+    code, _, _ = run_tmux(args)
+    return code == 0
 
-    code, out, _ = _run_tmux(args)
+
+def get_pane_pid(pane_id: str) -> int:
+    """Get the PID of a pane's process."""
+    # Use filter to get only the specific pane
+    code, stdout, stderr = run_tmux(
+        ["list-panes", "-t", pane_id, "-f", f"#{{==:#{{pane_id}},{pane_id}}}", "-F", "#{pane_pid}"]
+    )
+
     if code != 0:
+        raise PaneNotFoundError(f"Failed to get pane PID: {stderr}")
+
+    try:
+        return int(stdout.strip())
+    except ValueError:
+        raise RuntimeError(f"Failed to parse PID: invalid format '{stdout}'")
+
+
+def get_pane_info(pane_id: str) -> PaneInfo:
+    """Get detailed information for a specific pane."""
+    format_str = "#{pane_id}:#{session_name}:#{window_index}:#{window_name}:#{pane_index}:#{pane_title}:#{pane_pid}:#{pane_active}"
+
+    code, stdout, stderr = run_tmux(["list-panes", "-t", pane_id, "-F", format_str])
+    if code != 0:
+        raise PaneNotFoundError(f"Failed to get pane info: {stderr}")
+
+    parts = stdout.strip().split(":")
+    if len(parts) < 8:
+        raise RuntimeError(f"Failed to parse pane info: invalid format '{stdout}'")
+
+    current_pane_id = get_current_pane()
+
+    return PaneInfo(
+        pane_id=parts[0],
+        session=parts[1],
+        window_index=int(parts[2]),
+        window_name=parts[3] or str(parts[2]),
+        pane_index=int(parts[4]),
+        pane_title=parts[5],
+        pane_pid=int(parts[6]),
+        is_active=parts[7] == "1",
+        is_current=parts[0] == current_pane_id,
+        swp=f"{parts[1]}:{parts[2]}.{parts[4]}",
+    )
+
+
+def list_panes(all: bool = True, session: Optional[str] = None, window: Optional[str] = None) -> List[PaneInfo]:
+    """List tmux panes with full information."""
+    cmd = ["list-panes"]
+
+    if window:
+        cmd.extend(["-t", window])
+    elif session:
+        cmd.extend(["-t", session])
+    elif all:
+        cmd.append("-a")
+
+    # Build JSON-like format for reliable parsing
+    fields = {
+        "pane_id": "#{pane_id}",
+        "session_name": "#{session_name}",
+        "window_index": "#{window_index}",
+        "window_name": "#{window_name}",
+        "pane_index": "#{pane_index}",
+        "pane_title": "#{pane_title}",
+        "pane_pid": "#{pane_pid}",
+        "pane_active": "#{pane_active}",
+    }
+    format_parts = [f'"{k}":"{v}"' for k, v in fields.items()]
+    format_str = "{" + ",".join(format_parts) + "}"
+
+    cmd.extend(["-F", format_str])
+
+    code, stdout, _ = run_tmux(cmd)
+    if code != 0:
+        return []
+
+    panes = []
+    current_pane_id = get_current_pane()
+
+    for line in stdout.strip().split("\n"):
+        if not line:
+            continue
+
+        try:
+            data = json.loads(line)
+
+            window_idx = int(data["window_index"])
+            pane_idx = int(data["pane_index"])
+
+            panes.append(
+                PaneInfo(
+                    pane_id=data["pane_id"],
+                    session=data["session_name"],
+                    window_index=window_idx,
+                    window_name=data["window_name"] or str(window_idx),
+                    pane_index=pane_idx,
+                    pane_title=data["pane_title"],
+                    pane_pid=int(data["pane_pid"]),
+                    is_active=data["pane_active"] == "1",
+                    is_current=data["pane_id"] == current_pane_id,
+                    swp=f"{data['session_name']}:{window_idx}.{pane_idx}",
+                )
+            )
+        except (json.JSONDecodeError, KeyError, ValueError):
+            continue
+
+    # Sort by session, window, pane
+    panes.sort(key=lambda p: (p.session, p.window_index, p.pane_index))
+    return panes
+
+
+def _strip_trailing_empty_lines(content: str) -> str:
+    """Strip trailing empty lines that tmux adds to fill pane height.
+
+    Preserves empty lines within the content but removes padding at the end.
+    """
+    if not content:
         return ""
 
-    # Strip trailing empty lines that tmux adds to fill the pane height
-    # This preserves empty lines within the content but removes padding
-    lines_list = out.splitlines()
-    while lines_list and not lines_list[-1].strip():
-        lines_list.pop()
+    lines = content.splitlines()
+    # Remove trailing empty lines
+    while lines and not lines[-1].strip():
+        lines.pop()
 
-    # Reconstruct with original line endings
-    return "\n".join(lines_list) + "\n" if lines_list else ""
-
-
-def capture_visible(target: Target) -> str:
-    """Capture visible pane content.
-
-    Args:
-        target: Target specification (session, pane ID, window ID, or session:window.pane).
-
-    Returns:
-        Visible pane content as string.
-    """
-    return _capture_pane(target, lines=None)
+    # Preserve original line ending if content had one
+    if lines:
+        return "\n".join(lines) + "\n"
+    return ""
 
 
-def capture_all(target: Target) -> str:
-    """Capture entire pane history.
-
-    Args:
-        target: Target specification (session, pane ID, window ID, or session:window.pane).
-
-    Returns:
-        Full pane history including scrollback as string.
-    """
-    return _capture_pane(target, lines=-1)
+def capture_visible(pane_id: str) -> str:
+    """Capture visible content from pane."""
+    code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p"])
+    return _strip_trailing_empty_lines(stdout) if code == 0 else ""
 
 
-def capture_last_n(target: Target, n: int) -> str:
-    """Capture last N lines from pane.
+def capture_all(pane_id: str) -> str:
+    """Capture all history from pane."""
+    code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", "-"])
+    return _strip_trailing_empty_lines(stdout) if code == 0 else ""
 
-    Args:
-        target: Target specification (session, pane ID, window ID, or session:window.pane).
-        n: Number of lines to capture.
+
+def capture_last_n(pane_id: str, lines: int) -> str:
+    """Capture last N lines from pane."""
+    code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", f"-{lines}"])
+    return _strip_trailing_empty_lines(stdout) if code == 0 else ""
+
+
+def create_panes_with_layout(session: str, num_panes: int, layout: str = "even-horizontal") -> List[str]:
+    """Create multiple panes in a session with layout.
 
     Returns:
-        Last N lines from pane as string.
+        List of pane IDs
     """
-    return _capture_pane(target, lines=n)
+    if num_panes < 2:
+        raise RuntimeError("Failed to create layout: need at least 2 panes")
+
+    pane_ids = []
+
+    # Get first pane
+    code, stdout, _ = run_tmux(["list-panes", "-t", f"{session}:0", "-F", "#{pane_id}"])
+    if code == 0:
+        pane_ids.append(stdout.strip())
+
+    # Create additional panes
+    for i in range(1, num_panes):
+        code, stdout, _ = run_tmux(["split-window", "-t", f"{session}:0.{i - 1}", "-P", "-F", "#{pane_id}"])
+        if code == 0:
+            pane_ids.append(stdout.strip())
+
+    # Apply layout
+    apply_layout(session, layout)
+
+    return pane_ids
+
+
+def apply_layout(session: str, layout: str, window: int = 0) -> bool:
+    """Apply layout to window."""
+    code, _, _ = run_tmux(["select-layout", "-t", f"{session}:{window}", layout])
+    return code == 0

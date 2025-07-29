@@ -1,15 +1,11 @@
-"""Streaming output from tmux panes with guaranteed sync.
-
-This module implements a robust sync system where stream and metadata files
-are always kept in sync - either both exist and are valid, or neither exists.
-"""
+"""Streaming output from tmux panes with guaranteed sync."""
 
 import json
 import time
 from pathlib import Path
 from typing import Optional
 
-from .utils import _run_tmux
+from .core import run_tmux
 
 
 class Stream:
@@ -91,10 +87,10 @@ class Stream:
         self._ensure_sync()
 
         # Check if already piping
-        code, out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
+        code, out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
             # Already piping - verify it's ours
-            cmd_code, cmd_out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_command}"])
+            cmd_code, cmd_out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_command}"])
             if cmd_code == 0 and str(self.stream_file) in cmd_out:
                 return True
 
@@ -115,7 +111,7 @@ class Stream:
 
         # Start piping - escape % as %% (tmux interprets %xxx as format specifiers)
         escaped_path = str(self.stream_file).replace("%", "%%")
-        code, _, _ = _run_tmux(["pipe-pane", "-t", self.pane_id, f"cat >> {escaped_path}"])
+        code, _, _ = run_tmux(["pipe-pane", "-t", self.pane_id, f"cat >> {escaped_path}"])
 
         if code != 0:
             # Failed - clean up both files
@@ -126,7 +122,7 @@ class Stream:
 
     def stop(self) -> bool:
         """Stop streaming from pane."""
-        code, _, _ = _run_tmux(["pipe-pane", "-t", self.pane_id])
+        code, _, _ = run_tmux(["pipe-pane", "-t", self.pane_id])
         return code == 0
 
     def cleanup(self):
@@ -138,7 +134,7 @@ class Stream:
 
     def is_running(self) -> bool:
         """Check if streaming is active."""
-        code, out, _ = _run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
+        code, out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         return code == 0 and out.strip() == "1"
 
     def is_active(self) -> bool:
@@ -155,8 +151,14 @@ class Stream:
                 return
 
         metadata = self._read_metadata_unsafe()
-        position = self._get_file_position()
 
+        # Ensure structure exists (defensive against corruption)
+        if "commands" not in metadata:
+            metadata["commands"] = {}
+        if "positions" not in metadata:
+            metadata["positions"] = {"bash_last": 0, "user_last": 0}
+
+        position = self._get_file_position()
         metadata["commands"][cmd_id] = {"position": position, "command": command, "time": time.time()}
         metadata["positions"]["bash_last"] = position
         self._write_metadata_unsafe(metadata)
@@ -167,7 +169,7 @@ class Stream:
             return
 
         metadata = self._read_metadata_unsafe()
-        if cmd_id in metadata["commands"]:
+        if "commands" in metadata and cmd_id in metadata["commands"]:
             end_pos = self._get_file_position()
             metadata["commands"][cmd_id]["end_position"] = end_pos
             metadata["positions"]["bash_last"] = end_pos
@@ -179,6 +181,8 @@ class Stream:
             return
 
         metadata = self._read_metadata_unsafe()
+        if "positions" not in metadata:
+            metadata["positions"] = {"bash_last": 0, "user_last": 0}
         metadata["positions"]["user_last"] = self._get_file_position()
         self._write_metadata_unsafe(metadata)
 
@@ -190,7 +194,7 @@ class Stream:
             return ""
 
         metadata = self._read_metadata_unsafe()
-        cmd_info = metadata["commands"].get(cmd_id)
+        cmd_info = metadata.get("commands", {}).get(cmd_id)
 
         if not cmd_info:
             return ""
@@ -214,7 +218,7 @@ class Stream:
             return ""
 
         metadata = self._read_metadata_unsafe()
-        last_pos = metadata["positions"].get("user_last", 0)
+        last_pos = metadata.get("positions", {}).get("user_last", 0)
         current_pos = self._get_file_position()
 
         if current_pos <= last_pos:
@@ -255,7 +259,7 @@ class Stream:
         return "\n".join(lines_list[-lines:])
 
 
-class _StreamManager:
+class StreamManager:
     """Manages streams for all panes."""
 
     def __init__(self, stream_dir: Optional[Path] = None):

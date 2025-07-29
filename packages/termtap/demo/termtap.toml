@@ -1,30 +1,22 @@
 # Demo configuration for backend/frontend development
 
 [default]
-# Default timeout for all sessions
+# Default timeout for all commands
 timeout = 30.0
 
-[sessions.backend]
-# Pattern to detect when FastAPI is ready
+# Init group for demo environment
+[demo]
+layout = "even-horizontal"  # tmux layout for panes
+
+[demo.backend]
+pane = 0
+command = "cd backend && uv run python -m uvicorn main:app --reload"
 ready_pattern = "Uvicorn running on"
-# Override default timeout if needed
 timeout = 10.0
 
-# Future: Init command to setup session environment
-# init = "cd ./backend && source .venv/bin/activate"
-
-[sessions.frontend]  
-# Pattern to detect when Vite/SvelteKit is ready (regex supported)
+[demo.frontend]  
+pane = 1
+command = "cd frontend && npm run dev"
 ready_pattern = "Local:\\s+https?://localhost:\\d+"
 timeout = 15.0
-
-# Future: Init with proper node version
-# init = "cd ./frontend && nvm use 20"
-
-# Example: Database session with longer timeout
-[sessions.db]
-ready_pattern = "database system is ready|ready to accept connections"
-timeout = 60.0
-
-# Future: Init with environment variables
-# init = "cd ./db && export POSTGRES_DB=demo"
+depends_on = ["backend"]  # Wait for backend before starting

@@ -11,8 +11,7 @@ import logging
 
 from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_from_processes
 from .handlers import get_handler
-from ..tmux.utils import get_pane_pid
-from ..tmux import send_keys
+from ..tmux import get_pane_pid, send_keys
 from ..config import get_config_manager
 from ..types import ProcessInfo, KNOWN_SHELLS
 

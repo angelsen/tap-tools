@@ -1,15 +1,14 @@
-"""Configuration management - pane-first architecture.
+"""Configuration management for termtap.
 
-Supports both session-level and pane-level configuration with
-hierarchical resolution: pane > session > default.
+Handles init groups and default settings from termtap.toml.
 """
 
 from pathlib import Path
 from typing import Optional, Dict
 import tomllib
-
 import re
-from .types import ExecutionConfig, SessionConfig, SessionWindowPane
+
+from .types import ExecutionConfig, SessionWindowPane, InitGroup, ServiceConfig
 
 
 def _find_config_file() -> Optional[Path]:
@@ -37,57 +36,108 @@ def _load_config(path: Optional[Path] = None) -> dict:
 
 
 class ConfigManager:
-    """Manages session configurations for execution."""
+    """Manages configuration for termtap."""
 
     def __init__(self):
         self.data = _load_config()
         self._default_config = self.data.get("default", {})
-        self._session_configs: Dict[str, SessionConfig] = {}
+        self._init_groups: Dict[str, InitGroup] = {}
 
-        # Load session configs with ready_pattern and timeout
-        sessions = self.data.get("sessions", {})
-        for session_name, config in sessions.items():
-            if isinstance(config, dict):
-                self._session_configs[session_name] = SessionConfig(
-                    session=session_name, ready_pattern=config.get("ready_pattern"), timeout=config.get("timeout")
-                )
+        # Parse init groups
+        for key, value in self.data.items():
+            if key == "default" or not isinstance(value, dict):
+                continue
+
+            # Check if this is an init group (has services with commands)
+            services = []
+            layout = value.get("layout", "even-horizontal")
+
+            for service_name, service_data in value.items():
+                if service_name == "layout":
+                    continue
+
+                if isinstance(service_data, dict) and "command" in service_data:
+                    service = ServiceConfig(
+                        name=service_name,
+                        group=key,
+                        pane=service_data.get("pane", len(services)),
+                        command=service_data["command"],
+                        ready_pattern=service_data.get("ready_pattern"),
+                        timeout=service_data.get("timeout"),
+                        depends_on=service_data.get("depends_on"),
+                    )
+                    services.append(service)
+
+            if services:
+                self._init_groups[key] = InitGroup(name=key, layout=layout, services=services)
+
+    def get_init_group(self, name: str) -> Optional[InitGroup]:
+        """Get init group configuration."""
+        return self._init_groups.get(name)
+
+    def list_init_groups(self) -> list[str]:
+        """List available init groups."""
+        return list(self._init_groups.keys())
+
+    def resolve_service_target(self, target: str) -> Optional[SessionWindowPane]:
+        """Resolve dot notation (demo.backend) to session:window.pane.
+
+        Args:
+            target: Target in dot notation
+
+        Returns:
+            Session:window.pane if resolvable, None otherwise
+        """
+        if "." not in target:
+            return None
+
+        parts = target.split(".", 1)
+        if len(parts) != 2:
+            return None
+
+        group_name, service_name = parts
+
+        # Find the init group
+        group = self._init_groups.get(group_name)
+        if not group:
+            return None
+
+        # Find the service
+        service = group.get_service(service_name)
+        if not service:
+            return None
+
+        return service.session_window_pane
 
     def get_execution_config(self, session_window_pane: SessionWindowPane) -> ExecutionConfig:
         """Get execution configuration for a pane.
 
-        Resolution order:
-        1. Exact pane match (backend:0.0)
-        2. Session match (backend)
-        3. Default config
+        Checks init groups first, then falls back to defaults.
 
         Args:
-            session_window_pane: Full pane identifier (e.g., "backend:0.0")
+            session_window_pane: Full pane identifier (e.g., "demo:0.0")
 
         Returns:
             ExecutionConfig with ready_pattern compiled if present
         """
         # Get defaults
         ready_pattern = self._default_config.get("ready_pattern")
-        timeout = self._default_config.get("timeout")
+        timeout = self._default_config.get("timeout", 30.0)
 
         # Extract session name
         session = session_window_pane.split(":")[0]
 
-        # Check for session-level config
-        if session in self._session_configs:
-            session_config = self._session_configs[session]
-            if session_config.ready_pattern is not None:
-                ready_pattern = session_config.ready_pattern
-            if session_config.timeout is not None:
-                timeout = session_config.timeout
-
-        # Check for exact pane match (overrides session config)
-        if session_window_pane in self._session_configs:
-            pane_config = self._session_configs[session_window_pane]
-            if pane_config.ready_pattern is not None:
-                ready_pattern = pane_config.ready_pattern
-            if pane_config.timeout is not None:
-                timeout = pane_config.timeout
+        # Check if this is part of an init group
+        if session in self._init_groups:
+            group = self._init_groups[session]
+            # Find matching service by pane
+            for service in group.services:
+                if service.session_window_pane == session_window_pane:
+                    if service.ready_pattern:
+                        ready_pattern = service.ready_pattern
+                    if service.timeout:
+                        timeout = service.timeout
+                    break
 
         # Compile pattern if present
         compiled_pattern = None
@@ -95,7 +145,6 @@ class ConfigManager:
             try:
                 compiled_pattern = re.compile(ready_pattern)
             except re.error:
-                # Invalid regex - just skip it
                 pass
 
         return ExecutionConfig(
@@ -104,17 +153,6 @@ class ConfigManager:
             timeout=timeout,
             compiled_pattern=compiled_pattern,
         )
-
-    def get_config_for_new_session(self, session: str) -> ExecutionConfig:
-        """Get config for creating a new session.
-
-        Args:
-            session: Session name
-
-        Returns:
-            Config for session:0.0
-        """
-        return self.get_execution_config(f"{session}:0.0")
 
     @property
     def skip_processes(self) -> list[str]:
@@ -140,12 +178,10 @@ def get_config_manager() -> ConfigManager:
 
 
 def get_execution_config(session_window_pane: SessionWindowPane) -> ExecutionConfig:
-    """Get execution configuration for a pane.
-
-    Args:
-        session_window_pane: Full pane identifier
-
-    Returns:
-        ExecutionConfig with compiled pattern
-    """
+    """Get execution configuration for a pane."""
     return get_config_manager().get_execution_config(session_window_pane)
+
+
+def resolve_service_target(target: str) -> Optional[SessionWindowPane]:
+    """Resolve service dot notation."""
+    return get_config_manager().resolve_service_target(target)

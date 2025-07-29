@@ -113,10 +113,8 @@ def get_handler(process: ProcessNode) -> ProcessHandler:
         process: The ProcessNode to get a handler for.
 
     Returns:
-        The appropriate ProcessHandler instance.
-
-    Raises:
-        RuntimeError: If no handler can handle the process.
+        The appropriate ProcessHandler instance. Always returns a handler -
+        uses DefaultHandler as fallback.
     """
     global _handlers
 
@@ -135,7 +133,15 @@ def get_handler(process: ProcessNode) -> ProcessHandler:
         if handler.can_handle(process):
             return handler
 
-    raise RuntimeError(f"No handler for process {process.name}")
+    # This should never happen if DefaultHandler is properly registered
+    # Log warning and return DefaultHandler as safety fallback
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Handler list misconfigured - no handler for {process.name}, using DefaultHandler")
+    from .default import _DefaultHandler
+
+    return _DefaultHandler()
 
 
 __all__ = [

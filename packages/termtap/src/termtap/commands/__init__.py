@@ -6,6 +6,7 @@ from . import interrupt as _interrupt  # noqa: F401
 from . import read as _read  # noqa: F401
 from . import ls as _ls  # noqa: F401
 from . import reload as _reload  # noqa: F401
+from . import init as _init  # noqa: F401
 
 # Export for convenience (imported from their own modules)
 from .bash import bash
@@ -13,5 +14,6 @@ from .interrupt import interrupt
 from .read import read
 from .ls import ls
 from .reload import reload
+from .init import init, init_list, kill
 
-__all__ = ["bash", "interrupt", "read", "ls", "reload"]
+__all__ = ["bash", "interrupt", "read", "ls", "reload", "init", "init_list", "kill"]
