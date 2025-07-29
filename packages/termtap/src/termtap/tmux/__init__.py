@@ -27,6 +27,7 @@ PUBLIC API:
   Pane Operations:
     - PaneInfo: Pane information
     - send_keys: Send keystrokes to pane
+    - send_via_buffer: Send content via buffer (multiline/special chars)
     - get_pane_pid: Get pane process PID
     - get_pane_info: Get pane details
     - list_panes: List panes with filtering
@@ -84,6 +85,7 @@ from .session import (
 from .pane import (
     PaneInfo,
     send_keys,
+    send_via_buffer,
     get_pane_pid,
     get_pane_info,
     list_panes,
@@ -140,6 +142,7 @@ __all__ = [
     # Panes
     "PaneInfo",
     "send_keys",
+    "send_via_buffer",
     "get_pane_pid",
     "get_pane_info",
     "list_panes",

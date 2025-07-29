@@ -3,6 +3,8 @@
 from typing import List, Optional
 from dataclasses import dataclass
 import json
+import subprocess
+import hashlib
 
 from .core import run_tmux, is_current_pane, get_current_pane
 from .exceptions import CurrentPaneError, PaneNotFoundError
@@ -47,6 +49,52 @@ def send_keys(pane_id: str, command: str, enter: bool = True) -> bool:
         args.append("Enter")
 
     code, _, _ = run_tmux(args)
+    return code == 0
+
+
+def send_via_buffer(pane_id: str, content: str, enter: bool = True) -> bool:
+    """Send content to pane using tmux buffer (reliable for multiline/special content).
+
+    Args:
+        pane_id: Target pane ID
+        content: Content to send (can be multiline)
+        enter: Whether to send Enter key after content
+
+    Returns:
+        True if successful
+
+    Raises:
+        CurrentPaneError: If attempting to send to current pane
+        RuntimeError: If buffer operations fail
+    """
+    if is_current_pane(pane_id):
+        raise CurrentPaneError(f"Cannot send to current pane ({pane_id})")
+
+    # Generate deterministic buffer name from content hash
+    buffer_name = f"tt_{hashlib.md5(content.encode()).hexdigest()[:8]}"
+
+    # Load buffer via stdin
+    proc = subprocess.Popen(
+        ["tmux", "load-buffer", "-b", buffer_name, "-"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _, stderr = proc.communicate(input=content)
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"Failed to load buffer: {stderr}")
+
+    # Paste with auto-delete
+    code, _, stderr = run_tmux(["paste-buffer", "-t", pane_id, "-b", buffer_name, "-d"])
+
+    if code != 0:
+        raise RuntimeError(f"Failed to paste buffer: {stderr}")
+
+    if enter:
+        code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+
     return code == 0
 
 

@@ -5,7 +5,7 @@ from typing import Any
 
 from ..app import app
 from ..types import Target
-from ..tmux import send_keys, resolve_or_create_target, CurrentPaneError, resolve_target
+from ..tmux import send_keys, send_via_buffer, resolve_or_create_target, CurrentPaneError, resolve_target
 from ..process.detector import detect_process
 from ..config import get_execution_config, get_config_manager
 from ..errors import markdown_error_response
@@ -81,7 +81,11 @@ def bash(
 
     # 4. Send command
     try:
-        send_keys(pane_id, command)
+        # Use buffer for multiline commands, send-keys for single-line
+        if "\n" in command:
+            send_via_buffer(pane_id, command)
+        else:
+            send_keys(pane_id, command)
     except CurrentPaneError:
         return markdown_error_response(f"Cannot send commands to current pane ({pane_id})")
     except RuntimeError as e:
