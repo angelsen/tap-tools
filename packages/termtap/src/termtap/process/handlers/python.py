@@ -43,6 +43,9 @@ class _PythonHandler(ProcessHandler):
         if process.wait_channel == "do_sys_poll":
             return True, "python REPL waiting"
 
+        if process.wait_channel == "do_select":
+            return True, "python REPL waiting (select)"
+
         return False, f"python {process.wait_channel or 'running'}"
 
     def interrupt(self, pane_id: str) -> tuple[bool, str]:
