@@ -41,7 +41,7 @@ def ls(state, filter: Optional[str] = None) -> list[PaneRow]:
         try:
             # Get process info or use defaults
             info = process_infos.get(
-                pane.pane_id, ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane.pane_id)
+                pane.pane_id, ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane.pane_id)
             )
 
             # Skip panes that had detection errors
@@ -58,7 +58,7 @@ def ls(state, filter: Optional[str] = None) -> list[PaneRow]:
             results.append(
                 PaneRow(
                     Pane=pane.swp,
-                    Shell=info.shell,
+                    Shell=info.shell or "-",
                     Process=info.process or "-",
                     State=info.state,
                     Attached="Yes" if pane.is_current else "No",

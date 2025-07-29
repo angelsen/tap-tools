@@ -40,10 +40,6 @@ def _extract_shell_and_process(
         if proc.name in KNOWN_SHELLS:
             shell = proc
 
-    # If no shell found, root is the shell
-    if not shell:
-        shell = chain[0]
-
     # Find first non-skipped process
     # Skip all shells and configured skip processes
     skip = KNOWN_SHELLS.union(set(skip_processes))
@@ -53,6 +49,16 @@ def _extract_shell_and_process(
         if proc.name not in skip:
             process = proc
             break
+
+    # If no shell found and we have a process, it's a direct-launched process
+    # (e.g., tmux new-session -s foo claude)
+    if not shell and process:
+        # The process is running directly without a shell
+        return None, process
+
+    # If no shell found and no process, fallback to root as shell
+    if not shell:
+        shell = chain[0]
 
     return shell, process
 
@@ -71,7 +77,7 @@ def detect_process(pane_id: str) -> ProcessInfo:
         chain = get_process_chain(pid)
 
         if not chain:
-            return ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
+            return ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane_id)
 
         config_manager = get_config_manager()
         shell, process = _extract_shell_and_process(chain, config_manager.skip_processes)
@@ -79,14 +85,14 @@ def detect_process(pane_id: str) -> ProcessInfo:
         # Determine state
         if not process or process == shell:
             # At shell prompt
-            return ProcessInfo(shell=shell.name if shell else "unknown", process=None, state="ready", pane_id=pane_id)
+            return ProcessInfo(shell=shell.name if shell else None, process=None, state="ready", pane_id=pane_id)
 
         # Use handler to determine state
         handler = get_handler(process)
         ready, _ = handler.is_ready(process)
 
         return ProcessInfo(
-            shell=shell.name if shell else "unknown",
+            shell=shell.name if shell else None,
             process=process.name,
             state="ready" if ready else "working",
             pane_id=pane_id,
@@ -94,7 +100,7 @@ def detect_process(pane_id: str) -> ProcessInfo:
 
     except Exception as e:
         logger.error(f"Error detecting process: {e}")
-        return ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
+        return ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane_id)
 
 
 def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
@@ -120,7 +126,7 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
             tree = build_tree_from_processes(all_processes, pid)
 
             if not tree:
-                results[pane_id] = ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
+                results[pane_id] = ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane_id)
                 continue
 
             # Build chain from tree
@@ -140,13 +146,13 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
             # Determine state
             if not process or process == shell:
                 results[pane_id] = ProcessInfo(
-                    shell=shell.name if shell else "unknown", process=None, state="ready", pane_id=pane_id
+                    shell=shell.name if shell else None, process=None, state="ready", pane_id=pane_id
                 )
             else:
                 handler = get_handler(process)
                 ready, _ = handler.is_ready(process)
                 results[pane_id] = ProcessInfo(
-                    shell=shell.name if shell else "unknown",
+                    shell=shell.name if shell else None,
                     process=process.name,
                     state="ready" if ready else "working",
                     pane_id=pane_id,
@@ -154,7 +160,7 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
 
         except Exception as e:
             logger.error(f"Error detecting {pane_id}: {e}")
-            results[pane_id] = ProcessInfo(shell="unknown", process=None, state="unknown", pane_id=pane_id)
+            results[pane_id] = ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane_id)
 
     return results
 

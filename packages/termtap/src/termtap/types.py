@@ -139,7 +139,7 @@ def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
 class ProcessInfo:
     """Information about a process in a pane."""
 
-    shell: str
+    shell: str | None
     process: str | None
     state: Literal["ready", "working", "unknown"]
     pane_id: str  # The pane this process is in
