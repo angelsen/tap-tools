@@ -4,33 +4,34 @@ Internal module - no public API.
 """
 
 from . import ProcessHandler
-from ...types import ProcessContext
+from ...pane import Pane
 
 
 class _DefaultHandler(ProcessHandler):
     """Default handler - simple 'no children = ready' logic."""
 
-    def can_handle(self, ctx: ProcessContext) -> bool:
+    def can_handle(self, pane: Pane) -> bool:
         """Handle everything.
 
         Args:
-            ctx: ProcessContext with process and pane information.
+            pane: Pane with process information.
 
         Returns:
             Always True as this is the fallback handler.
         """
         return True
 
-    def is_ready(self, ctx: ProcessContext) -> tuple[bool, str]:
+    def is_ready(self, pane: Pane) -> tuple[bool, str]:
         """Check readiness using simple rule: has children = working.
 
         Args:
-            ctx: ProcessContext with process and pane information.
+            pane: Pane with process information.
 
         Returns:
             Tuple of (is_ready, reason) based on child processes.
         """
-        if ctx.process.has_children:
-            return False, f"{ctx.process.name} has subprocess"
+        if pane.process and pane.process.has_children:
+            return False, f"{pane.process.name} has subprocess"
         else:
-            return True, f"{ctx.process.name} idle"
+            name = pane.process.name if pane.process else pane.shell.name if pane.shell else "unknown"
+            return True, f"{name} idle"

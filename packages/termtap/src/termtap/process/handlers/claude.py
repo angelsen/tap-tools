@@ -21,7 +21,7 @@ Notes:
 """
 
 from . import ProcessHandler
-from ...types import ProcessContext
+from ...pane import Pane
 
 
 class _ClaudeHandler(ProcessHandler):
@@ -29,17 +29,17 @@ class _ClaudeHandler(ProcessHandler):
 
     handles = ["claude"]
 
-    def can_handle(self, ctx: ProcessContext) -> bool:
+    def can_handle(self, pane: Pane) -> bool:
         """Check if this handler manages this process."""
-        return ctx.process.name in self.handles
+        return bool(pane.process and pane.process.name in self.handles)
 
-    def is_ready(self, ctx: ProcessContext) -> tuple[bool, str]:
+    def is_ready(self, pane: Pane) -> tuple[bool, str]:
         """Determine if Claude is ready for input using content detection.
 
         Based on tracking data observations.
         """
         # Get visible content
-        content = ctx.capture_visible()
+        content = pane.visible_content
 
         # Check busy state first (takes precedence)
         if "esc to interrupt)" in content:

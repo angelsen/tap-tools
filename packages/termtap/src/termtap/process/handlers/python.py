@@ -20,7 +20,7 @@ Notes:
 """
 
 from . import ProcessHandler
-from ...types import ProcessContext
+from ...pane import Pane
 
 
 class _PythonHandler(ProcessHandler):
@@ -28,26 +28,30 @@ class _PythonHandler(ProcessHandler):
 
     handles = ["python", "python3", "python3.11", "python3.12", "python3.13"]
 
-    def can_handle(self, ctx: ProcessContext) -> bool:
+    def can_handle(self, pane: Pane) -> bool:
         """Check if this handler manages this process."""
-        return ctx.process.name in self.handles
+        return bool(pane.process and pane.process.name in self.handles)
 
-    def is_ready(self, ctx: ProcessContext) -> tuple[bool, str]:
+    def is_ready(self, pane: Pane) -> tuple[bool, str]:
         """Determine if Python is ready for input.
 
         Based on tracking data observations.
         """
+        if not pane.process:
+            # No active process means we're at shell prompt
+            return True, "at shell prompt"
+
         # Check children first - most reliable
-        if ctx.process.has_children:
-            return False, f"{ctx.process.name} has subprocess"
+        if pane.process.has_children:
+            return False, f"{pane.process.name} has subprocess"
 
         # Ready state observed in tracking
-        if ctx.process.wait_channel == "do_select":
-            return True, f"{ctx.process.name} REPL waiting"
+        if pane.process.wait_channel == "do_select":
+            return True, f"{pane.process.name} REPL waiting"
 
         # Working state observed in tracking
-        if ctx.process.wait_channel == "do_wait":
-            return False, f"{ctx.process.name} waiting for subprocess"
+        if pane.process.wait_channel == "do_wait":
+            return False, f"{pane.process.name} waiting for subprocess"
 
         # Unknown state - we haven't observed this wait_channel
-        return False, f"{ctx.process.name} unknown state"
+        return False, f"{pane.process.name} unknown state"
