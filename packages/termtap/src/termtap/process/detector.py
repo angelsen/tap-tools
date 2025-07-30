@@ -11,9 +11,9 @@ import logging
 
 from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_from_processes
 from .handlers import get_handler
-from ..tmux import get_pane_pid, send_keys
+from ..tmux import get_pane_pid, send_keys, get_pane_session_window_pane
 from ..config import get_config_manager
-from ..types import ProcessInfo, KNOWN_SHELLS
+from ..types import ProcessInfo, ProcessContext, KNOWN_SHELLS
 
 logger = logging.getLogger(__name__)
 
@@ -85,17 +85,28 @@ def detect_process(pane_id: str) -> ProcessInfo:
         # Determine state
         if not process or process == shell:
             # At shell prompt
-            return ProcessInfo(shell=shell.name if shell else None, process=None, state="ready", pane_id=pane_id)
+            return ProcessInfo(
+                shell=shell.name if shell else None,
+                process=None,
+                state="ready",
+                pane_id=pane_id,
+                wait_channel=shell.wait_channel if shell else None,
+            )
+
+        # Create ProcessContext for handler
+        session_window_pane = get_pane_session_window_pane(pane_id)
+        ctx = ProcessContext(pane_id=pane_id, process=process, session_window_pane=session_window_pane)
 
         # Use handler to determine state
-        handler = get_handler(process)
-        ready, _ = handler.is_ready(process)
+        handler = get_handler(ctx)
+        ready, _ = handler.is_ready(ctx)
 
         return ProcessInfo(
             shell=shell.name if shell else None,
             process=process.name,
             state="ready" if ready else "working",
             pane_id=pane_id,
+            wait_channel=process.wait_channel,
         )
 
     except Exception as e:
@@ -146,16 +157,25 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
             # Determine state
             if not process or process == shell:
                 results[pane_id] = ProcessInfo(
-                    shell=shell.name if shell else None, process=None, state="ready", pane_id=pane_id
+                    shell=shell.name if shell else None,
+                    process=None,
+                    state="ready",
+                    pane_id=pane_id,
+                    wait_channel=shell.wait_channel if shell else None,
                 )
             else:
-                handler = get_handler(process)
-                ready, _ = handler.is_ready(process)
+                # Create ProcessContext for handler
+                session_window_pane = get_pane_session_window_pane(pane_id)
+                ctx = ProcessContext(pane_id=pane_id, process=process, session_window_pane=session_window_pane)
+
+                handler = get_handler(ctx)
+                ready, _ = handler.is_ready(ctx)
                 results[pane_id] = ProcessInfo(
                     shell=shell.name if shell else None,
                     process=process.name,
                     state="ready" if ready else "working",
                     pane_id=pane_id,
+                    wait_channel=process.wait_channel,
                 )
 
         except Exception as e:
@@ -185,16 +205,21 @@ def get_handler_for_pane(pane_id: str, process_name: str | None = None):
         config_manager = get_config_manager()
         _, process = _extract_shell_and_process(chain, config_manager.skip_processes)
 
+        # Get session:window.pane for context
+        session_window_pane = get_pane_session_window_pane(pane_id)
+
         # If specific process requested, find it in chain
         if process_name:
             for proc in chain:
                 if proc.name == process_name:
-                    return get_handler(proc)
+                    ctx = ProcessContext(pane_id=pane_id, process=proc, session_window_pane=session_window_pane)
+                    return get_handler(ctx)
             return None
 
         # Otherwise use detected process
         if process:
-            return get_handler(process)
+            ctx = ProcessContext(pane_id=pane_id, process=process, session_window_pane=session_window_pane)
+            return get_handler(ctx)
         return None
 
     except Exception as e:
@@ -216,7 +241,7 @@ def interrupt_process(pane_id: str) -> tuple[bool, str]:
 
         if not info.process:
             # At shell prompt - just send Ctrl+C
-            success = send_keys(pane_id, "C-c")
+            success = send_keys(pane_id, "C-c", enter=False)
             return success, "sent Ctrl+C to shell"
 
         # Get handler for the process
@@ -226,10 +251,14 @@ def interrupt_process(pane_id: str) -> tuple[bool, str]:
         _, process = _extract_shell_and_process(chain, config_manager.skip_processes)
 
         if process:
-            handler = get_handler(process)
-            return handler.interrupt(pane_id)
+            # Create ProcessContext for handler
+            session_window_pane = get_pane_session_window_pane(pane_id)
+            ctx = ProcessContext(pane_id=pane_id, process=process, session_window_pane=session_window_pane)
+
+            handler = get_handler(ctx)
+            return handler.interrupt(ctx)
         else:
-            success = send_keys(pane_id, "C-c")
+            success = send_keys(pane_id, "C-c", enter=False)
             return success, "sent Ctrl+C"
 
     except Exception as e:

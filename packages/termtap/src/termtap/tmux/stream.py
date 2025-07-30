@@ -2,6 +2,7 @@
 
 import json
 import time
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -141,6 +142,80 @@ class Stream:
         """Check if stream files exist and are in sync."""
         return self._ensure_sync() and self.stream_file.exists()
 
+    # Stream reading utilities
+
+    def _read_stream_slice(self, start: int, length: int) -> bytes:
+        """Read a slice of the stream file.
+
+        Args:
+            start: Starting position in bytes
+            length: Number of bytes to read
+
+        Returns:
+            Raw bytes from the stream file
+        """
+        if not self.stream_file.exists() or length <= 0:
+            return b""
+
+        with open(self.stream_file, "rb") as f:
+            f.seek(start)
+            return f.read(length)
+
+    def _render_stream_slice(self, start: int, length: int) -> str:
+        """Render a slice of the stream file by displaying in tmux.
+
+        Creates a temporary tmux window that displays the content,
+        allowing ANSI escape sequences to be processed by the terminal.
+
+        Args:
+            start: Starting position in bytes (0-based)
+            length: Number of bytes to render
+
+        Returns:
+            Rendered content with ANSI codes processed
+        """
+        if length <= 0:
+            return ""
+
+        # Get session from pane's session:window.pane format
+        session = self.session_window_pane.split(":")[0]
+
+        # Generate unique window name
+        content_hash = hashlib.md5(f"{self.pane_id}:{start}:{length}".encode()).hexdigest()[:8]
+        window_name = f"tt_render_{content_hash}"
+
+        # Build command to extract and display the slice
+        # Note: tail uses 1-based byte positions, so we add 1
+        cmd = f"tail -c +{start + 1} '{self.stream_file}' | head -c {length} && sleep 0.2"
+
+        # Create temporary window
+        code, _, _ = run_tmux(["new-window", "-t", session, "-d", "-n", window_name, "sh", "-c", cmd])
+
+        if code != 0:
+            # Fallback to raw content
+            content = self._read_stream_slice(start, length)
+            return content.decode("utf-8", errors="replace")
+
+        # Give time for content to render
+        time.sleep(0.1)
+
+        # Capture the rendered output (without -e flag)
+        code, output, _ = run_tmux(["capture-pane", "-t", f"{session}:{window_name}", "-p"])
+
+        # Clean up window
+        run_tmux(["kill-window", "-t", f"{session}:{window_name}"])
+
+        if code == 0 and output:
+            # Strip trailing empty lines that tmux adds
+            lines = output.rstrip("\n").split("\n")
+            while lines and not lines[-1].strip():
+                lines.pop()
+            return "\n".join(lines) + "\n" if lines else ""
+
+        # Fallback to raw content
+        content = self._read_stream_slice(start, length)
+        return content.decode("utf-8", errors="replace")
+
     # Command tracking
 
     def mark_command(self, cmd_id: str, command: str) -> None:
@@ -188,8 +263,16 @@ class Stream:
 
     # Reading operations
 
-    def read_command_output(self, cmd_id: str) -> str:
-        """Read output for a specific command."""
+    def read_command_output(self, cmd_id: str, as_displayed: bool = False) -> str:
+        """Read output for a specific command.
+
+        Args:
+            cmd_id: Command ID to read output for
+            as_displayed: If True, process ANSI escape sequences to show as displayed
+
+        Returns:
+            Command output, optionally with ANSI codes processed
+        """
         if not self._ensure_sync():
             return ""
 
@@ -199,64 +282,110 @@ class Stream:
         if not cmd_info:
             return ""
 
-        # Read from stream file
+        # Get positions
         start = cmd_info["position"]
         end = cmd_info.get("end_position", self._get_file_position())
+        length = end - start
 
-        if end <= start:
+        if length <= 0:
             return ""
 
-        with open(self.stream_file, "rb") as f:
-            f.seek(start)
-            content = f.read(end - start)
+        if as_displayed:
+            return self._render_stream_slice(start, length)
+        else:
+            content = self._read_stream_slice(start, length)
+            return content.decode("utf-8", errors="replace")
 
-        return content.decode("utf-8", errors="replace")
+    def read_since_user_last(self, as_displayed: bool = False) -> str:
+        """Read new content since last user read.
 
-    def read_since_user_last(self) -> str:
-        """Read new content since last user read."""
+        Args:
+            as_displayed: If True, process ANSI escape sequences to show as displayed
+
+        Returns:
+            New content since last read, optionally with ANSI codes processed
+        """
         if not self._ensure_sync():
             return ""
 
         metadata = self._read_metadata_unsafe()
         last_pos = metadata.get("positions", {}).get("user_last", 0)
         current_pos = self._get_file_position()
+        length = current_pos - last_pos
 
-        if current_pos <= last_pos:
+        if length <= 0:
             return ""
 
-        with open(self.stream_file, "rb") as f:
-            f.seek(last_pos)
-            content = f.read(current_pos - last_pos)
+        if as_displayed:
+            return self._render_stream_slice(last_pos, length)
+        else:
+            content = self._read_stream_slice(last_pos, length)
+            return content.decode("utf-8", errors="replace")
 
-        return content.decode("utf-8", errors="replace")
+    def read_all(self, as_displayed: bool = False) -> str:
+        """Read entire stream content.
 
-    def read_all(self) -> str:
-        """Read entire stream content."""
+        Args:
+            as_displayed: If True, process ANSI escape sequences to show as displayed
+
+        Returns:
+            Entire stream content, optionally with ANSI codes processed
+        """
         if not self._ensure_sync():
             return ""
 
         if not self.stream_file.exists():
             return ""
 
-        with open(self.stream_file, "rb") as f:
-            content = f.read()
+        length = self._get_file_position()
+        if length <= 0:
+            return ""
 
-        return content.decode("utf-8", errors="replace")
+        if as_displayed:
+            return self._render_stream_slice(0, length)
+        else:
+            content = self._read_stream_slice(0, length)
+            return content.decode("utf-8", errors="replace")
 
-    def read_last_lines(self, lines: int) -> str:
-        """Read last N lines from stream."""
+    def read_last_lines(self, lines: int, as_displayed: bool = False) -> str:
+        """Read last N lines from stream.
+
+        Args:
+            lines: Number of lines to read from the end
+            as_displayed: If True, process ANSI escape sequences to show as displayed
+
+        Returns:
+            Last N lines, optionally with ANSI codes processed
+        """
         if not self._ensure_sync():
             return ""
 
-        content = self.read_all()
+        # For line-based reading, we need to read the content first to find line boundaries
+        content = self.read_all(as_displayed=False)  # Always get raw for line counting
         if not content:
             return ""
 
         lines_list = content.splitlines()
         if len(lines_list) <= lines:
-            return content
+            # Return all content
+            if as_displayed:
+                return self.read_all(as_displayed=True)
+            else:
+                return content
 
-        return "\n".join(lines_list[-lines:])
+        # Find where the last N lines start
+        last_lines = lines_list[-lines:]
+        last_content = "\n".join(last_lines)
+
+        if as_displayed:
+            # Find the byte position where these lines start
+            # This is approximate but should work for most cases
+            prefix = "\n".join(lines_list[:-lines])
+            start_pos = len(prefix.encode("utf-8")) + (1 if prefix else 0)  # +1 for newline
+            length = len(content.encode("utf-8")) - start_pos
+            return self._render_stream_slice(start_pos, length)
+        else:
+            return last_content
 
 
 class StreamManager:

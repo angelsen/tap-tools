@@ -7,7 +7,7 @@ PUBLIC API:
 
 from abc import ABC, abstractmethod
 
-from ..tree import ProcessNode
+from ...types import ProcessContext
 
 
 class ProcessHandler(ABC):
@@ -15,14 +15,21 @@ class ProcessHandler(ABC):
 
     Provides lifecycle hooks for command execution and process state detection.
     Override methods to customize behavior for specific process types.
+
+    All methods now receive a ProcessContext which provides:
+    - pane_id: The tmux pane ID
+    - process: The ProcessNode with all process information
+    - session_window_pane: The canonical "session:0.0" format
+    - capture_visible(): Method to get pane content for content-based detection
+    - send_keys(): Method to send keystrokes to the pane
     """
 
     @abstractmethod
-    def can_handle(self, process: ProcessNode) -> bool:
+    def can_handle(self, ctx: ProcessContext) -> bool:
         """Check if this handler can handle this process.
 
         Args:
-            process: The ProcessNode to check.
+            ctx: ProcessContext with process and pane information.
 
         Returns:
             True if this handler can handle the process.
@@ -30,40 +37,38 @@ class ProcessHandler(ABC):
         pass
 
     @abstractmethod
-    def is_ready(self, process: ProcessNode) -> tuple[bool, str]:
+    def is_ready(self, ctx: ProcessContext) -> tuple[bool, str]:
         """Check if process is ready for input.
 
         Args:
-            process: The ProcessNode to check.
+            ctx: ProcessContext with process and pane information.
 
         Returns:
             Tuple of (is_ready, reason) indicating process state.
         """
         pass
 
-    def interrupt(self, pane_id: str) -> tuple[bool, str]:
+    def interrupt(self, ctx: ProcessContext) -> tuple[bool, str]:
         """Send interrupt signal to process.
 
         Default implementation sends Ctrl+C. Override for special behavior.
 
         Args:
-            pane_id: Tmux pane ID.
+            ctx: ProcessContext with process and pane information.
 
         Returns:
             Tuple of (success, message) indicating result.
         """
-        from ...tmux import send_keys
-
-        success = send_keys(pane_id, "C-c")
+        success = ctx.send_keys("C-c", enter=False)
         return success, "sent Ctrl+C"
 
-    def before_send(self, pane_id: str, command: str) -> str | None:
+    def before_send(self, ctx: ProcessContext, command: str) -> str | None:
         """Called before sending command.
 
         Can modify or cancel command execution.
 
         Args:
-            session_id: Tmux session ID.
+            ctx: ProcessContext with process and pane information.
             command: Command to be sent.
 
         Returns:
@@ -71,20 +76,20 @@ class ProcessHandler(ABC):
         """
         return command
 
-    def after_send(self, pane_id: str, command: str) -> None:
+    def after_send(self, ctx: ProcessContext, command: str) -> None:
         """Called after command is sent.
 
         Args:
-            session_id: Tmux session ID.
+            ctx: ProcessContext with process and pane information.
             command: Command that was sent.
         """
         pass
 
-    def during_command(self, pane_id: str, elapsed: float) -> bool:
+    def during_command(self, ctx: ProcessContext, elapsed: float) -> bool:
         """Called while waiting for command to complete.
 
         Args:
-            session_id: Tmux session ID.
+            ctx: ProcessContext with process and pane information.
             elapsed: Seconds elapsed since command started.
 
         Returns:
@@ -92,11 +97,11 @@ class ProcessHandler(ABC):
         """
         return True
 
-    def after_complete(self, pane_id: str, command: str, duration: float) -> None:
+    def after_complete(self, ctx: ProcessContext, command: str, duration: float) -> None:
         """Called after command completes.
 
         Args:
-            session_id: Tmux session ID.
+            ctx: ProcessContext with process and pane information.
             command: Command that was executed.
             duration: Total execution time in seconds.
         """
@@ -106,11 +111,11 @@ class ProcessHandler(ABC):
 _handlers = []
 
 
-def get_handler(process: ProcessNode) -> ProcessHandler:
-    """Get the appropriate handler for a given process.
+def get_handler(ctx: ProcessContext) -> ProcessHandler:
+    """Get the appropriate handler for a given process context.
 
     Args:
-        process: The ProcessNode to get a handler for.
+        ctx: ProcessContext with process and pane information.
 
     Returns:
         The appropriate ProcessHandler instance. Always returns a handler -
@@ -121,16 +126,18 @@ def get_handler(process: ProcessNode) -> ProcessHandler:
     if not _handlers:
         from .python import _PythonHandler
         from .ssh import _SSHHandler
+        from .claude import _ClaudeHandler
         from .default import _DefaultHandler
 
         _handlers = [
+            _ClaudeHandler(),
             _PythonHandler(),
             _SSHHandler(),
-            _DefaultHandler(),
+            _DefaultHandler(),  # Keep default last
         ]
 
     for handler in _handlers:
-        if handler.can_handle(process):
+        if handler.can_handle(ctx):
             return handler
 
     # This should never happen if DefaultHandler is properly registered
@@ -138,7 +145,7 @@ def get_handler(process: ProcessNode) -> ProcessHandler:
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.warning(f"Handler list misconfigured - no handler for {process.name}, using DefaultHandler")
+    logger.warning(f"Handler list misconfigured - no handler for {ctx.process.name}, using DefaultHandler")
     from .default import _DefaultHandler
 
     return _DefaultHandler()

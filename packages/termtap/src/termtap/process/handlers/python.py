@@ -1,10 +1,26 @@
-"""Python process handler.
+"""Python handler - handles Python REPL and scripts.
 
 Internal module - no public API.
+
+TESTING LOG:
+Date: 2025-07-30
+System: Linux 6.12.39-1-lts
+Process: python3 v3.12.11, python3.11 (via uv)
+Tracking: ~/.termtap/tracking/20250730_000831_python3
+         ~/.termtap/tracking/20250730_001146_uv_run_python
+         ~/.termtap/tracking/20250729_235235_python3_tmptest_subprocesspy
+
+Observed wait_channels:
+- do_select: Python REPL waiting for input (ready)
+- do_wait: Python waiting for subprocess (working)
+
+Notes:
+- Both python3 and python3.11 show same wait_channel patterns
+- uv run python executes python3.11
 """
 
 from . import ProcessHandler
-from ..tree import ProcessNode
+from ...types import ProcessContext
 
 
 class _PythonHandler(ProcessHandler):
@@ -12,52 +28,26 @@ class _PythonHandler(ProcessHandler):
 
     handles = ["python", "python3", "python3.11", "python3.12", "python3.13"]
 
-    def can_handle(self, process: ProcessNode) -> bool:
-        """Check if this is a Python process.
+    def can_handle(self, ctx: ProcessContext) -> bool:
+        """Check if this handler manages this process."""
+        return ctx.process.name in self.handles
 
-        Args:
-            process: The ProcessNode to check.
+    def is_ready(self, ctx: ProcessContext) -> tuple[bool, str]:
+        """Determine if Python is ready for input.
 
-        Returns:
-            True if process name matches Python executables.
+        Based on tracking data observations.
         """
-        return process.name in self.handles
+        # Check children first - most reliable
+        if ctx.process.has_children:
+            return False, f"{ctx.process.name} has subprocess"
 
-    def is_ready(self, process: ProcessNode) -> tuple[bool, str]:
-        """Check if Python process is ready.
+        # Ready state observed in tracking
+        if ctx.process.wait_channel == "do_select":
+            return True, f"{ctx.process.name} REPL waiting"
 
-        Uses wait channel and child process information to determine state.
+        # Working state observed in tracking
+        if ctx.process.wait_channel == "do_wait":
+            return False, f"{ctx.process.name} waiting for subprocess"
 
-        Args:
-            process: The ProcessNode to check.
-
-        Returns:
-            Tuple of (is_ready, reason) based on Python-specific logic.
-        """
-        if process.has_children:
-            return False, "python has subprocess"
-
-        if process.wait_channel == "hrtimer_nanosleep":
-            return False, "python running sleep()"
-
-        if process.wait_channel == "do_sys_poll":
-            return True, "python REPL waiting"
-
-        if process.wait_channel == "do_select":
-            return True, "python REPL waiting (select)"
-
-        return False, f"python {process.wait_channel or 'running'}"
-
-    def interrupt(self, pane_id: str) -> tuple[bool, str]:
-        """Interrupt Python process.
-
-        Args:
-            pane_id: Tmux pane ID.
-
-        Returns:
-            Tuple of (success, message) indicating result.
-        """
-        from ...tmux import send_keys
-
-        success = send_keys(pane_id, "C-c")
-        return success, "sent KeyboardInterrupt"
+        # Unknown state - we haven't observed this wait_channel
+        return False, f"{ctx.process.name} unknown state"

@@ -112,12 +112,12 @@ print(f"Timeout: {config.timeout}")
 
 2. Verify buffer approach is being used:
    - Single-line commands use `send_keys`
-   - Multiline commands use `send_via_buffer`
+   - Multiline commands use `send_via_paste_buffer`
 
 3. Test buffer directly:
    ```python
-   from termtap.tmux import send_via_buffer
-   send_via_buffer(pane_id, multiline_command)
+   from termtap.tmux import send_via_paste_buffer
+   send_via_paste_buffer(pane_id, multiline_command)
    ```
 
 ### Process Not Detected

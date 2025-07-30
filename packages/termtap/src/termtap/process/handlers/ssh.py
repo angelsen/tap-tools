@@ -1,110 +1,51 @@
-"""SSH process handler with hover dialog for permission.
+"""SSH handler - handles SSH client connections.
 
 Internal module - no public API.
+
+TESTING LOG:
+Date: 2025-07-30
+System: Linux 6.12.39-1-lts
+Process: ssh (OpenSSH client)
+Tracking: ~/.termtap/tracking/20250730_001318_ssh_klaudone
+
+Observed wait_channels:
+- unix_stream_read_generic: SSH waiting for network data (ready)
+- do_sys_poll: SSH polling for input/output (ready)
+
+Notes:
+- SSH shows different wait_channels but both indicate ready state
+- Transitions between unix_stream_read_generic and do_sys_poll
+- No working states observed during connection
 """
 
-import logging
 from . import ProcessHandler
-from ..tree import ProcessNode
-
-logger = logging.getLogger(__name__)
+from ...types import ProcessContext
 
 
 class _SSHHandler(ProcessHandler):
-    """Handler for SSH sessions - always asks permission before sending commands."""
+    """Handler for SSH client connections."""
 
-    handles = ["ssh", "scp", "sftp", "rsync"]
+    handles = ["ssh"]
 
-    def can_handle(self, process: ProcessNode) -> bool:
-        """Check if this is an SSH-related process.
+    def can_handle(self, ctx: ProcessContext) -> bool:
+        """Check if this handler manages this process."""
+        return ctx.process.name in self.handles
 
-        Args:
-            process: The ProcessNode to check.
+    def is_ready(self, ctx: ProcessContext) -> tuple[bool, str]:
+        """Determine if SSH is ready for input.
 
-        Returns:
-            True if process name matches SSH-related executables.
+        Based on tracking data observations.
         """
-        result = process.name in self.handles
-        if result:
-            logger.info(f"SSHHandler will handle process: {process.name}")
-        return result
+        # Check children first - most reliable
+        if ctx.process.has_children:
+            return False, f"{ctx.process.name} has subprocess"
 
-    def is_ready(self, process: ProcessNode) -> tuple[bool, str]:
-        """Check if SSH session is ready.
+        # Ready states observed in tracking
+        if ctx.process.wait_channel == "unix_stream_read_generic":
+            return True, f"{ctx.process.name} connected"
 
-        Args:
-            process: The ProcessNode to check.
+        if ctx.process.wait_channel == "do_sys_poll":
+            return True, f"{ctx.process.name} connected"
 
-        Returns:
-            Always (True, "ssh proxy ready") as SSH acts as a proxy.
-        """
-        return True, "ssh proxy ready"
-
-    def interrupt(self, pane_id: str) -> tuple[bool, str]:
-        """Interrupt SSH session.
-
-        Args:
-            session_id: Tmux session ID.
-
-        Returns:
-            Tuple of (success, message) indicating result.
-        """
-        from ...tmux import send_keys
-
-        success = send_keys(pane_id, "C-c")
-        return success, "sent Ctrl+C to remote"
-
-    def before_send(self, pane_id: str, command: str) -> str | None:
-        """Always show hover dialog for SSH commands.
-
-        Args:
-            pane_id: Tmux pane ID.
-            command: Command to be sent.
-
-        Returns:
-            Modified command or None to cancel.
-        """
-        logger.info(f"SSHHandler.before_send: Showing hover dialog for command: {command}")
-
-        from ...hover import show_hover
-
-        result = show_hover(session=pane_id, command=command, mode="before", title="SSH Command Confirmation")
-
-        logger.info(f"SSHHandler.before_send: Hover dialog returned: action={result.action}, choice={result.choice}")
-
-        if result.action == "execute":
-            logger.info(f"SSHHandler.before_send: Command approved, executing: {command}")
-            return command
-        elif result.action == "edit":
-            logger.info("SSHHandler.before_send: Edit requested but not implemented, cancelling")
-            return None
-        else:
-            logger.info(f"SSHHandler.before_send: Command cancelled, action was: {result.action}")
-            return None
-
-    def after_send(self, pane_id: str, command: str) -> None:
-        """Log SSH commands for audit trail.
-
-        Args:
-            pane_id: Tmux pane ID.
-            command: Command that was sent.
-        """
-        logger.info(f"SSHHandler.after_send: Command sent to {pane_id}: {command}")
-
-    def during_command(self, pane_id: str, elapsed: float) -> bool:
-        """Monitor SSH command execution.
-
-        Args:
-            session_id: Tmux session ID.
-            elapsed: Seconds elapsed since command started.
-
-        Returns:
-            True to continue waiting, False to stop waiting.
-        """
-        if elapsed > 300:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning(f"SSH command running for {elapsed:.1f}s in {pane_id}")
-
-        return True
+        # Unknown state - we haven't observed this wait_channel
+        return False, f"{ctx.process.name} unknown state"

@@ -5,7 +5,7 @@ from typing import Any
 
 from ..app import app
 from ..types import Target
-from ..tmux import send_keys, send_via_buffer, resolve_or_create_target, CurrentPaneError, resolve_target
+from ..tmux import send_keys, send_via_paste_buffer, resolve_or_create_target, CurrentPaneError, resolve_target
 from ..process.detector import detect_process
 from ..config import get_execution_config, get_config_manager
 from ..errors import markdown_error_response
@@ -83,7 +83,7 @@ def bash(
     try:
         # Use buffer for multiline commands, send-keys for single-line
         if "\n" in command:
-            send_via_buffer(pane_id, command)
+            send_via_paste_buffer(pane_id, command)
         else:
             send_keys(pane_id, command)
     except CurrentPaneError:
@@ -138,8 +138,10 @@ def bash(
     duration = time.time() - start_time
 
     # Get final output and process info
-    output = stream.read_command_output(cmd_id)
     process_info = detect_process(pane_id)
+
+    # Always render the final output to clean up ANSI sequences
+    output = stream.read_command_output(cmd_id, as_displayed=True)
 
     # 6. Build response
     elements = []

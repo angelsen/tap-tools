@@ -27,38 +27,64 @@ class PaneInfo:
     swp: SessionWindowPane  # session:window.pane
 
 
-def send_keys(pane_id: str, command: str, enter: bool = True) -> bool:
+def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) -> bool:
     """Send keystrokes to a pane.
 
     Args:
         pane_id: Target pane ID
-        command: Command text to send
-        enter: Whether to send Enter key after command
+        *commands: One or more commands/keys to send
+        enter: Whether to send Enter key after commands
+        delay: Delay in seconds before sending Enter (default: 0.05)
 
     Returns:
         True if successful
 
     Raises:
         CurrentPaneError: If attempting to send to current pane
+
+    Examples:
+        send_keys("pane", "ls -la")  # Text + 50ms + Enter
+        send_keys("pane", "what is 2+2")  # Works with Claude!
+        send_keys("pane", "text", delay=0)  # Immediate Enter
+        send_keys("pane", "C-c", enter=False)  # Just Ctrl+C
+        send_keys("pane", "Escape", "Escape")  # Multiple special keys
+        send_keys("pane", "C-u", "new text")  # Clear + text
     """
     if is_current_pane(pane_id):
         raise CurrentPaneError(f"Cannot send commands to current pane ({pane_id})")
 
-    args = ["send-keys", "-t", pane_id, command]
-    if enter:
-        args.append("Enter")
+    if not commands:
+        return True  # Nothing to send
 
+    # Build args - each command is a separate argument
+    args = ["send-keys", "-t", pane_id]
+    args.extend(commands)
+
+    # Send the commands
     code, _, _ = run_tmux(args)
-    return code == 0
+    if code != 0:
+        return False
+
+    # Handle Enter with optional delay
+    if enter:
+        if delay > 0:
+            import time
+
+            time.sleep(delay)
+        code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+        return code == 0
+
+    return True
 
 
-def send_via_buffer(pane_id: str, content: str, enter: bool = True) -> bool:
-    """Send content to pane using tmux buffer (reliable for multiline/special content).
+def send_via_paste_buffer(pane_id: str, content: str, enter: bool = True, delay: float = 0.05) -> bool:
+    """Send content to pane using tmux paste buffer (reliable for multiline/special content).
 
     Args:
         pane_id: Target pane ID
         content: Content to send (can be multiline)
         enter: Whether to send Enter key after content
+        delay: Delay in seconds before sending Enter (default: 0.05)
 
     Returns:
         True if successful
@@ -93,6 +119,10 @@ def send_via_buffer(pane_id: str, content: str, enter: bool = True) -> bool:
         raise RuntimeError(f"Failed to paste buffer: {stderr}")
 
     if enter:
+        if delay > 0:
+            import time
+
+            time.sleep(delay)
         code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
 
     return code == 0
@@ -112,6 +142,28 @@ def get_pane_pid(pane_id: str) -> int:
         return int(stdout.strip())
     except ValueError:
         raise RuntimeError(f"Failed to parse PID: invalid format '{stdout}'")
+
+
+def get_pane_session_window_pane(pane_id: str) -> SessionWindowPane:
+    """Get session:window.pane format for a pane ID.
+
+    Args:
+        pane_id: Tmux pane ID (e.g., '%0')
+
+    Returns:
+        Session window pane format (e.g., 'mysession:0.0')
+
+    Raises:
+        PaneNotFoundError: If pane doesn't exist
+    """
+    code, stdout, stderr = run_tmux(
+        ["display-message", "-p", "-t", pane_id, "#{session_name}:#{window_index}.#{pane_index}"]
+    )
+
+    if code != 0:
+        raise PaneNotFoundError(f"Failed to get pane session:window.pane: {stderr}")
+
+    return stdout.strip()
 
 
 def get_pane_info(pane_id: str) -> PaneInfo:
