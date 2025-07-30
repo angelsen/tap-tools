@@ -1,0 +1,102 @@
+# Pane Module Implementation Checklist
+
+## Context
+You are implementing the Pane module - the foundation of termtap. Everything happens in panes. No backwards compatibility needed.
+
+## Phase 1: Core Foundation ✓ Test Before Proceeding
+
+### Create pane/core.py
+```python
+@dataclass
+class Pane:
+    pane_id: str  # Only required field
+    # Lazy properties: session_window_pane, pid, process_chain, shell, process, visible_content
+```
+
+### Test checkpoint
+```python
+from termtap.pane import Pane
+p = Pane("%5")
+assert p.session_window_pane  # Should work
+assert p.process  # Should work
+```
+
+## Phase 2: Execution Layer ✓ Test Before Proceeding
+
+### Create pane/execution.py
+- `send_command(pane, command, wait=True, timeout=None) -> dict`
+- `interrupt(pane) -> bool`
+
+### Refactor existing modules
+1. **handlers/base.py**: Change to `is_ready(self, pane: Pane)`
+2. **Delete ProcessContext** from types.py
+3. **tmux/pane.py**: Keep only primitive operations
+
+### Test checkpoint
+```python
+from termtap.pane import Pane, send_command
+result = send_command(Pane("%5"), "echo hello")
+assert result['output'] == "hello"
+```
+
+## Phase 3: Inspection Layer ✓ Test Before Proceeding
+
+### Create files
+- pane/inspection.py: `read_output()`, `get_process_info()`
+- pane/streaming.py: Stream management
+
+### Delete obsolete
+- core/execute.py (replaced by pane/execution.py)
+- process/detector.py detect_process() (use pane.is_ready)
+
+## Phase 4: Command Migration
+
+### Refactor commands (exact patterns)
+```python
+# bash.py
+pane = Pane(resolve_or_create_target(target))
+return format_result(send_command(pane, command))
+
+# read.py  
+pane = Pane(resolve_target(target))
+return format_output(read_output(pane))
+
+# ls.py
+[get_pane_info(Pane(pid)) for pid in list_pane_ids()]
+```
+
+### Simplify resolution
+- resolve_target() returns pane_id only (not tuple)
+- Delete ProcessInfo from types.py
+
+## Phase 5: Init System
+```python
+# Services as Panes
+services = {}
+for service in init_group.services:
+    pane = Pane(create_pane(...))
+    services[service.name] = pane
+    send_command(pane, service.command)
+```
+
+## Phase 6: Final Cleanup
+### Delete entirely
+- core/ directory
+- ProcessContext, ProcessInfo from types.py
+- Duplicate tmux operations
+
+### Keep only
+- tmux/: Primitive operations pane uses
+- process/tree.py: For pane.process_chain
+
+## Key Rules
+1. **No defensive code**: Pane("%invalid") fails fast
+2. **Pure data + functions**: Pane holds data, functions do work
+3. **Test each phase**: Don't proceed until tests pass
+4. **Delete fearlessly**: If it doesn't serve Pane, remove it
+
+## Success Metrics
+- Each command file < 50 lines
+- One way to do things: `send_command(Pane("%5"), "ls")`
+- No ProcessContext anywhere
+- Handlers accept Pane directly

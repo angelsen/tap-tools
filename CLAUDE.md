@@ -64,3 +64,6 @@ read("session-name") # Get session output
 Built on ReplKit2 for dual REPL/MCP functionality:
 - @/home/fredrik/Projects/Python/project-summer/replkit2/src/replkit2/llms.txt
 - @/home/fredrik/Projects/Python/project-summer/replkit2/src/replkit2/textkit/README.md
+
+### Pane Migration
+@./packages/termtap/src/termtap/pane/llms.txt
