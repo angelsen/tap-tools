@@ -2,6 +2,14 @@
 
 Everything happens in panes. Sessions are just containers for organizing panes.
 Target resolution is explicit and unambiguous.
+
+PUBLIC API:
+  - PaneID: tmux native pane ID (e.g., "%42")
+  - SessionWindowPane: canonical format (e.g., "session:0.0")
+  - Target: union type for flexible pane targeting
+  - ExecutionConfig: configuration for command execution
+  - InitGroup: configuration for service groups
+  - ServiceConfig: individual service configuration
 """
 
 from typing import TypedDict, NotRequired, Literal, TYPE_CHECKING

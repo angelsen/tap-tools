@@ -5,6 +5,11 @@ across all commands, following the ERROR_HANDLING_SPEC.md guidelines.
 
 Note: This module provides GENERIC error handling. Commands should handle
 their own business logic (like service suggestions) before using these utilities.
+
+PUBLIC API:
+  - markdown_error_response: Create error response for markdown display
+  - table_error_response: Create error response for table display
+  - RuntimeError: Re-exported standard exception for consistency
 """
 
 from typing import Any

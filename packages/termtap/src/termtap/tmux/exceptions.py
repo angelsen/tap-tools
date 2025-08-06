@@ -1,4 +1,12 @@
-"""Tmux-specific exceptions."""
+"""Tmux-specific exceptions.
+
+PUBLIC API:
+  - TmuxError: Base exception for all tmux operations
+  - SessionNotFoundError: Session not found exception
+  - CurrentPaneError: Current pane operation error
+  - PaneNotFoundError: Pane not found exception
+  - WindowNotFoundError: Window not found exception
+"""
 
 
 class TmuxError(Exception):

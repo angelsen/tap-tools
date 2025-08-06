@@ -1,4 +1,10 @@
-"""Direct command execution with minimal overhead and smart context management."""
+"""Direct command execution with minimal overhead and smart context management.
+
+PUBLIC API:
+  - send_command: Execute command in pane with handler lifecycle
+  - send_keys: Send raw keystrokes to pane
+  - send_interrupt: Send interrupt signal to pane
+"""
 
 import re
 import time

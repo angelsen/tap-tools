@@ -1,4 +1,10 @@
-"""Core tmux operations - shared utilities for all tmux modules."""
+"""Core tmux operations - shared utilities for all tmux modules.
+
+PUBLIC API:
+  - run_tmux: Execute tmux command and return result
+  - parse_format_line: Parse tmux format string output into dict
+  - check_tmux_available: Check if tmux is available and server running
+"""
 
 import os
 import subprocess

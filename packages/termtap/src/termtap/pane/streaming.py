@@ -1,4 +1,14 @@
-"""Pane-centric streaming - wraps tmux Stream for easy pane operations."""
+"""Pane-centric streaming - wraps tmux Stream for easy pane operations.
+
+PUBLIC API:
+  - ensure_streaming: Start streaming for pane if not already active
+  - mark_command_start: Mark beginning of command execution
+  - mark_command_end: Mark end of command execution
+  - get_command_output: Get output for specific command
+  - read_command_output: Read output for specific command
+  - read_since_last: Read new output since last read
+  - read_recent: Read recent output with line limit
+"""
 
 import time
 from pathlib import Path

@@ -1,4 +1,14 @@
-"""Pane operations - all pane-related functionality."""
+"""Pane operations - all pane-related functionality.
+
+PUBLIC API:
+  - PaneInfo: Complete pane information data class
+  - list_panes: List all panes with optional filtering
+  - get_pane_pid: Get process ID for pane
+  - get_pane_info: Get complete pane information
+  - send_keys: Send keystrokes to pane
+  - capture_visible: Capture visible pane content
+  - create_panes_with_layout: Create panes in specific layout
+"""
 
 from typing import List, Optional
 from dataclasses import dataclass

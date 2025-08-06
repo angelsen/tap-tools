@@ -1,4 +1,13 @@
-"""Session management - pure session operations."""
+"""Session management - pure session operations.
+
+PUBLIC API:
+  - SessionInfo: Session information data class
+  - list_sessions: List all tmux sessions
+  - session_exists: Check if session exists
+  - create_session: Create new session
+  - kill_session: Kill existing session
+  - get_or_create_session: Get existing or create new session
+"""
 
 from typing import Optional, NamedTuple, List
 

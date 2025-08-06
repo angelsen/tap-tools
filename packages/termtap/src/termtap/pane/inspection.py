@@ -1,4 +1,9 @@
-"""Pane inspection functions - read output and get process info."""
+"""Pane inspection functions - read output and get process info.
+
+PUBLIC API:
+  - read_output: Read output from pane with automatic filtering
+  - get_process_info: Get process information for pane
+"""
 
 from typing import Optional, Any
 from .core import Pane

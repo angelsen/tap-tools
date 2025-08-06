@@ -1,4 +1,10 @@
-"""Target resolution - handles all target to pane resolution logic."""
+"""Target resolution - handles all target to pane resolution logic.
+
+PUBLIC API:
+  - resolve_target: Resolve target to one or more panes
+  - resolve_target_to_pane: Resolve target to single pane
+  - resolve_or_create_target: Resolve or create target session/pane
+"""
 
 from typing import List, Tuple
 from .core import run_tmux, get_pane_id

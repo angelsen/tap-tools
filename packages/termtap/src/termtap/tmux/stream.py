@@ -1,4 +1,8 @@
-"""Streaming output from tmux panes - no global state, multiple instances can coexist."""
+"""Streaming output from tmux panes - no global state, multiple instances can coexist.
+
+PUBLIC API:
+  - Stream: Stream handler class for tmux pane output
+"""
 
 import json
 import time

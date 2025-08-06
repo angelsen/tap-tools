@@ -1,4 +1,8 @@
-"""Docker-style session name generation."""
+"""Docker-style session name generation.
+
+PUBLIC API:
+  - generate_session_name: Generate Docker-style session name (adjective-animal)
+"""
 
 import random
 

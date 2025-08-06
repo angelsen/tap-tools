@@ -1,6 +1,9 @@
 """Output filter functions for termtap.
 
 These are composable filters that handlers can use to transform output.
+
+PUBLIC API:
+  - collapse_empty_lines: Collapse consecutive empty lines above threshold
 """
 
 

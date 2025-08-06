@@ -1,6 +1,10 @@
 """Configuration management for termtap.
 
 Handles init groups and default settings from termtap.toml.
+
+PUBLIC API:
+  - get_config_manager: Get singleton configuration manager
+  - ConfigManager: Main configuration management class
 """
 
 from pathlib import Path
