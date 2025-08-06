@@ -234,12 +234,20 @@ class Stream:
 
     # Command tracking
 
-    def mark_command(self, cmd_id: str, command: str) -> None:
-        """Mark command start position."""
+    def mark_command(self, cmd_id: str, command: str) -> str:
+        """Mark command start position.
+
+        Args:
+            cmd_id: Command identifier
+            command: Command string being executed
+
+        Returns:
+            Command ID for retrieving output later
+        """
         if not self._ensure_sync():
             # Files were cleaned, start fresh
             if not self.start():
-                return
+                return cmd_id
 
         metadata = self._read_metadata_unsafe()
 
@@ -253,6 +261,8 @@ class Stream:
         metadata["commands"][cmd_id] = {"position": position, "command": command, "time": time.time()}
         metadata["positions"]["bash_last"] = position
         self._write_metadata_unsafe(metadata)
+
+        return cmd_id
 
     def mark_command_end(self, cmd_id: str) -> None:
         """Mark command end position."""
