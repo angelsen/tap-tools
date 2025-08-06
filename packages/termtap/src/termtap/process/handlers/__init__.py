@@ -37,14 +37,17 @@ class ProcessHandler(ABC):
         pass
 
     @abstractmethod
-    def is_ready(self, pane: Pane) -> tuple[bool, str]:
+    def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Check if process is ready for input.
 
         Args:
             pane: Pane with process information.
 
         Returns:
-            Tuple of (is_ready, reason) indicating process state.
+            Tuple of (readiness, description):
+            - (True, description): Process is ready for input
+            - (False, description): Process is busy/working
+            - (None, description): Cannot determine state
         """
         pass
 
@@ -108,6 +111,20 @@ class ProcessHandler(ABC):
             duration: Total execution time in seconds.
         """
         pass
+
+    def filter_output(self, content: str) -> str:
+        """Filter output content for better readability.
+
+        Default implementation returns content unchanged.
+        Override to provide custom filtering for specific process types.
+
+        Args:
+            content: Raw output content.
+
+        Returns:
+            Filtered content.
+        """
+        return content
 
 
 _handlers = []

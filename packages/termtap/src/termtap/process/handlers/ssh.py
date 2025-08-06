@@ -31,7 +31,7 @@ class _SSHHandler(ProcessHandler):
         """Check if this handler manages this process."""
         return bool(pane.process and pane.process.name in self.handles)
 
-    def is_ready(self, pane: Pane) -> tuple[bool, str]:
+    def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if SSH is ready for input.
 
         Based on tracking data observations.
@@ -42,14 +42,14 @@ class _SSHHandler(ProcessHandler):
 
         # Check children first - most reliable
         if pane.process.has_children:
-            return False, f"{pane.process.name} has subprocess"
+            return False, "has subprocess"
 
         # Ready states observed in tracking
         if pane.process.wait_channel == "unix_stream_read_generic":
-            return True, f"{pane.process.name} connected"
+            return True, "connected"
 
         if pane.process.wait_channel == "do_sys_poll":
-            return True, f"{pane.process.name} connected"
+            return True, "connected"
 
         # Unknown state - we haven't observed this wait_channel
-        return False, f"{pane.process.name} unknown state"
+        return None, f"unrecognized wait_channel: {pane.process.wait_channel}"

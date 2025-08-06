@@ -7,23 +7,27 @@ import time
 from pathlib import Path
 from typing import Any
 
-from replkit2.textkit import markdown
-
 from ..app import app
+from ..pane import Pane, get_process_info, read_output, process_scan
+from ..tmux import resolve_or_create_target
 from ..types import Target
-from ..tmux import (
-    send_keys,
-    resolve_or_create_target,
-    CurrentPaneError,
-    capture_visible,
-)
-from ..process.detector import detect_process
-from ..errors import markdown_error_response
+
+
+def _collect_wait_channels(pane: Pane) -> list[str]:
+    """Collect wait channels from process chain for debugging.
+    
+    Internal helper for track command's debugging needs.
+    """
+    wait_channels = []
+    for proc in pane.process_chain:
+        if proc.wait_channel:
+            wait_channels.append(f"{proc.name}:{proc.wait_channel}")
+    return wait_channels
 
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "description": "Track process state changes over time"},
+    fastmcp={"enabled": False},  # Development tool, not exposed to MCP
 )
 def track(
     state,
@@ -50,13 +54,19 @@ def track(
     """
     # Validate
     if duration <= 0 or duration > 300:
-        return markdown_error_response("Duration must be between 0-300 seconds")
+        return {
+            "elements": [{"type": "text", "content": "Error: Duration must be between 0-300 seconds"}],
+            "frontmatter": {"error": "Invalid duration", "status": "error"},
+        }
 
     # Setup
     try:
         pane_id, session_window_pane = resolve_or_create_target(target)
     except Exception as e:
-        return markdown_error_response(f"Target error: {str(e)}")
+        return {
+            "elements": [{"type": "text", "content": f"Error: {e}"}],
+            "frontmatter": {"error": str(e), "status": "error"},
+        }
 
     # Create tracking directory
     base_dir = Path.home() / ".termtap" / "tracking"
@@ -70,6 +80,9 @@ def track(
     tracking_dir.mkdir(exist_ok=True)
     (tracking_dir / "screenshots").mkdir(exist_ok=True)
 
+    # Create pane
+    pane = Pane(pane_id)
+
     # Track
     start_time = time.time()
     samples = []
@@ -77,32 +90,54 @@ def track(
 
     # Capture initial state before sending command
     try:
-        initial_info = detect_process(pane_id)
-        initial_screenshot = capture_visible(pane_id)
-        initial_hash = hashlib.md5(initial_screenshot.encode()).hexdigest()
+        with process_scan(pane.pane_id):
+            initial_info = get_process_info(pane)
+            initial_screenshot = read_output(pane)
+            initial_hash = hashlib.md5(initial_screenshot.encode()).hexdigest()
 
-        samples.append(
-            {
-                "elapsed": 0.0,
-                "state": initial_info.state,
-                "wait_channel": initial_info.wait_channel,
-                "process": initial_info.process,
-                "shell": initial_info.shell,
-                "screenshot_hash": initial_hash,
-            }
-        )
-        screenshots[initial_hash] = (0.0, initial_screenshot)
+            samples.append(
+                {
+                    "elapsed": 0.0,
+                    "process": initial_info["process"],
+                    "shell": initial_info["shell"],
+                    "ready": initial_info["ready"],
+                    "state_description": initial_info["state_description"],
+                    "handler": initial_info["handler"],
+                    "process_tree": initial_info["process_tree"],
+                    "wait_channels": _collect_wait_channels(pane),
+                    "screenshot_hash": initial_hash,
+                }
+            )
+            screenshots[initial_hash] = (0.0, initial_screenshot)
     except Exception:
         pass  # Continue even if initial capture fails
 
     # Send commands
     try:
         if commands:
-            send_keys(pane_id, *commands, enter=enter)
-    except CurrentPaneError:
-        return markdown_error_response(f"Cannot track in current pane ({pane_id})")
+            # Check if we're trying to track current pane
+            from ..tmux.core import run_tmux
+            code, stdout, _ = run_tmux(["display-message", "-p", "#{pane_id}"])
+            current_pane_id = stdout.strip() if code == 0 else None
+            
+            if pane_id == current_pane_id:
+                return {
+                    "elements": [{"type": "text", "content": f"Error: Cannot track in current pane ({pane_id})"}],
+                    "frontmatter": {"error": "Cannot track current pane", "status": "error"},
+                }
+            
+            # Send keys using tmux directly for minimal interference
+            from ..tmux.pane import send_keys as tmux_send_keys
+            
+            # Join commands and send with optional enter
+            # Keep default 50ms delay before Enter for commands to register properly
+            if not tmux_send_keys(pane.pane_id, " ".join(commands), enter=enter):
+                raise RuntimeError("Failed to send keys to pane")
     except Exception as e:
-        return markdown_error_response(str(e))
+        return {
+            "elements": [{"type": "text", "content": f"Error: {e}"}],
+            "frontmatter": {"error": str(e), "status": "error"},
+        }
 
     time.sleep(0.1)  # Let command start
 
@@ -111,25 +146,29 @@ def track(
         elapsed = time.time() - start_time
 
         try:
-            # Sample
-            process_info = detect_process(pane_id)
-            screenshot = capture_visible(pane_id)
-            screenshot_hash = hashlib.md5(screenshot.encode()).hexdigest()
+            # Sample with fresh scan
+            with process_scan(pane.pane_id):
+                process_info = get_process_info(pane)
+                screenshot = read_output(pane)
+                screenshot_hash = hashlib.md5(screenshot.encode()).hexdigest()
 
-            samples.append(
-                {
-                    "elapsed": round(elapsed, 1),
-                    "state": process_info.state,
-                    "wait_channel": process_info.wait_channel,
-                    "process": process_info.process,
-                    "shell": process_info.shell,
-                    "screenshot_hash": screenshot_hash,
-                }
-            )
+                samples.append(
+                    {
+                        "elapsed": round(elapsed, 1),
+                        "process": process_info["process"],
+                        "shell": process_info["shell"],
+                        "ready": process_info["ready"],
+                        "state_description": process_info["state_description"],
+                        "handler": process_info["handler"],
+                        "process_tree": process_info["process_tree"],
+                        "wait_channels": _collect_wait_channels(pane),
+                        "screenshot_hash": screenshot_hash,
+                    }
+                )
 
-            # Store unique screenshots
-            if screenshot_hash not in screenshots:
-                screenshots[screenshot_hash] = (elapsed, screenshot)
+                # Store unique screenshots
+                if screenshot_hash not in screenshots:
+                    screenshots[screenshot_hash] = (elapsed, screenshot)
 
         except Exception:
             pass  # Continue tracking
@@ -138,19 +177,25 @@ def track(
 
     # Final sample
     try:
-        final_info = detect_process(pane_id)
-        final_screenshot = capture_visible(pane_id)
-        samples.append(
-            {
-                "elapsed": round(duration, 1),
-                "state": final_info.state,
-                "wait_channel": final_info.wait_channel,
-                "process": final_info.process,
-                "shell": final_info.shell,
-                "screenshot_hash": hashlib.md5(final_screenshot.encode()).hexdigest(),
-            }
-        )
-        screenshots[samples[-1]["screenshot_hash"]] = (duration, final_screenshot)
+        with process_scan(pane.pane_id):
+            final_info = get_process_info(pane)
+            final_screenshot = read_output(pane)
+            final_hash = hashlib.md5(final_screenshot.encode()).hexdigest()
+            
+            samples.append(
+                {
+                    "elapsed": round(duration, 1),
+                    "process": final_info["process"],
+                    "shell": final_info["shell"],
+                    "ready": final_info["ready"],
+                    "state_description": final_info["state_description"],
+                    "handler": final_info["handler"],
+                    "process_tree": final_info["process_tree"],
+                    "wait_channels": _collect_wait_channels(pane),
+                    "screenshot_hash": final_hash,
+                }
+            )
+            screenshots[final_hash] = (duration, final_screenshot)
     except Exception:
         pass
 
@@ -183,22 +228,26 @@ def track(
         (tracking_dir / "screenshots" / f"{ts:.1f}s.txt").write_text("\n".join(debug_lines))
 
     # Quick analysis
-    wait_channels = sorted(set(s.get("wait_channel") for s in samples if s.get("wait_channel")))
-    states = {}
-    for sample in samples:
-        key = (sample["state"], sample.get("wait_channel"))
-        states[key] = states.get(key, 0) + 1
-
+    handlers_seen = sorted(set(s["handler"] for s in samples))
+    
     # Return summary
     commands_str = " ".join(commands) if commands else "(no commands)"
-    return (
-        markdown()
-        .text(f"Process tracked: `{commands_str}`")
-        .text(f"Enter: {enter}")
-        .text(f"Duration: {duration}s ({len(samples)} samples)")
-        .text(f"Wait channels: {', '.join(wait_channels) if wait_channels else 'none'}")
-        .text(f"Screenshots: {len(screenshots)} unique")
-        .text("")
-        .text(f"Data: `{tracking_dir}`")
-        .build()
-    )
+    
+    elements = [
+        {"type": "text", "content": f"Process tracked: `{commands_str}`"},
+        {"type": "text", "content": f"Enter: {enter}"},
+        {"type": "text", "content": f"Duration: {duration}s ({len(samples)} samples)"},
+        {"type": "text", "content": f"Handlers: {', '.join(handlers_seen)}"},
+        {"type": "text", "content": f"Screenshots: {len(screenshots)} unique"},
+        {"type": "text", "content": ""},
+        {"type": "text", "content": f"Data: `{tracking_dir}`"},
+    ]
+    
+    return {
+        "elements": elements,
+        "frontmatter": {
+            "command": "track",
+            "status": "completed",
+            "samples": len(samples),
+        }
+    }

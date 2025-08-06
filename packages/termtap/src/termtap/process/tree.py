@@ -246,6 +246,34 @@ def get_process_tree(root_pid: int) -> Optional[ProcessNode]:
     return build_tree_from_processes(processes, root_pid)
 
 
+def extract_chain_from_tree(tree: Optional[ProcessNode]) -> List[ProcessNode]:
+    """Extract the main execution chain from a process tree.
+
+    Follows the first child at each level to build the main
+    execution chain (e.g., bash -> python -> subprocess).
+
+    Args:
+        tree: Root ProcessNode of the tree.
+
+    Returns:
+        List of ProcessNodes from root to leaf process.
+    """
+    if not tree:
+        return []
+
+    chain = []
+    current = tree
+    visited = set()
+
+    while current and current.pid not in visited:
+        visited.add(current.pid)
+        chain.append(current)
+        # Follow first child (main execution path)
+        current = current.children[0] if current.children else None
+
+    return chain
+
+
 def get_process_chain(root_pid: int) -> List[ProcessNode]:
     """Get the main execution chain from a root PID.
 
@@ -258,24 +286,27 @@ def get_process_chain(root_pid: int) -> List[ProcessNode]:
     Returns:
         List of ProcessNodes from root to leaf process.
     """
-    # Get full tree
     tree = get_process_tree(root_pid)
-    if not tree:
-        return []
+    return extract_chain_from_tree(tree)
 
-    # Walk down following first child
-    chain = []
-    current = tree
-    visited = set()
 
-    while current and current.pid not in visited:
-        visited.add(current.pid)
-        chain.append(current)
+def get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
+    """Get process chains for multiple PIDs with a single /proc scan.
 
-        # Get first child
-        if current.children:
-            current = current.children[0]
-        else:
-            break
+    More efficient than calling get_process_chain multiple times.
 
-    return chain
+    Args:
+        pids: List of PIDs to get chains for.
+
+    Returns:
+        Dict mapping PID to its process chain.
+    """
+    # Single scan of all processes
+    all_processes = get_all_processes()
+    
+    chains = {}
+    for pid in pids:
+        tree = build_tree_from_processes(all_processes, pid)
+        chains[pid] = extract_chain_from_tree(tree)
+    
+    return chains

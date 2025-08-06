@@ -9,7 +9,7 @@ PUBLIC API:
 
 import logging
 
-from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_from_processes
+from .tree import get_process_chain, ProcessNode, get_all_processes, build_tree_from_processes, extract_chain_from_tree
 from .handlers import get_handler
 from ..tmux import get_pane_pid, send_keys, get_pane_session_window_pane
 from ..config import get_config_manager
@@ -18,7 +18,7 @@ from ..types import ProcessInfo, ProcessContext, KNOWN_SHELLS
 logger = logging.getLogger(__name__)
 
 
-def _extract_shell_and_process(
+def extract_shell_and_process(
     chain: list[ProcessNode], skip_processes: list[str]
 ) -> tuple[ProcessNode | None, ProcessNode | None]:
     """Extract shell and active process from chain.
@@ -80,7 +80,7 @@ def detect_process(pane_id: str) -> ProcessInfo:
             return ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane_id)
 
         config_manager = get_config_manager()
-        shell, process = _extract_shell_and_process(chain, config_manager.skip_processes)
+        shell, process = extract_shell_and_process(chain, config_manager.skip_processes)
 
         # Determine state
         if not process or process == shell:
@@ -140,19 +140,10 @@ def detect_all_processes(pane_ids: list[str]) -> dict[str, ProcessInfo]:
                 results[pane_id] = ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane_id)
                 continue
 
-            # Build chain from tree
-            chain = []
-            current = tree
-            visited = set()
-            while current and current.pid not in visited:
-                visited.add(current.pid)
-                chain.append(current)
-                if current.children:
-                    current = current.children[0]
-                else:
-                    break
+            # Extract chain from tree using helper
+            chain = extract_chain_from_tree(tree)
 
-            shell, process = _extract_shell_and_process(chain, config_manager.skip_processes)
+            shell, process = extract_shell_and_process(chain, config_manager.skip_processes)
 
             # Determine state
             if not process or process == shell:
@@ -203,7 +194,7 @@ def get_handler_for_pane(pane_id: str, process_name: str | None = None):
             return None
 
         config_manager = get_config_manager()
-        _, process = _extract_shell_and_process(chain, config_manager.skip_processes)
+        _, process = extract_shell_and_process(chain, config_manager.skip_processes)
 
         # Get session:window.pane for context
         session_window_pane = get_pane_session_window_pane(pane_id)
@@ -248,7 +239,7 @@ def interrupt_process(pane_id: str) -> tuple[bool, str]:
         pid = get_pane_pid(pane_id)
         chain = get_process_chain(pid)
         config_manager = get_config_manager()
-        _, process = _extract_shell_and_process(chain, config_manager.skip_processes)
+        _, process = extract_shell_and_process(chain, config_manager.skip_processes)
 
         if process:
             # Create ProcessContext for handler

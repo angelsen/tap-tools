@@ -32,7 +32,7 @@ class _PythonHandler(ProcessHandler):
         """Check if this handler manages this process."""
         return bool(pane.process and pane.process.name in self.handles)
 
-    def is_ready(self, pane: Pane) -> tuple[bool, str]:
+    def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if Python is ready for input.
 
         Based on tracking data observations.
@@ -43,15 +43,15 @@ class _PythonHandler(ProcessHandler):
 
         # Check children first - most reliable
         if pane.process.has_children:
-            return False, f"{pane.process.name} has subprocess"
+            return False, "has subprocess"
 
         # Ready state observed in tracking
         if pane.process.wait_channel == "do_select":
-            return True, f"{pane.process.name} REPL waiting"
+            return True, "REPL waiting"
 
         # Working state observed in tracking
         if pane.process.wait_channel == "do_wait":
-            return False, f"{pane.process.name} waiting for subprocess"
+            return False, "waiting for subprocess"
 
         # Unknown state - we haven't observed this wait_channel
-        return False, f"{pane.process.name} unknown state"
+        return None, f"unrecognized wait_channel: {pane.process.wait_channel}"

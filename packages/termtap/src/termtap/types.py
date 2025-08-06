@@ -198,6 +198,22 @@ class ProcessContext:
 
         return send_keys(self.pane_id, *commands, enter=enter, delay=delay)
 
+    def refresh(self) -> None:
+        """Update process information from current pane state."""
+        from .tmux import get_pane_pid
+        from .process.tree import get_process_chain
+        from .process import extract_shell_and_process
+        from .config import get_config_manager
+
+        pid = get_pane_pid(self.pane_id)
+        chain = get_process_chain(pid)
+        _, process = extract_shell_and_process(chain, get_config_manager().skip_processes)
+
+        if process:
+            self.process = process
+        # Clear cached content so next capture_visible gets fresh data
+        self._visible_content = None
+
 
 # Configuration types
 @dataclass
@@ -226,6 +242,8 @@ class ServiceConfig:
     group: str  # e.g., "demo"
     pane: int
     command: str
+    path: str | None = None  # Working directory
+    env: dict[str, str] | None = None  # Environment variables
     ready_pattern: str | None = None
     timeout: float | None = None
     depends_on: list[str] | None = None

@@ -48,7 +48,7 @@ PUBLIC API:
 
   Streaming:
     - Stream: Stream handler for pane output
-    - StreamManager: Manage multiple streams
+    - Stream: Stream pane output to files
 
   Utilities:
     - generate_session_name: Generate Docker-style names
@@ -113,7 +113,7 @@ from .structure import (
 # Streaming
 from .stream import (
     Stream,
-    StreamManager,
+    StreamManager,  # Temporary - to be removed
 )
 
 # Utilities
@@ -162,7 +162,7 @@ __all__ = [
     "get_or_create_session_with_structure",
     # Streaming
     "Stream",
-    "StreamManager",
+    "StreamManager",  # Temporary
     # Utilities
     "generate_session_name",
 ]

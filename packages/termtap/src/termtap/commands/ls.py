@@ -1,72 +1,49 @@
 """List command - show all tmux panes."""
 
-from typing import cast, Optional
-from ..app import app
-from ..types import PaneRow, ProcessInfo
-from ..tmux import list_panes
-from ..process import detect_all_processes
-from ..errors import table_error_response
-import logging
+from typing import Optional
 
-logger = logging.getLogger(__name__)
+from ..app import app
+from ..pane import Pane, process_scan, get_process_info
+from ..tmux import list_panes
 
 
 @app.command(
     display="table",
-    headers=["Pane", "Shell", "Process", "State", "Attached"],
-    fastmcp={"enabled": False},  # REPL only for now
+    headers=["Pane", "Shell", "Process", "State"],
 )
-def ls(state, filter: Optional[str] = None) -> list[PaneRow]:
-    """List all tmux panes with their current process.
-
-    Args:
-        filter: Optional text to filter (searches in pane name and process)
-    """
-    try:
-        panes = list_panes()
-        pane_ids = [p.pane_id for p in panes]
-    except Exception as e:
-        return cast(list[PaneRow], table_error_response(f"Failed to list panes: {e}"))
-
-    # Batch detect all processes
-    try:
-        process_infos = detect_all_processes(pane_ids)
-    except Exception as e:
-        # If batch detection fails, log it but continue with empty infos
-        logger.warning(f"Batch process detection failed: {e}")
-        process_infos = {}
-
-    results = []
-    for pane in panes:
-        try:
-            # Get process info or use defaults
-            info = process_infos.get(
-                pane.pane_id, ProcessInfo(shell=None, process=None, state="unknown", pane_id=pane.pane_id)
-            )
-
-            # Skip panes that had detection errors
-            if info.shell == "error":
-                continue
-
+def ls(state, filter: Optional[str] = None):
+    """List all tmux panes with their current process."""
+    tmux_panes = list_panes()
+    
+    # Single scan for all panes
+    with process_scan():
+        results = []
+        
+        for tmux_pane in tmux_panes:
+            # Create pane - will use scan context
+            pane = Pane(tmux_pane.pane_id)
+            info = get_process_info(pane)
+            
             # Apply filter if provided
             if filter:
-                # Simple fuzzy search in pane name and process
-                searchable = f"{pane.swp} {info.process or ''}".lower()
+                searchable = f"{tmux_pane.swp} {info.get('process', '')}".lower()
                 if filter.lower() not in searchable:
                     continue
-
-            results.append(
-                PaneRow(
-                    Pane=pane.swp,
-                    Shell=info.shell or "-",
-                    Process=info.process or "-",
-                    State=info.state,
-                    Attached="Yes" if pane.is_current else "No",
-                )
-            )
-        except Exception as e:
-            # Log individual pane errors but continue
-            logger.warning(f"Failed to process pane {pane.pane_id}: {e}")
-            continue
-
+            
+            # Map three-state boolean to status
+            is_ready = info.get("ready")
+            if is_ready is None:
+                status = "unknown"
+            elif is_ready:
+                status = "ready"
+            else:
+                status = "busy"
+            
+            results.append({
+                "Pane": tmux_pane.swp,
+                "Shell": info.get("shell", "-"),
+                "Process": info.get("process", "-"),
+                "State": status,
+            })
+    
     return results

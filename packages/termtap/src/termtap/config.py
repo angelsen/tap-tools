@@ -39,7 +39,8 @@ class ConfigManager:
     """Manages configuration for termtap."""
 
     def __init__(self):
-        self.data = _load_config()
+        self._config_file = _find_config_file()
+        self.data = _load_config(self._config_file)
         self._default_config = self.data.get("default", {})
         self._init_groups: Dict[str, InitGroup] = {}
 
@@ -62,6 +63,8 @@ class ConfigManager:
                         group=key,
                         pane=service_data.get("pane", len(services)),
                         command=service_data["command"],
+                        path=service_data.get("path"),  # New field
+                        env=service_data.get("env"),    # New field
                         ready_pattern=service_data.get("ready_pattern"),
                         timeout=service_data.get("timeout"),
                         depends_on=service_data.get("depends_on"),

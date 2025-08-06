@@ -10,13 +10,17 @@ layout = "even-horizontal"  # tmux layout for panes
 
 [demo.backend]
 pane = 0
-command = "cd backend && uv run python -m uvicorn main:app --reload"
+path = "./backend"  # Working directory relative to this config file
+command = "uv run python -m uvicorn main:app --reload"
+env = { HOST = "0.0.0.0", PORT = "8000" }  # Environment variables
 ready_pattern = "Uvicorn running on"
 timeout = 10.0
 
 [demo.frontend]  
 pane = 1
-command = "cd frontend && npm run dev"
+path = "./frontend"  # Working directory relative to this config file
+command = "npm run dev"
+env = { NODE_ENV = "development" }
 ready_pattern = "Local:\\s+https?://localhost:\\d+"
 timeout = 15.0
 depends_on = ["backend"]  # Wait for backend before starting

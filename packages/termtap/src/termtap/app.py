@@ -1,17 +1,14 @@
 """termtap ReplKit2 application - pane-first architecture."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from replkit2 import App
-
-from .core import ExecutorState
 
 
 @dataclass
 class TermTapState:
     """Application state for termtap pane management."""
-
-    executor: ExecutorState = field(default_factory=ExecutorState)
+    pass
 
 
 # Create the app (must be created before command imports)

@@ -5,6 +5,7 @@ Internal module - no public API.
 
 from . import ProcessHandler
 from ...pane import Pane
+from ...filters import collapse_empty_lines
 
 
 class _DefaultHandler(ProcessHandler):
@@ -21,17 +22,44 @@ class _DefaultHandler(ProcessHandler):
         """
         return True
 
-    def is_ready(self, pane: Pane) -> tuple[bool, str]:
-        """Check readiness using simple rule: has children = working.
+    def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
+        """Check readiness: shell in do_wait = not ready, unless interactive.
+
+        Enhanced logic:
+        1. If shell is waiting (do_wait) AND process has no children -> interactive app ready
+        2. If shell is waiting AND process has children -> still working
+        3. If shell not waiting -> idle at prompt
 
         Args:
             pane: Pane with process information.
 
         Returns:
-            Tuple of (is_ready, reason) based on child processes.
+            Tuple of (readiness, description):
+            - (False, "working"): Process is actively working
+            - (True, "interactive"): Interactive app ready for input
+            - (True, "idle"): Shell at prompt
+            - Never returns None (always makes a determination)
         """
-        if pane.process and pane.process.has_children:
-            return False, f"{pane.process.name} has subprocess"
-        else:
-            name = pane.process.name if pane.process else pane.shell.name if pane.shell else "unknown"
-            return True, f"{name} idle"
+        # Check if shell is waiting for a child process
+        if pane.shell and pane.shell.wait_channel == 'do_wait':
+            # Shell is waiting - check if it's an interactive app
+            if pane.process and not pane.process.children:
+                # Process exists but has no subprocesses - likely interactive
+                return True, "interactive"
+            # Process has children or doesn't exist - still working
+            return False, "working"
+        
+        # Shell not in do_wait (or no shell), so it's ready
+        return True, "idle"
+
+    def filter_output(self, content: str) -> str:
+        """Apply default filtering - collapse excessive empty lines.
+
+        Args:
+            content: Raw output content.
+
+        Returns:
+            Content with collapsed empty lines.
+        """
+        # Start with modest threshold of 5 empty lines
+        return collapse_empty_lines(content, threshold=5)
