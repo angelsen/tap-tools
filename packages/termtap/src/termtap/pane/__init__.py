@@ -14,6 +14,7 @@ PUBLIC API:
   - get_command_output: Get output for specific command
   - read_command_output: Read output for a specific command
   - read_since_last: Read new output since last read
+  - read_recent: Read recent output with line limit
 """
 
 from .core import Pane, process_scan

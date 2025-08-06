@@ -2,6 +2,11 @@
 
 Fresh implementation that fully embraces the pane paradigm.
 No backwards compatibility - clean, modern approach.
+
+PUBLIC API:
+  - run: Run development environment from configuration
+  - run_list: List available run configurations
+  - kill: Stop running environment
 """
 
 from pathlib import Path
@@ -48,7 +53,6 @@ class ServiceBuilder:
         """
         errors = []
 
-        # Validate path if specified
         if self.path:
             full_path = config_dir / self.path if not self.path.is_absolute() else self.path
             if not full_path.exists():
@@ -56,7 +60,6 @@ class ServiceBuilder:
             elif not full_path.is_dir():
                 errors.append(f"Path is not a directory: {full_path}")
 
-        # Validate environment variables
         for key, value in self.env.items():
             if value.startswith("$"):
                 env_var = value[1:]
@@ -76,25 +79,20 @@ class ServiceBuilder:
         """
         parts = []
 
-        # Add environment exports
         for key, value in self.env.items():
             if value.startswith("$"):
-                # Inherit from parent environment
                 actual_value = os.environ.get(value[1:], "")
             else:
-                # Use literal value
                 actual_value = value
             parts.append(f"export {key}={actual_value}")
 
-        # Add cd if path specified
         if self.path:
             full_path = config_dir / self.path if not self.path.is_absolute() else self.path
             parts.append(f"cd {full_path}")
 
-        # Add the actual command
         parts.append(self.command)
 
-        # Join with && to ensure each step succeeds
+        # Ensure each step succeeds
         return " && ".join(parts) if len(parts) > 1 else self.command
 
 
@@ -106,9 +104,6 @@ def _parse_service_config(service_name: str, service_data: dict, group_name: str
         service_data: Raw config data for the service
         group_name: Name of the group this service belongs to
         pane_index: Pane index for this service
-
-    Returns:
-        ServiceBuilder instance
     """
     return ServiceBuilder(
         name=service_name,
@@ -128,29 +123,19 @@ def _load_and_validate_services(group: str) -> tuple[list[ServiceBuilder], Path,
 
     Args:
         group: Name of the group to load
-
-    Returns:
-        Tuple of (services, config_dir, layout)
-
-    Raises:
-        ValueError: If validation fails
     """
     config_manager = get_config_manager()
 
-    # Get init group from config
     init_group = config_manager.get_init_group(group)
     if not init_group:
         available = config_manager.list_init_groups()
         raise ValueError(f"Group '{group}' not found. Available groups: {', '.join(available) or 'none'}")
 
-    # Determine config directory
     config_file = config_manager._config_file
     config_dir = config_file.parent if config_file else Path.cwd()
 
-    # Parse services into builders
     services = []
     for i, service_config in enumerate(init_group.services):
-        # Convert ServiceConfig to ServiceBuilder
         builder = ServiceBuilder(
             name=service_config.name,
             group=service_config.group,
@@ -164,7 +149,6 @@ def _load_and_validate_services(group: str) -> tuple[list[ServiceBuilder], Path,
         )
         services.append(builder)
 
-    # Validate all services
     all_errors = []
     for service in services:
         errors = service.validate(config_dir)
@@ -182,34 +166,24 @@ def _sort_by_dependencies(services: list[ServiceBuilder]) -> list[ServiceBuilder
 
     Args:
         services: List of services to sort
-
-    Returns:
-        Sorted list of services
-
-    Raises:
-        ValueError: If circular dependencies detected
     """
     sorted_services = []
     remaining = services.copy()
 
     while remaining:
-        # Find services with no unmet dependencies
         ready = []
         for service in remaining:
             if not service.depends_on:
                 ready.append(service)
             else:
-                # Check if all dependencies are already sorted
                 deps_met = all(any(s.name == dep for s in sorted_services) for dep in service.depends_on)
                 if deps_met:
                     ready.append(service)
 
         if not ready:
-            # Circular dependency detected
             names = [s.name for s in remaining]
             raise ValueError(f"Circular dependency detected among: {', '.join(names)}")
 
-        # Add ready services to sorted list
         for service in ready:
             sorted_services.append(service)
             remaining.remove(service)
@@ -229,19 +203,17 @@ def run(state, group: str) -> dict[str, Any]:
     all operations.
 
     Args:
-        state: Application state (unused)
-        group: Name of the group to run
+        state: Application state (unused).
+        group: Name of the group to run.
 
     Returns:
-        Markdown formatted result
+        Markdown formatted result with environment startup status.
     """
     elements = []
 
     try:
-        # Load and validate services
         services, config_dir, layout = _load_and_validate_services(group)
 
-        # Check if session already exists
         if session_exists(group):
             return {
                 "elements": [
@@ -252,16 +224,13 @@ def run(state, group: str) -> dict[str, Any]:
                 "frontmatter": {"status": "error", "group": group},
             }
 
-        # Sort services by dependencies
         services = _sort_by_dependencies(services)
 
-        # Create session
         elements.append({"type": "heading", "content": f"Starting {group}", "level": 2})
 
         pane_id, swp = create_session(group)
         elements.append({"type": "text", "content": f"✓ Created session '{group}'"})
 
-        # Create additional panes if needed
         max_pane = max((s.pane_index for s in services), default=0)
         num_panes = max_pane + 1
 
@@ -271,20 +240,16 @@ def run(state, group: str) -> dict[str, Any]:
         else:
             pane_ids = [pane_id]
 
-        # Execute services in dependency order
         elements.append({"type": "heading", "content": "Starting Services", "level": 3})
 
         failed = False
         service_status = []
 
         for service in services:
-            # Create pane object for this service
             pane = Pane(pane_ids[service.pane_index])
 
-            # Build full command with environment and path
             command = service.build_command(config_dir)
 
-            # Execute command
             result = send_command(
                 pane,
                 command,
@@ -310,11 +275,9 @@ def run(state, group: str) -> dict[str, Any]:
             if failed:
                 break
 
-        # Summary
         elements.append({"type": "heading", "content": "Summary", "level": 3})
 
         if not failed:
-            # Create service target list
             service_list = [f"• `{s['name']}` → `{s['target']}`" for s in service_status]
 
             elements.extend(
@@ -351,7 +314,7 @@ def run(state, group: str) -> dict[str, Any]:
             "frontmatter": {"status": "error", "group": group},
         }
     except Exception as e:
-        # Clean up on unexpected error
+        # Clean up session if created
         try:
             if session_exists(group):
                 kill_session(group)
@@ -377,10 +340,10 @@ def run_list(state) -> list[dict]:
     """List available run configurations.
 
     Args:
-        state: Application state (unused)
+        state: Application state (unused).
 
     Returns:
-        Table data with group information
+        Table data with group information.
     """
     try:
         config_manager = get_config_manager()
@@ -389,7 +352,6 @@ def run_list(state) -> list[dict]:
         for group_name in config_manager.list_init_groups():
             group = config_manager.get_init_group(group_name)
             if group:
-                # Check if session is running
                 status = "running" if session_exists(group_name) else "stopped"
 
                 rows.append(
@@ -410,11 +372,11 @@ def kill(state, session: str) -> str:
     """Stop a running environment (kill tmux session).
 
     Args:
-        state: Application state (unused)
-        session: Name of the session to kill
+        state: Application state (unused).
+        session: Name of the session to kill.
 
     Returns:
-        Status message
+        Status message.
     """
     try:
         if kill_session(session):

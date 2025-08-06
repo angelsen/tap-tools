@@ -1,5 +1,36 @@
-"""Termtap commands - imported collectively by app.py only.
+"""Termtap REPL commands with pane-centric architecture.
 
-No external usage of individual command exports found.
-Commands are registered directly with ReplKit2 app.
+Commands are registered directly with ReplKit2 app via decorators.
+All imports handled by app.py for command registration.
+
+PUBLIC API:
+  - bash: Execute command in tmux pane
+  - interrupt: Send interrupt signal to pane
+  - ls: List all tmux panes with process info
+  - read: Read output from tmux pane
+  - run: Run development environment from configuration
+  - run_list: List available run configurations
+  - kill: Stop running environment
+  - send_keys: Send raw keys to pane
+  - track: Track process state changes (development tool)
 """
+
+from .bash import bash
+from .interrupt import interrupt
+from .ls import ls
+from .read import read
+from .run import run, run_list, kill
+from .send_keys import send_keys
+from .track import track
+
+__all__ = [
+    "bash",
+    "interrupt",
+    "ls",
+    "read",
+    "run",
+    "run_list",
+    "kill",
+    "send_keys",
+    "track",
+]

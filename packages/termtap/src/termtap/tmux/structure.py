@@ -1,4 +1,8 @@
-"""Complex structure creation - handles multi-window/pane creation."""
+"""Complex structure creation - handles multi-window/pane creation.
+
+PUBLIC API:
+  - get_or_create_session_with_structure: Get or create session with specific structure
+"""
 
 from .core import run_tmux, get_pane_id
 from .session import session_exists, create_session
@@ -40,7 +44,7 @@ def get_or_create_session_with_structure(session: str, window: int, pane: int, s
         code, _, _ = run_tmux(["list-windows", "-t", f"{session}:{window}", "-F", "#{window_index}"])
         if code != 0:
             # Create windows up to the target
-            current_windows = count_windows(session)
+            current_windows = _count_windows(session)
             for i in range(current_windows, window + 1):
                 run_tmux(["new-window", "-t", f"{session}:", "-c", start_dir])
 
@@ -72,8 +76,12 @@ def get_or_create_session_with_structure(session: str, window: int, pane: int, s
         raise RuntimeError(f"Failed to create pane at {swp}")
 
 
-def count_windows(session: str) -> int:
-    """Count windows in a session."""
+def _count_windows(session: str) -> int:
+    """Count windows in a session.
+
+    Args:
+        session: Session name.
+    """
     code, stdout, _ = run_tmux(["list-windows", "-t", session, "-F", "#{window_index}"])
     if code != 0:
         return 0

@@ -1,4 +1,8 @@
-"""Send raw keys command - for interacting with interactive programs."""
+"""Send raw keys command - for interacting with interactive programs.
+
+PUBLIC API:
+  - send_keys: Send raw keys to target pane
+"""
 
 from typing import Any
 
@@ -17,6 +21,14 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
 
     Each key is a separate argument. Special keys like Enter, Escape, C-c are supported.
 
+    Args:
+        state: Application state (unused).
+        *keys: Keys to send as separate arguments.
+        target: Target pane identifier. Defaults to "default".
+
+    Returns:
+        Markdown formatted result with key sending status.
+
     Examples:
         send_keys("q")                      # Just q (exit less)
         send_keys("y", "Enter")             # y followed by Enter
@@ -25,7 +37,6 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
         send_keys("Escape", ":q", "Enter")  # Exit vim
         send_keys("Hello", "Enter", "World") # Type text with newline
     """
-    # Resolve target to single pane
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
     except RuntimeError as e:
@@ -34,13 +45,10 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
             "frontmatter": {"error": str(e), "status": "error"},
         }
 
-    # Create pane and send keys
     pane = Pane(pane_id)
 
-    # Send keys as separate arguments
     result = pane_send_keys(pane, *keys)
 
-    # Format response
     elements = []
 
     if result["output"]:

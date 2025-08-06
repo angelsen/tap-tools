@@ -1,4 +1,8 @@
-"""Track command - monitor process state changes over time."""
+"""Track command - monitor process state changes over time.
+
+PUBLIC API:
+  - track: Monitor process state changes for handler development
+"""
 
 import hashlib
 import json
@@ -39,27 +43,26 @@ def track(
     """Track process state changes for handler development.
 
     Args:
-        *commands: Commands/keys to send (can be multiple)
-        target: Target pane (default: "default")
-        duration: How long to track in seconds (default: 10.0)
-        enter: Whether to send Enter after commands (default: True)
+        state: Application state (unused).
+        *commands: Commands/keys to send.
+        target: Target pane. Defaults to "default".
+        duration: Tracking duration in seconds. Defaults to 10.0.
+        enter: Whether to send Enter after commands. Defaults to True.
 
     Returns:
-        Summary report pointing to tracking data
+        Markdown formatted tracking report with analysis data.
 
     Examples:
         track("ls -la")  # Send command with Enter
         track("C-c", enter=False)  # Just Ctrl+C
         track("C-d", "C-d", enter=False)  # Two Ctrl+D keys
     """
-    # Validate
     if duration <= 0 or duration > 300:
         return {
             "elements": [{"type": "text", "content": "Error: Duration must be between 0-300 seconds"}],
             "frontmatter": {"error": "Invalid duration", "status": "error"},
         }
 
-    # Setup
     try:
         pane_id, session_window_pane = resolve_or_create_target(target)
     except Exception as e:
@@ -68,27 +71,23 @@ def track(
             "frontmatter": {"error": str(e), "status": "error"},
         }
 
-    # Create tracking directory
     base_dir = Path.home() / ".termtap" / "tracking"
     base_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    # Create slug from commands
     command_str = " ".join(commands) if commands else "empty"
     slug = re.sub(r"[^\w\s-]", "", command_str)[:50].strip().replace(" ", "_")
     tracking_dir = base_dir / f"{timestamp}_{slug}"
     tracking_dir.mkdir(exist_ok=True)
     (tracking_dir / "screenshots").mkdir(exist_ok=True)
 
-    # Create pane
     pane = Pane(pane_id)
 
-    # Track
     start_time = time.time()
     samples = []
     screenshots = {}  # hash -> (timestamp, content)
 
-    # Capture initial state before sending command
+    # Capture initial state
     try:
         with process_scan(pane.pane_id):
             initial_info = get_process_info(pane)
@@ -112,10 +111,9 @@ def track(
     except Exception:
         pass  # Continue even if initial capture fails
 
-    # Send commands
     try:
         if commands:
-            # Check if we're trying to track current pane
+            # Cannot track current pane
             from ..tmux.core import run_tmux
 
             code, stdout, _ = run_tmux(["display-message", "-p", "#{pane_id}"])
@@ -127,10 +125,9 @@ def track(
                     "frontmatter": {"error": "Cannot track current pane", "status": "error"},
                 }
 
-            # Send keys using tmux directly for minimal interference
+            # Send keys with minimal interference
             from ..tmux.pane import send_keys as tmux_send_keys
 
-            # Join commands and send with optional enter
             # Keep default 50ms delay before Enter for commands to register properly
             if not tmux_send_keys(pane.pane_id, " ".join(commands), enter=enter):
                 raise RuntimeError("Failed to send keys to pane")
@@ -142,12 +139,10 @@ def track(
 
     time.sleep(0.1)  # Let command start
 
-    # Sample every 100ms
     while time.time() - start_time < duration:
         elapsed = time.time() - start_time
 
         try:
-            # Sample with fresh scan
             with process_scan(pane.pane_id):
                 process_info = get_process_info(pane)
                 screenshot = read_output(pane)
@@ -167,7 +162,6 @@ def track(
                     }
                 )
 
-                # Store unique screenshots
                 if screenshot_hash not in screenshots:
                     screenshots[screenshot_hash] = (elapsed, screenshot)
 
@@ -176,7 +170,6 @@ def track(
 
         time.sleep(0.1)
 
-    # Final sample
     try:
         with process_scan(pane.pane_id):
             final_info = get_process_info(pane)
@@ -200,7 +193,6 @@ def track(
     except Exception:
         pass
 
-    # Save data
     import platform
 
     metadata = {
@@ -219,19 +211,16 @@ def track(
     (tracking_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
     (tracking_dir / "timeline.json").write_text(json.dumps(samples, indent=2))
 
-    # Save screenshots with visible special characters for handler development
     for hash_val, (ts, content) in screenshots.items():
-        # Convert to repr format to show special characters
+        # Show special characters in debug format
         debug_lines = []
         for line in content.split("\n"):
             debug_lines.append(repr(line))
 
         (tracking_dir / "screenshots" / f"{ts:.1f}s.txt").write_text("\n".join(debug_lines))
 
-    # Quick analysis
     handlers_seen = sorted(set(s["handler"] for s in samples))
 
-    # Return summary
     commands_str = " ".join(commands) if commands else "(no commands)"
 
     elements = [

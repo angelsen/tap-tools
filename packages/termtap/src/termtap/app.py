@@ -1,4 +1,9 @@
-"""termtap ReplKit2 application - pane-first architecture."""
+"""termtap ReplKit2 application - pane-first architecture.
+
+Main application entry point providing dual REPL/MCP functionality for terminal
+pane management with tmux integration. Built on ReplKit2 framework with
+pane-centric design for process-native terminal operations.
+"""
 
 from dataclasses import dataclass
 
@@ -7,12 +12,17 @@ from replkit2 import App
 
 @dataclass
 class TermTapState:
-    """Application state for termtap pane management."""
+    """Application state for termtap pane management.
+
+    Currently minimal state container for the pane-centric architecture.
+    State is maintained through individual pane objects rather than
+    centralized application state.
+    """
 
     pass
 
 
-# Create the app (must be created before command imports)
+# Must be created before command imports for decorator registration
 app = App(
     "termtap",
     TermTapState,
@@ -25,7 +35,7 @@ app = App(
 )
 
 
-# Import individual command modules (triggers registration via @app.command decorators)
+# Command imports trigger @app.command decorator registration
 from .commands import bash  # noqa: E402, F401
 from .commands import read  # noqa: E402, F401
 from .commands import ls  # noqa: E402, F401

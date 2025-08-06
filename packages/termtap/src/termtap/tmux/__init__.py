@@ -1,9 +1,6 @@
-"""Tmux operations module - reduced to essential external API only.
+"""Pure tmux operations - shared utilities for all tmux modules.
 
-Most internal modules import directly from submodules.
-Only functions with confirmed external usage are exported.
-
-EXTERNAL PUBLIC API:
+PUBLIC API:
   - get_pane_pid: Get pane process PID
   - get_pane_info: Get pane details
   - list_panes: List panes with filtering
@@ -11,11 +8,6 @@ EXTERNAL PUBLIC API:
   - capture_visible: Capture visible content
   - resolve_target_to_pane: Resolve target to pane ID
   - resolve_or_create_target: Resolve or create target
-
-For all other functions, import directly from submodules:
-  - from .core import run_tmux, check_tmux_available
-  - from .session import session_exists, create_session
-  - etc.
 """
 
 # Only essential external functions

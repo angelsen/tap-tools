@@ -10,38 +10,47 @@ PUBLIC API:
   - ExecutionConfig: configuration for command execution
   - InitGroup: configuration for service groups
   - ServiceConfig: individual service configuration
+  - KNOWN_SHELLS: frozenset of recognized shell names
+  - CommandStatus: literal type for command execution states
+  - ReadMode: literal type for read operation modes
+  - ShellType: literal type for shell types including unknown
 """
 
 from typing import TypedDict, NotRequired, Literal, TYPE_CHECKING
 from dataclasses import dataclass, field
 import re
 
-# Avoid circular imports
 if TYPE_CHECKING:
     pass
 
 
 # Pane-first identifiers
-type PaneID = str  # e.g., "%42", "%55" - tmux native pane ID
-type SessionWindowPane = str  # e.g., "session:0.0", "session:1.2" - our canonical format
-type Target = PaneID | SessionWindowPane | str  # str for convenience resolution
+type PaneID = str
+type SessionWindowPane = str
+type Target = PaneID | SessionWindowPane | str
 
 # Command execution states
 type CommandStatus = Literal["completed", "timeout", "aborted", "running", "ready"]
 
-# Read mode types (start simple, add others when needed)
+# Read mode types
 type ReadMode = Literal["direct", "stream", "since_command"]
 
 # Known shells - single source of truth
 KNOWN_SHELLS = frozenset(["bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
 
-# Shell types for command wrapping (includes "unknown" for unrecognized shells)
+# Shell types for command wrapping
 type ShellType = Literal["bash", "fish", "zsh", "sh", "dash", "ksh", "tcsh", "csh", "unknown"]
 
 
 @dataclass
-class PaneIdentifier:
-    """Parsed pane identifier with all components."""
+class _PaneIdentifier:
+    """Parsed pane identifier with all components.
+
+    Attributes:
+        session: Session name from the identifier.
+        window: Window index from the identifier.
+        pane: Pane index from the identifier.
+    """
 
     session: str
     window: int
@@ -58,17 +67,17 @@ class PaneIdentifier:
         return self.swp
 
     @classmethod
-    def parse(cls, target: str) -> "PaneIdentifier":
+    def parse(cls, target: str) -> "_PaneIdentifier":
         """Parse session:window.pane format.
 
         Args:
-            target: String like "epic-swan:0.0" or "backend:1.2"
+            target: String like "epic-swan:0.0" or "backend:1.2".
 
         Returns:
-            PaneIdentifier instance
+            _PaneIdentifier instance.
 
         Raises:
-            ValueError: If format is invalid
+            ValueError: If format is invalid.
         """
         match = re.match(r"^([^:]+):(\d+)\.(\d+)$", target)
         if not match:
@@ -78,58 +87,57 @@ class PaneIdentifier:
         return cls(session=session, window=int(window), pane=int(pane))
 
 
-def is_pane_id(target: str) -> bool:
-    """Check if target is a tmux pane ID (%number)."""
+def _is_pane_id(target: str) -> bool:
+    """Check if target is a tmux pane ID (%number).
+
+    Args:
+        target: String to check.
+    """
     return target.startswith("%") and target[1:].isdigit()
 
 
-def is_session_window_pane(target: str) -> bool:
-    """Check if target is session:window.pane format."""
+def _is_session_window_pane(target: str) -> bool:
+    """Check if target is session:window.pane format.
+
+    Args:
+        target: String to check.
+    """
     try:
-        PaneIdentifier.parse(target)
+        _PaneIdentifier.parse(target)
         return True
     except ValueError:
         return False
 
 
-def classify_target(target: Target) -> tuple[Literal["pane_id", "swp", "service", "convenience"], str]:
+def _classify_target(target: Target) -> tuple[Literal["pane_id", "swp", "service", "convenience"], str]:
     """Classify target string to its type and normalized value.
 
     Args:
-        target: Any target string
+        target: Any target string.
 
     Returns:
-        Tuple of (target_type, normalized_value)
-        - pane_id: Direct tmux pane ID like "%42"
-        - swp: Explicit session:window.pane like "epic-swan:0.0"
-        - service: Service name like "demo.backend"
-        - convenience: Session name that needs resolution like "epic-swan"
+        Tuple of (target_type, normalized_value).
     """
-    if is_pane_id(target):
+    if _is_pane_id(target):
         return ("pane_id", target)
-    elif is_session_window_pane(target):
+    elif _is_session_window_pane(target):
         return ("swp", target)
     elif "." in target and ":" not in target:
-        # Could be a service name (demo.backend)
+        # Service name format (demo.backend)
         return ("service", target)
     else:
         # Convenience format - session name or session:window
         return ("convenience", target)
 
 
-def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
+def _parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
     """Parse convenience formats into components.
 
-    Supports:
-    - "session" -> (session, None, None)
-    - "session:1" -> (session, 1, None)
-    - "session:1.2" -> (session, 1, 2)  # Already handled by resolve_target
-
     Args:
-        target: Convenience format string
+        target: Convenience format string.
 
     Returns:
-        Tuple of (session, window_or_none, pane_or_none)
+        Tuple of (session, window, pane) where window/pane may be None.
     """
     if ":" not in target:
         return (target, None, None)
@@ -138,21 +146,24 @@ def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
     session = parts[0]
 
     if "." in parts[1]:
-        # This is actually a full swp - shouldn't reach here
+        # Full swp format in convenience target
         window, pane = parts[1].split(".", 1)
         return (session, int(window), int(pane))
     else:
-        # session:window format
+        # Session:window format
         return (session, int(parts[1]), None)
 
 
-# Process detection types - ProcessInfo removed, use pane.get_process_info() dict instead
-
-
-# Configuration types
 @dataclass
 class ExecutionConfig:
-    """Resolved configuration for command execution."""
+    """Resolved configuration for command execution.
+
+    Attributes:
+        session_window_pane: Target pane in canonical format.
+        ready_pattern: Optional regex pattern to wait for.
+        timeout: Optional timeout in seconds.
+        compiled_pattern: Pre-compiled regex pattern.
+    """
 
     session_window_pane: SessionWindowPane
     ready_pattern: str | None = None
@@ -160,24 +171,28 @@ class ExecutionConfig:
     compiled_pattern: re.Pattern[str] | None = None
 
 
-# Note: Streaming metadata is stored directly in JSON sidecar files
-# No need for in-memory types since sidecar is the source of truth
-
-
-# Note: CommandResult removed - commands return their own structures directly
-
-
-# Init system types
 @dataclass
 class ServiceConfig:
-    """Configuration for a service in an init group."""
+    """Configuration for a service in an init group.
 
-    name: str  # e.g., "backend"
-    group: str  # e.g., "demo"
+    Attributes:
+        name: Service name (e.g., "backend").
+        group: Group name (e.g., "demo").
+        pane: Pane index within the group.
+        command: Command to execute for this service.
+        path: Working directory.
+        env: Environment variables.
+        ready_pattern: Optional regex pattern to wait for.
+        timeout: Optional timeout in seconds.
+        depends_on: List of service dependencies.
+    """
+
+    name: str
+    group: str
     pane: int
     command: str
-    path: str | None = None  # Working directory
-    env: dict[str, str] | None = None  # Environment variables
+    path: str | None = None
+    env: dict[str, str] | None = None
     ready_pattern: str | None = None
     timeout: float | None = None
     depends_on: list[str] | None = None
@@ -195,46 +210,79 @@ class ServiceConfig:
 
 @dataclass
 class InitGroup:
-    """Configuration for an init group."""
+    """Configuration for an init group.
+
+    Attributes:
+        name: Group name.
+        layout: Tmux layout style.
+        services: List of services in this group.
+    """
 
     name: str
     layout: str = "even-horizontal"
     services: list[ServiceConfig] = field(default_factory=list)
 
     def get_service(self, name: str) -> ServiceConfig | None:
-        """Get service by name."""
+        """Get service by name.
+
+        Args:
+            name: Service name to find.
+
+        Returns:
+            ServiceConfig if found, None otherwise.
+        """
         for service in self.services:
             if service.name == name:
                 return service
         return None
 
 
-# Display types for ls() command
-class PaneRow(TypedDict):
-    """Row data for pane listing."""
+class _PaneRow(TypedDict):
+    """Row data for pane listing.
 
-    Pane: str  # session:window.pane
+    Attributes:
+        Pane: Pane identifier in session:window.pane format.
+        Shell: Shell type running in the pane.
+        Process: First non-shell process name.
+        State: Current pane state.
+        Attached: Whether session is attached.
+    """
+
+    Pane: str
     Shell: str
     Process: str
     State: Literal["ready", "working", "unknown"]
     Attached: Literal["Yes", "No"]
 
 
-# Enhanced for status display
-class PaneRowWithStatus(TypedDict):
-    """Enhanced pane row with status icon."""
+class _PaneRowWithStatus(TypedDict):
+    """Enhanced pane row with status icon.
 
-    Status: str  # Icon from replkit2
-    Pane: str  # session:window.pane
+    Attributes:
+        Status: Status icon from replkit2.
+        Pane: Pane identifier in session:window.pane format.
+        Shell: Shell type running in the pane.
+        Process: First non-shell process name.
+        State: Current pane state.
+        Attached: Whether session is attached.
+    """
+
+    Status: str
+    Pane: str
     Shell: str
     Process: str
     State: Literal["ready", "working", "unknown"]
     Attached: Literal["Yes", "No"]
 
 
-# Hover dialog types (for dangerous commands)
-class HoverPattern(TypedDict):
-    """Pattern for triggering hover dialogs."""
+class _HoverPattern(TypedDict):
+    """Pattern for triggering hover dialogs.
+
+    Attributes:
+        pattern: Regex pattern to match commands.
+        message: Warning message to display.
+        confirm: Whether confirmation is required.
+    """
 
     pattern: str
     message: str
@@ -242,8 +290,14 @@ class HoverPattern(TypedDict):
 
 
 @dataclass
-class HoverResult:
-    """Result from hover dialog interaction."""
+class _HoverResult:
+    """Result from hover dialog interaction.
+
+    Attributes:
+        confirmed: Whether user confirmed the action.
+        cancelled: Whether user cancelled the action.
+        message: Optional message from the interaction.
+    """
 
     confirmed: bool
     cancelled: bool

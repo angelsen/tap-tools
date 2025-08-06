@@ -12,26 +12,49 @@ from typing import Optional, Tuple, List
 
 
 def run_tmux(args: List[str]) -> Tuple[int, str, str]:
-    """Run tmux command, return (returncode, stdout, stderr)."""
+    """Run tmux command and return result.
+
+    Args:
+        args: Command arguments to pass to tmux.
+
+    Returns:
+        Tuple of (returncode, stdout, stderr).
+    """
     cmd = ["tmux"] + args
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode, result.stdout, result.stderr
 
 
 def parse_format_line(line: str, delimiter: str = ":") -> dict:
-    """Parse tmux format string output into dict."""
+    """Parse tmux format string output into dict.
+
+    Args:
+        line: Format string line to parse.
+        delimiter: Field delimiter. Defaults to ':'.
+
+    Returns:
+        Dictionary with numbered keys for each field.
+    """
     parts = line.strip().split(delimiter)
     return {str(i): part for i, part in enumerate(parts)}
 
 
 def check_tmux_available() -> bool:
-    """Check if tmux is available and server is running."""
+    """Check if tmux is available and server is running.
+
+    Returns:
+        True if tmux server is available.
+    """
     code, _, _ = run_tmux(["info"])
     return code == 0
 
 
 def get_current_pane() -> Optional[str]:
-    """Get current tmux pane ID if inside tmux."""
+    """Get current tmux pane ID if inside tmux.
+
+    Returns:
+        Current pane ID if inside tmux, None otherwise.
+    """
     if not os.environ.get("TMUX"):
         return None
 
@@ -45,10 +68,10 @@ def is_current_pane(pane_id: str) -> bool:
     """Check if given pane ID is the current pane.
 
     Args:
-        pane_id: Pane ID to check (e.g., "%42")
+        pane_id: Pane ID to check.
 
     Returns:
-        True if pane_id matches current pane
+        True if pane_id matches current pane.
     """
     current = get_current_pane()
     return current == pane_id if current else False
@@ -57,17 +80,15 @@ def is_current_pane(pane_id: str) -> bool:
 def get_pane_id(session: str, window: str, pane: str) -> Optional[str]:
     """Get pane ID for a specific session:window.pane location.
 
+    Uses filtering for exact pane matching.
+
     Args:
-        session: Session name
-        window: Window index (as string)
-        pane: Pane index (as string)
+        session: Session name.
+        window: Window index (as string).
+        pane: Pane index (as string).
 
     Returns:
-        Pane ID if found, None otherwise
-
-    Note:
-        Uses filtering because tmux list-panes -t session:0.0 returns ALL
-        panes in window 0, not just pane 0.
+        Pane ID if found, None otherwise.
     """
     swp = f"{session}:{window}.{pane}"
     code, stdout, _ = run_tmux(

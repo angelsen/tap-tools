@@ -16,7 +16,13 @@ from .names import generate_session_name
 
 
 class SessionInfo(NamedTuple):
-    """Session information."""
+    """Session information.
+
+    Attributes:
+        name: Session name.
+        created: Creation timestamp.
+        attached: Attachment status.
+    """
 
     name: str
     created: str
@@ -30,7 +36,14 @@ class SessionInfo(NamedTuple):
 
 
 def session_exists(name: str) -> bool:
-    """Check if session exists."""
+    """Check if session exists.
+
+    Args:
+        name: Session name.
+
+    Returns:
+        True if session exists.
+    """
     code, _, _ = run_tmux(["has-session", "-t", name])
     return code == 0
 
@@ -38,8 +51,15 @@ def session_exists(name: str) -> bool:
 def create_session(name: str, start_dir: str = ".") -> tuple[str, str]:
     """Create a new detached session.
 
+    Args:
+        name: Session name.
+        start_dir: Starting directory. Defaults to '.'.
+
     Returns:
-        Tuple of (pane_id, session:window.pane)
+        Tuple of (pane_id, session:window.pane).
+
+    Raises:
+        RuntimeError: If session creation fails.
     """
     args = ["new-session", "-d", "-s", name, "-c", start_dir]
     code, _, stderr = run_tmux(args)
@@ -56,11 +76,13 @@ def create_session(name: str, start_dir: str = ".") -> tuple[str, str]:
     return pane_id, f"{name}:0.0"
 
 
-def new_session(name: str, start_dir: str = ".", attach: bool = False) -> tuple[str, str]:
+def _new_session(name: str, start_dir: str = ".", attach: bool = False) -> tuple[str, str]:
     """Create new session with window and pane.
 
-    Returns:
-        Tuple of (pane_id, session:window.pane)
+    Args:
+        name: Session name.
+        start_dir: Starting directory.
+        attach: Whether to attach to session.
     """
     if attach:
         # Use new-session without -d to attach
@@ -77,19 +99,34 @@ def new_session(name: str, start_dir: str = ".", attach: bool = False) -> tuple[
 
 
 def kill_session(name: str) -> bool:
-    """Kill a tmux session."""
+    """Kill a tmux session.
+
+    Args:
+        name: Session name.
+
+    Returns:
+        True if successful.
+    """
     code, _, _ = run_tmux(["kill-session", "-t", name])
     return code == 0
 
 
-def attach_session(name: str) -> bool:
-    """Attach to a tmux session."""
+def _attach_session(name: str) -> bool:
+    """Attach to a tmux session.
+
+    Args:
+        name: Session name.
+    """
     code, _, _ = run_tmux(["attach-session", "-t", name])
     return code == 0
 
 
 def list_sessions() -> List[SessionInfo]:
-    """List all tmux sessions."""
+    """List all tmux sessions.
+
+    Returns:
+        List of session information objects.
+    """
     code, stdout, _ = run_tmux(["list-sessions", "-F", "#{session_name}:#{session_created}:#{session_attached}"])
 
     if code != 0:
@@ -108,9 +145,13 @@ def get_or_create_session(
 ) -> tuple[str, Optional[str], Optional[str]]:
     """Get existing or create new session.
 
+    Args:
+        target: Target session name. Generates unique name if None.
+        start_dir: Starting directory. Defaults to '.'.
+
     Returns:
-        Tuple of (session_name, pane_id, session:window.pane)
-        For existing sessions, pane_id and swp are None
+        Tuple of (session_name, pane_id, session:window.pane).
+        For existing sessions, pane_id and swp are None.
     """
     if target is None:
         # Generate unique name

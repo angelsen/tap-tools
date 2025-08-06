@@ -7,7 +7,7 @@ PUBLIC API:
 import random
 
 
-ADJECTIVES = [
+_ADJECTIVES = [
     "admiring",
     "adoring",
     "affectionate",
@@ -118,7 +118,7 @@ ADJECTIVES = [
     "zen",
 ]
 
-ANIMALS = [
+_ANIMALS = [
     "alligator",
     "ant",
     "ape",
@@ -264,5 +264,9 @@ ANIMALS = [
 
 
 def generate_session_name() -> str:
-    """Generate a Docker-style session name."""
-    return f"{random.choice(ADJECTIVES)}-{random.choice(ANIMALS)}"
+    """Generate a Docker-style session name.
+
+    Returns:
+        Random adjective-animal name (e.g., 'epic-swan').
+    """
+    return f"{random.choice(_ADJECTIVES)}-{random.choice(_ANIMALS)}"

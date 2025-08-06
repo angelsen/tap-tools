@@ -1,4 +1,8 @@
-"""List command - show all tmux panes."""
+"""List command - show all tmux panes.
+
+PUBLIC API:
+  - ls: List all tmux panes with their current process
+"""
 
 from typing import Optional
 
@@ -12,25 +16,29 @@ from ..tmux import list_panes
     headers=["Pane", "Shell", "Process", "State"],
 )
 def ls(state, filter: Optional[str] = None):
-    """List all tmux panes with their current process."""
+    """List all tmux panes with their current process.
+
+    Args:
+        state: Application state (unused).
+        filter: Optional filter string to search pane/process names. Defaults to None.
+
+    Returns:
+        Table data with pane information and process states.
+    """
     tmux_panes = list_panes()
 
-    # Single scan for all panes
     with process_scan():
         results = []
 
         for tmux_pane in tmux_panes:
-            # Create pane - will use scan context
             pane = Pane(tmux_pane.pane_id)
             info = get_process_info(pane)
 
-            # Apply filter if provided
             if filter:
                 searchable = f"{tmux_pane.swp} {info.get('process', '')}".lower()
                 if filter.lower() not in searchable:
                     continue
 
-            # Map three-state boolean to status
             is_ready = info.get("ready")
             if is_ready is None:
                 status = "unknown"

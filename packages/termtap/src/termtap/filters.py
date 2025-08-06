@@ -1,6 +1,7 @@
-"""Output filter functions for termtap.
+"""Composable output filter functions for termtap handlers.
 
-These are composable filters that handlers can use to transform output.
+These filters can be chained together to transform process output before display.
+Handlers use these to clean up verbose output, remove noise, and improve readability.
 
 PUBLIC API:
   - collapse_empty_lines: Collapse consecutive empty lines above threshold

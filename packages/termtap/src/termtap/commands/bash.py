@@ -1,4 +1,8 @@
-"""Execute commands in tmux panes."""
+"""Execute commands in tmux panes.
+
+PUBLIC API:
+  - bash: Execute command in target pane
+"""
 
 from typing import Any
 
@@ -19,8 +23,18 @@ def bash(
     wait: bool = True,
     timeout: float | None = None,
 ) -> dict[str, Any]:
-    """Execute command in target pane."""
-    # Resolve target to pane
+    """Execute command in target pane.
+
+    Args:
+        state: Application state (unused).
+        command: Command to execute.
+        target: Target pane identifier. Defaults to "default".
+        wait: Whether to wait for command completion. Defaults to True.
+        timeout: Command timeout in seconds. Defaults to None.
+
+    Returns:
+        Markdown formatted result with command output and metadata.
+    """
     try:
         pane_id, session_window_pane = resolve_or_create_target(target)
     except RuntimeError as e:
@@ -29,15 +43,13 @@ def bash(
             "frontmatter": {"error": str(e), "status": "error"},
         }
 
-    # Create pane and execute command
     pane = Pane(pane_id)
     result = send_command(pane, command, wait=wait, timeout=timeout)
 
-    # Format response
     elements = []
 
     if result["output"]:
-        # Use language from result metadata (no additional scan needed!)
+        # Use language from result metadata
         elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
 
     if result["status"] == "timeout":

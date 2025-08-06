@@ -16,11 +16,15 @@ from .core import run_tmux
 class Stream:
     """Stream handler for tmux pane output.
 
-    Key principles:
-    - No ownership concept - tmux owns the pipe, we just track positions
-    - Multiple Stream instances can share the same files
-    - Metadata and stream files must stay in sync (inode tracking)
-    - No global StreamManager needed
+    Handles streaming output from tmux panes with position tracking.
+    Multiple instances can coexist safely.
+
+    Attributes:
+        pane_id: Tmux pane ID.
+        session_window_pane: Session:window.pane format.
+        stream_dir: Directory for stream files.
+        stream_file: Path to stream content file.
+        metadata_file: Path to metadata file.
     """
 
     def __init__(self, pane_id: str, session_window_pane: str, stream_dir: Optional[Path] = None):
@@ -90,7 +94,13 @@ class Stream:
         return self.stream_file.stat().st_size
 
     def start(self) -> bool:
-        """Ensure streaming is active - reuses existing pipe if valid."""
+        """Ensure streaming is active.
+
+        Reuses existing pipe if valid, creates new one otherwise.
+
+        Returns:
+            True if streaming started successfully.
+        """
         # Always ensure sync first
         self._ensure_sync()
 
@@ -143,12 +153,16 @@ class Stream:
         return True
 
     def stop(self) -> bool:
-        """Stop streaming from pane."""
+        """Stop streaming from pane.
+
+        Returns:
+            True if successful.
+        """
         code, _, _ = run_tmux(["pipe-pane", "-t", self.pane_id])
         return code == 0
 
     def cleanup(self):
-        """Delete both files."""
+        """Delete both stream and metadata files."""
         if self.stream_file.exists():
             self.stream_file.unlink()
         if self.metadata_file.exists():

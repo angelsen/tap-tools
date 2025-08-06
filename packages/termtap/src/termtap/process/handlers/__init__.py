@@ -131,14 +131,17 @@ _handlers = []
 
 
 def get_handler(pane: Pane) -> ProcessHandler:
-    """Get the appropriate handler for a given pane.
+    """Get the appropriate handler for a given process.
+
+    Searches registered handlers in priority order and returns the first one
+    that can handle the process. Always returns a handler using DefaultHandler
+    as fallback.
 
     Args:
         pane: Pane with process information.
 
     Returns:
-        The appropriate ProcessHandler instance. Always returns a handler -
-        uses DefaultHandler as fallback.
+        The appropriate ProcessHandler instance.
     """
     global _handlers
 
@@ -159,8 +162,7 @@ def get_handler(pane: Pane) -> ProcessHandler:
         if handler.can_handle(pane):
             return handler
 
-    # This should never happen if DefaultHandler is properly registered
-    # Log warning and return DefaultHandler as safety fallback
+    # Safety fallback if no handler matches
     import logging
 
     logger = logging.getLogger(__name__)

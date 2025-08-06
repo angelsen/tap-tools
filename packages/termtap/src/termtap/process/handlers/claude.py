@@ -30,24 +30,26 @@ class _ClaudeHandler(ProcessHandler):
     handles = ["claude"]
 
     def can_handle(self, pane: Pane) -> bool:
-        """Check if this handler manages this process."""
+        """Check if this handler manages Claude CLI processes."""
         return bool(pane.process and pane.process.name in self.handles)
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if Claude is ready for input using content detection.
 
-        Based on tracking data observations.
+        Requires content-based detection due to unreliable process patterns.
+
+        Args:
+            pane: Pane with process information.
+
+        Returns:
+            Tuple of (readiness, description) based on visible content patterns.
         """
-        # Get visible content
         content = pane.visible_content
 
-        # Check busy state first (takes precedence)
         if "esc to interrupt)" in content:
             return False, "thinking"
 
-        # Check for ready prompt (non-breaking space version)
         if "\xa0>\xa0" in content:
             return True, "ready"
 
-        # Cannot determine state from content
         return None, "no prompt detected"

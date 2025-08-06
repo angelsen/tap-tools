@@ -10,15 +10,19 @@ from typing import List, Tuple
 from .core import run_tmux, get_pane_id
 from .pane import list_panes
 from .exceptions import PaneNotFoundError
-from ..types import Target, SessionWindowPane, classify_target, parse_convenience_target
+from ..types import Target, SessionWindowPane, _classify_target, _parse_convenience_target
 
 
 def resolve_target(target: Target) -> List[Tuple[str, SessionWindowPane]]:
     """Resolve target to one or more panes, respecting hierarchy.
 
-    Returns list of (pane_id, session_window_pane) tuples.
+    Args:
+        target: Target identifier.
+
+    Returns:
+        List of (pane_id, session_window_pane) tuples.
     """
-    target_type, value = classify_target(target)
+    target_type, value = _classify_target(target)
 
     if target_type == "pane_id":
         code, stdout, _ = run_tmux(["list-panes", "-t", value, "-F", "#{session_name}:#{window_index}.#{pane_index}"])
@@ -57,7 +61,7 @@ def resolve_target(target: Target) -> List[Tuple[str, SessionWindowPane]]:
         return resolve_target(resolved_swp)
 
     else:  # convenience
-        session, window, pane = parse_convenience_target(value)
+        session, window, pane = _parse_convenience_target(value)
 
         if pane is not None:
             # "session:window.pane" parsed as convenience
@@ -80,18 +84,18 @@ def resolve_target_to_pane(target: Target) -> tuple[str, SessionWindowPane]:
     """Resolve target to exactly one pane.
 
     Uses resolve_target but adds defaults to always return single pane.
-    For backward compatibility with commands expecting single pane.
+    Provides backward compatibility with commands expecting single pane.
 
     Args:
-        target: Any target string
+        target: Any target string.
 
     Returns:
-        Tuple of (pane_id, session_window_pane)
+        Tuple of (pane_id, session_window_pane).
 
     Raises:
-        RuntimeError: If target cannot be resolved
+        RuntimeError: If target cannot be resolved.
     """
-    target_type, value = classify_target(target)
+    target_type, value = _classify_target(target)
 
     # Service targets always resolve to single pane
     if target_type == "service":
@@ -104,7 +108,7 @@ def resolve_target_to_pane(target: Target) -> tuple[str, SessionWindowPane]:
 
     # For non-service targets, add defaults to get single pane
     if target_type == "convenience":
-        session, window, pane = parse_convenience_target(value)
+        session, window, pane = _parse_convenience_target(value)
         # Add defaults
         window = window or 0
         pane = pane or 0
@@ -124,14 +128,17 @@ def resolve_target_to_pane(target: Target) -> tuple[str, SessionWindowPane]:
 def resolve_or_create_target(target: Target, start_dir: str = ".") -> tuple[str, SessionWindowPane]:
     """Resolve target to pane, creating session/window/pane as needed.
 
-    For unambiguous targets only - will error if target resolves to multiple panes.
+    For unambiguous targets only - errors if target resolves to multiple panes.
 
     Args:
-        target: Any target string
-        start_dir: Directory to start in when creating new sessions
+        target: Any target string.
+        start_dir: Directory to start in when creating new sessions. Defaults to '.'.
 
     Returns:
-        Tuple of (pane_id, session_window_pane)
+        Tuple of (pane_id, session_window_pane).
+
+    Raises:
+        RuntimeError: If target is ambiguous or creation fails.
     """
     # First try to resolve existing
     try:
@@ -148,7 +155,7 @@ def resolve_or_create_target(target: Target, start_dir: str = ".") -> tuple[str,
         # Empty list means not found, proceed to creation
 
     # Parse target to understand what to create
-    target_type, value = classify_target(target)
+    target_type, value = _classify_target(target)
 
     if target_type == "pane_id":
         raise PaneNotFoundError(f"Pane {value} does not exist")
@@ -168,7 +175,7 @@ def resolve_or_create_target(target: Target, start_dir: str = ".") -> tuple[str,
             window = 0
             pane = 0
     else:  # convenience
-        session, window, pane = parse_convenience_target(value)
+        session, window, pane = _parse_convenience_target(value)
         window = window or 0
         pane = pane or 0
 

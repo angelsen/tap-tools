@@ -12,22 +12,26 @@ from .core import Pane
 def read_output(pane: Pane, lines: Optional[int] = None, mode: str = "direct") -> str:
     """Read output from pane with automatic filtering.
 
+    Applies handler-specific filtering to remove noise and format output
+    appropriately for the current process type.
+
     Args:
-        pane: Target pane
-        lines: Number of lines to read (None for visible)
-        mode: "direct" (capture-pane) or "stream" (from stream file)
+        pane: Target pane.
+        lines: Number of lines to read. Defaults to visible content.
+        mode: Output source - "direct" or "stream". Defaults to "direct".
+
+    Returns:
+        Filtered output string.
     """
-    # Capture output
     if mode == "stream":
         from .streaming import read_recent
 
         if lines:
             output = read_recent(pane, lines=lines, as_displayed=True)
         else:
-            # Default to ~50 lines for "visible"
+            # Use reasonable default for visible content simulation
             output = read_recent(pane, lines=50, as_displayed=True)
     else:
-        # Direct capture (default)
         from ..tmux.pane import capture_visible, capture_last_n
 
         if lines:
@@ -35,20 +39,20 @@ def read_output(pane: Pane, lines: Optional[int] = None, mode: str = "direct") -
         else:
             output = capture_visible(pane.pane_id)
 
-    # Apply filtering before returning
     return pane.handler.filter_output(output)
 
 
 def get_process_info(pane: Pane) -> dict[str, Any]:
-    """Get detailed process information for pane.
+    """Get process information for pane.
 
-    Uses current scan context if available, otherwise fetches fresh.
+    Provides comprehensive process details including readiness state,
+    process chain, and metadata for display and decision making.
 
     Args:
-        pane: Target pane
+        pane: Target pane.
 
     Returns:
-        Dict with process details
+        Dict with process details and readiness state.
     """
     info = {
         "pane_id": pane.pane_id,
@@ -60,12 +64,11 @@ def get_process_info(pane: Pane) -> dict[str, Any]:
         "handler": type(pane.handler).__name__,
     }
 
-    # Add readiness check (three-state: True/False/None)
+    # Include three-state readiness assessment
     is_ready, description = pane.handler.is_ready(pane)
     info["ready"] = is_ready
     info["state_description"] = description
 
-    # Add language tag for code blocks
     info["language"] = info.get("process") or info.get("shell", "text")
 
     return info

@@ -1,4 +1,8 @@
-"""Read output from tmux panes."""
+"""Read output from tmux panes.
+
+PUBLIC API:
+  - read: Read output from target pane
+"""
 
 from typing import Any, Optional
 
@@ -22,19 +26,21 @@ def read(
     """Read output from target pane.
 
     Args:
-        target: Pane to read from
-        lines: Number of lines to read (None = visible content)
-        since_last: Read only new output since last read
-        mode: "direct" (tmux capture) or "stream" (from file)
+        state: Application state (unused).
+        target: Pane to read from. Defaults to "default".
+        lines: Number of lines to read. Defaults to None.
+        since_last: Read only new output since last read. Defaults to False.
+        mode: Read mode - "direct" or "stream". Defaults to "direct".
+
+    Returns:
+        Markdown formatted result with pane output.
     """
-    # Validate parameters
     if since_last and mode != "stream":
         return {
             "elements": [{"type": "text", "content": "Error: since_last requires mode='stream'"}],
             "frontmatter": {"error": "Invalid parameters", "status": "error"},
         }
 
-    # Resolve target to single pane
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
     except RuntimeError as e:
@@ -43,7 +49,6 @@ def read(
             "frontmatter": {"error": str(e), "status": "error"},
         }
 
-    # Create pane and read output
     pane = Pane(pane_id)
 
     if mode == "stream":
@@ -54,7 +59,6 @@ def read(
     else:  # direct
         output = read_output(pane, lines=lines, mode="direct")
 
-    # Format response
     from ..pane import get_process_info
 
     info = get_process_info(pane)

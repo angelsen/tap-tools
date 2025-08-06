@@ -111,7 +111,6 @@ def get_all_processes() -> Dict[int, Dict[str, Any]]:
     processes = {}
 
     try:
-        # List all numeric directories in /proc
         for entry in os.listdir("/proc"):
             if not entry.isdigit():
                 continue
@@ -195,10 +194,8 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
     if root_pid not in processes:
         return None
 
-    # Get root node
     root = processes[root_pid]["node"]
 
-    # Build a map of ppid -> [children]
     children_map: Dict[int, List[int]] = {}
     for pid, info in processes.items():
         ppid = info["ppid"]
@@ -206,11 +203,10 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
             children_map[ppid] = []
         children_map[ppid].append(pid)
 
-    # Recursively attach children
     def _attach_children(node: ProcessNode, visited: Set[int]):
         """Recursively attach children to a node."""
         if node.pid in visited:
-            return  # Prevent cycles
+            return
         visited.add(node.pid)
 
         if node.pid in children_map:
@@ -229,28 +225,21 @@ def build_tree_from_processes(processes: Dict[int, Dict[str, Any]], root_pid: in
 def get_process_tree(root_pid: int) -> Optional[ProcessNode]:
     """Build complete process tree starting from a root PID.
 
-    Uses the pstree algorithm: scanning all processes and
-    building relationships from PPID information.
+    Uses pstree algorithm: scanning all processes and building
+    relationships from PPID information.
 
     Args:
         root_pid: PID to start building tree from.
 
     Returns:
-        ProcessNode representing the root with all descendants,
-        or None if the process doesn't exist.
+        ProcessNode representing root with descendants, or None if not found.
     """
-    # Get all processes
     processes = get_all_processes()
-
-    # Build tree from root
     return build_tree_from_processes(processes, root_pid)
 
 
-def extract_chain_from_tree(tree: Optional[ProcessNode]) -> List[ProcessNode]:
-    """Extract the main execution chain from a process tree.
-
-    Follows the first child at each level to build the main
-    execution chain (e.g., bash -> python -> subprocess).
+def _extract_chain_from_tree(tree: Optional[ProcessNode]) -> List[ProcessNode]:
+    """Extract main execution chain from process tree.
 
     Args:
         tree: Root ProcessNode of the tree.
@@ -268,17 +257,15 @@ def extract_chain_from_tree(tree: Optional[ProcessNode]) -> List[ProcessNode]:
     while current and current.pid not in visited:
         visited.add(current.pid)
         chain.append(current)
-        # Follow first child (main execution path)
         current = current.children[0] if current.children else None
 
     return chain
 
 
 def get_process_chain(root_pid: int) -> List[ProcessNode]:
-    """Get the main execution chain from a root PID.
+    """Get main execution chain from a root PID.
 
-    Follows the first child at each level to build the main
-    execution chain (e.g., bash -> python -> subprocess).
+    Follows first child at each level to build main execution chain.
 
     Args:
         root_pid: PID to start from.
@@ -287,13 +274,11 @@ def get_process_chain(root_pid: int) -> List[ProcessNode]:
         List of ProcessNodes from root to leaf process.
     """
     tree = get_process_tree(root_pid)
-    return extract_chain_from_tree(tree)
+    return _extract_chain_from_tree(tree)
 
 
-def get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
-    """Get process chains for multiple PIDs with a single /proc scan.
-
-    More efficient than calling get_process_chain multiple times.
+def _get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
+    """Get process chains for multiple PIDs with single scan.
 
     Args:
         pids: List of PIDs to get chains for.
@@ -301,18 +286,17 @@ def get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
     Returns:
         Dict mapping PID to its process chain.
     """
-    # Single scan of all processes
     all_processes = get_all_processes()
 
     chains = {}
     for pid in pids:
         tree = build_tree_from_processes(all_processes, pid)
-        chains[pid] = extract_chain_from_tree(tree)
+        chains[pid] = _extract_chain_from_tree(tree)
 
     return chains
 
 
-def extract_shell_and_process(
+def _extract_shell_and_process(
     chain: List[ProcessNode], skip_processes: List[str]
 ) -> tuple[Optional[ProcessNode], Optional[ProcessNode]]:
     """Extract shell and active process from chain.
@@ -322,22 +306,18 @@ def extract_shell_and_process(
         skip_processes: Process names to skip when finding active process.
 
     Returns:
-        (shell, process) where shell is the last shell in chain,
-        process is first non-shell or None if at shell prompt.
+        Tuple of (shell_process, active_process).
     """
     from ..types import KNOWN_SHELLS
 
     if not chain:
         return None, None
 
-    # Find last shell in chain
     shell = None
     for proc in chain:
         if proc.name in KNOWN_SHELLS:
             shell = proc
 
-    # Find first non-skipped process
-    # Skip all shells and configured skip processes
     skip = KNOWN_SHELLS.union(set(skip_processes))
 
     process = None
@@ -346,13 +326,10 @@ def extract_shell_and_process(
             process = proc
             break
 
-    # If no shell found and we have a process, it's a direct-launched process
-    # (e.g., tmux new-session -s foo claude)
+    # Direct-launched process without shell
     if not shell and process:
-        # The process is running directly without a shell
         return None, process
 
-    # If no shell found and no process, fallback to root as shell
     if not shell:
         shell = chain[0] if chain else None
 

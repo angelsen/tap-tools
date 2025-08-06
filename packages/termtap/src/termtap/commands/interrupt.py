@@ -1,4 +1,8 @@
-"""Interrupt command - send interrupt signal to panes."""
+"""Interrupt command - send interrupt signal to panes.
+
+PUBLIC API:
+  - interrupt: Send interrupt signal to target pane
+"""
 
 from typing import Any
 
@@ -17,8 +21,14 @@ def interrupt(state, target: Target = "default") -> dict[str, Any]:
 
     The handler determines how to interrupt the process.
     Most processes use Ctrl+C, but some may need special handling.
+
+    Args:
+        state: Application state (unused).
+        target: Target pane identifier. Defaults to "default".
+
+    Returns:
+        Markdown formatted result with interrupt status.
     """
-    # Resolve target to single pane
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
     except RuntimeError as e:
@@ -27,13 +37,11 @@ def interrupt(state, target: Target = "default") -> dict[str, Any]:
             "frontmatter": {"error": str(e), "status": "error"},
         }
 
-    # Create pane and send interrupt
     pane = Pane(pane_id)
 
-    # Send interrupt - handler decides how
+    # Handler decides interrupt method
     result = send_interrupt(pane)
 
-    # Format response
     elements = []
 
     if result["output"]:

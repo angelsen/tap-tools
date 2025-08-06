@@ -29,29 +29,28 @@ class _PythonHandler(ProcessHandler):
     handles = ["python", "python3", "python3.11", "python3.12", "python3.13"]
 
     def can_handle(self, pane: Pane) -> bool:
-        """Check if this handler manages this process."""
+        """Check if this handler manages Python processes."""
         return bool(pane.process and pane.process.name in self.handles)
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
-        """Determine if Python is ready for input.
+        """Determine if Python is ready for input using wait channel patterns.
 
-        Based on tracking data observations.
+        Args:
+            pane: Pane with process information.
+
+        Returns:
+            Tuple of (readiness, description) based on observed patterns.
         """
         if not pane.process:
-            # No active process means we're at shell prompt
             return True, "at shell prompt"
 
-        # Check children first - most reliable
         if pane.process.has_children:
             return False, "has subprocess"
 
-        # Ready state observed in tracking
         if pane.process.wait_channel == "do_select":
             return True, "REPL waiting"
 
-        # Working state observed in tracking
         if pane.process.wait_channel == "do_wait":
             return False, "waiting for subprocess"
 
-        # Unknown state - we haven't observed this wait_channel
         return None, f"unrecognized wait_channel: {pane.process.wait_channel}"
