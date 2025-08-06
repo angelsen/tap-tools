@@ -67,9 +67,18 @@ Args:
 """Brief one-line description."""
 ```
 
-**INLINE COMMENTS**:
-- Remove obvious comments like `# Import os` or `# Return result`
-- Keep comments that explain WHY something is done
+**INLINE COMMENTS - Remove obvious patterns**:
+- Type examples: `# e.g., "string"`, `# like "value"`  
+- Code restatements: `# returns boolean`, `# calls function`, `# sets variable`
+- Organizational labels: `# main section`, `# utilities`, `# constants`
+- Field descriptions matching variable names: `# user id`, `# config path`
+- Import purposes: `# for typing`, `# for patterns`, `# standard library`
+
+**INLINE COMMENTS - Keep meaningful patterns**:
+- Why decisions: `# Avoid circular dependency`, `# Performance critical`
+- Business logic: `# Handle special case`, `# Legacy compatibility`  
+- Non-obvious behavior: `# Fails silently on invalid input`, `# Side effect intended`
+- Architecture notes: `# Replaced by new system`, `# Temporary workaround`
 - Format: `# Explanation` (capital first letter, no period)
 
 **Example transformations**:
