@@ -112,19 +112,62 @@ class ProcessHandler(ABC):
         """
         pass
 
-    def filter_output(self, content: str) -> str:
-        """Filter output content for better readability.
+    def capture_output(
+        self, pane: Pane, cmd_id: str | None = None, method: str | None = None, filters: list | None = None
+    ) -> str:
+        """Capture and process command output with unified approach.
 
-        Default implementation returns content unchanged.
-        Override to provide custom filtering for specific process types.
+        Always start streaming provides cmd_id. Base class handles all capture methods
+        and filtering. Pass empty list for raw output, None for sensible defaults.
 
         Args:
-            content: Raw output content.
+            pane: Target pane (process may have changed during execution).
+            cmd_id: Stream command ID (always provided by execution pipeline).
+            method: Capture method override ("stream", "visible", "last_n").
+            filters: Filter functions to apply. None=defaults, []=raw output.
 
         Returns:
-            Filtered content.
+            Processed output ready for display.
         """
-        return content
+        # Default method: streaming for clean command output
+        capture_method = method or "stream"
+
+        # Capture based on method
+        if capture_method == "stream" and cmd_id:
+            from ...pane.streaming import get_command_output
+
+            raw_output = get_command_output(pane, cmd_id, as_displayed=True)
+        elif capture_method == "visible":
+            from ...tmux.pane import capture_visible
+
+            raw_output = capture_visible(pane.pane_id)
+        elif capture_method == "last_n":
+            from ...tmux.pane import capture_last_n
+
+            raw_output = capture_last_n(pane.pane_id, 50)
+        else:
+            # Fallback to visible if streaming not available
+            from ...tmux.pane import capture_visible
+
+            raw_output = capture_visible(pane.pane_id)
+
+        if not raw_output:
+            return ""
+
+        # Apply filtering: signature filters OR sensible defaults (not both)
+        if filters is not None:
+            # Explicit filters passed - use only these (empty list = raw output)
+            output = raw_output
+            for filter_func in filters:
+                output = filter_func(output)
+            return output
+        else:
+            # No filters specified - use sensible defaults
+            from ...filters import strip_trailing_empty_lines, collapse_empty_lines
+
+            output = strip_trailing_empty_lines(raw_output)
+            output = collapse_empty_lines(output, threshold=5)
+            return output
 
 
 _handlers = []

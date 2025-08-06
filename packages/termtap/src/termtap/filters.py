@@ -4,8 +4,32 @@ These filters can be chained together to transform process output before display
 Handlers use these to clean up verbose output, remove noise, and improve readability.
 
 PUBLIC API:
+  - strip_trailing_empty_lines: Remove trailing empty lines from output
   - collapse_empty_lines: Collapse consecutive empty lines above threshold
 """
+
+
+def strip_trailing_empty_lines(content: str) -> str:
+    """Strip trailing empty lines that tmux adds to fill pane height.
+
+    Preserves empty lines within the content but removes padding at the end.
+    Moved from tmux/pane.py to be used as a composable filter.
+
+    Args:
+        content: The text content to filter.
+
+    Returns:
+        Content with trailing empty lines removed.
+    """
+    if not content:
+        return ""
+
+    lines = content.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines:
+        return "\n".join(lines) + "\n"
+    return ""
 
 
 def collapse_empty_lines(content: str, threshold: int = 5) -> str:

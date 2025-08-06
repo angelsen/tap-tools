@@ -12,8 +12,8 @@ from .core import Pane
 def read_output(pane: Pane, lines: Optional[int] = None, mode: str = "direct") -> str:
     """Read output from pane with automatic filtering.
 
-    Applies handler-specific filtering to remove noise and format output
-    appropriately for the current process type.
+    Uses the unified capture_output method with appropriate parameters
+    based on mode and line requirements.
 
     Args:
         pane: Target pane.
@@ -21,25 +21,24 @@ def read_output(pane: Pane, lines: Optional[int] = None, mode: str = "direct") -
         mode: Output source - "direct" or "stream". Defaults to "direct".
 
     Returns:
-        Filtered output string.
+        Filtered output string using handler's capture_output method.
     """
     if mode == "stream":
-        from .streaming import read_recent
-
-        if lines:
-            output = read_recent(pane, lines=lines, as_displayed=True)
+        # Use streaming capture method
+        if lines and lines <= 50:
+            # For small line counts, use last_n which is more precise
+            return pane.handler.capture_output(pane, method="last_n")
         else:
-            # Use reasonable default for visible content simulation
-            output = read_recent(pane, lines=50, as_displayed=True)
+            # Use streaming method for larger requests or default
+            return pane.handler.capture_output(pane, method="stream")
     else:
-        from ..tmux.pane import capture_visible, capture_last_n
-
+        # Direct mode
         if lines:
-            output = capture_last_n(pane.pane_id, lines)
+            # Specific line count requested
+            return pane.handler.capture_output(pane, method="last_n")
         else:
-            output = capture_visible(pane.pane_id)
-
-    return pane.handler.filter_output(output)
+            # Default to visible content
+            return pane.handler.capture_output(pane, method="visible")
 
 
 def get_process_info(pane: Pane) -> dict[str, Any]:

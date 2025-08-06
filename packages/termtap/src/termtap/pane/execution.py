@@ -13,25 +13,6 @@ from typing import Optional, Any, Pattern
 from .core import Pane, process_scan
 
 
-def _capture_and_filter(pane: Pane, handler=None) -> str:
-    """Capture visible output and apply handler filtering.
-
-    Should be called within a process_scan context.
-
-    Args:
-        pane: The pane to capture from
-        handler: Optional handler to use for filtering (defaults to pane.handler)
-
-    Returns:
-        Filtered output string
-    """
-    from ..tmux.pane import capture_visible
-
-    output = capture_visible(pane.pane_id)
-    handler = handler or pane.handler
-    return handler.filter_output(output) if output else ""
-
-
 def _check_ready(pane: Pane, compiled_pattern: Optional[Pattern] = None) -> bool:
     """Check if pane is ready via pattern or handler.
 
@@ -135,6 +116,13 @@ def send_command(
 
         command = modified
 
+    # === STREAMING SETUP ===
+    # Always start streaming - provides cmd_id to all handlers
+    from .streaming import ensure_streaming, mark_command_start
+
+    ensure_streaming(pane)
+    cmd_id = mark_command_start(pane, command)
+
     # === SEND PHASE (no scan needed) ===
     from ..tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
 
@@ -155,8 +143,15 @@ def send_command(
 
     # If not waiting, return immediately
     if not wait:
+        # End streaming for immediate return
+        from .streaming import mark_command_end
+
+        mark_command_end(pane, cmd_id)
+
         with process_scan(pane.pane_id):
-            return _build_result(pane, command, "sent", start_time)
+            # Use unified capture method
+            output = pane.handler.capture_output(pane, cmd_id)
+            return _build_result(pane, command, "sent", start_time, output)
 
     # === WAIT PHASE (periodic scans) ===
     final_handler = handler
@@ -204,8 +199,14 @@ def send_command(
     elapsed = time.time() - start_time
     status = _determine_status(elapsed, actual_timeout)
 
+    # End streaming
+    from .streaming import mark_command_end
+
+    mark_command_end(pane, cmd_id)
+
     with process_scan(pane.pane_id):
-        filtered_output = _capture_and_filter(pane, final_handler)
+        # Use unified capture method with streaming
+        filtered_output = final_handler.capture_output(pane, cmd_id)
 
         final_handler.after_complete(pane, command, elapsed)
 
@@ -232,8 +233,8 @@ def send_interrupt(pane: Pane) -> dict[str, Any]:
 
         time.sleep(0.02)
 
-        # Capture interrupt output and response
-        filtered_output = _capture_and_filter(pane, handler)
+        # Use unified capture method (visible fallback for interrupts)
+        filtered_output = handler.capture_output(pane, method="visible")
 
         status = "sent" if success else "failed"
         error = None if success else (message or "Failed to send interrupt")
@@ -273,7 +274,7 @@ def send_keys(pane: Pane, *keys: str, enter: bool = False) -> dict[str, Any]:
     time.sleep(0.02)
 
     with process_scan(pane.pane_id):
-        # Capture output reflecting key effects
-        filtered_output = _capture_and_filter(pane)
+        # Use unified capture method (visible fallback for key effects)
+        filtered_output = pane.handler.capture_output(pane, method="visible")
 
         return _build_result(pane, keys_str, "sent", start_time, filtered_output)

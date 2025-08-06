@@ -5,11 +5,10 @@ Internal module - no public API.
 
 from . import ProcessHandler
 from ...pane import Pane
-from ...filters import collapse_empty_lines
 
 
 class _DefaultHandler(ProcessHandler):
-    """Default handler - simple 'no children = ready' logic."""
+    """Default handler - inherits streaming capture with sensible filtering."""
 
     def can_handle(self, pane: Pane) -> bool:
         """Handle everything as fallback."""
@@ -29,14 +28,3 @@ class _DefaultHandler(ProcessHandler):
                 return True, "interactive"
             return False, "working"
         return True, "idle"
-
-    def filter_output(self, content: str) -> str:
-        """Apply default filtering - collapse excessive empty lines.
-
-        Args:
-            content: Raw output content.
-
-        Returns:
-            Content with collapsed empty lines.
-        """
-        return collapse_empty_lines(content, threshold=5)
