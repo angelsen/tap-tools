@@ -11,14 +11,9 @@ import os
 
 from ..app import app
 from ..config import get_config_manager
-from ..types import ServiceConfig, InitGroup
 from ..pane import Pane, send_command
-from ..tmux import (
-    session_exists,
-    create_session,
-    create_panes_with_layout,
-    kill_session,
-)
+from ..tmux.session import session_exists, create_session, kill_session
+from ..tmux.pane import create_panes_with_layout
 
 
 @dataclass
@@ -314,7 +309,7 @@ def run(state, group: str) -> dict[str, Any]:
             
             status = result.get("status", "unknown")
             
-            if status in ["ready", "completed", "running"]:
+            if status in ["completed", "running"]:
                 icon = "✓"
                 service_status.append({
                     "name": service.name,
@@ -389,7 +384,7 @@ def run(state, group: str) -> dict[str, Any]:
         try:
             if session_exists(group):
                 kill_session(group)
-        except:
+        except Exception:
             pass
         
         return {

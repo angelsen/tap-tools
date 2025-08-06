@@ -3,7 +3,7 @@
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..process.tree import ProcessNode
@@ -62,7 +62,7 @@ class Pane:
     @property
     def shell(self) -> Optional["ProcessNode"]:
         """Get shell process - always fresh from process_chain."""
-        from ..process import extract_shell_and_process
+        from ..process.tree import extract_shell_and_process
         from ..config import get_config_manager
 
         shell, _ = extract_shell_and_process(
@@ -73,7 +73,7 @@ class Pane:
     @property
     def process(self) -> Optional["ProcessNode"]:
         """Get active process (non-shell) - always fresh from process_chain."""
-        from ..process import extract_shell_and_process
+        from ..process.tree import extract_shell_and_process
         from ..config import get_config_manager
 
         _, process = extract_shell_and_process(

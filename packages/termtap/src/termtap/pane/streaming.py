@@ -2,7 +2,6 @@
 
 import time
 from pathlib import Path
-from typing import Optional
 from .core import Pane
 from ..tmux.stream import Stream
 

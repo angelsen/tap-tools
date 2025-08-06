@@ -1,11 +1,7 @@
 """Hover dialog functionality for termtap.
 
-PUBLIC API:
-  - show_hover: Show interactive hover dialog
-  - should_hover: Check if command should trigger hover
-  - check_tmux_hover_env: Check tmux environment for hover settings
-  - pattern_hover_callback: Callback for pattern detection
-  - HoverResult: Result from hover dialog
+Internal module - no external usage found.
+Functions are used only by command execution handlers.
 """
 
 import os
@@ -193,10 +189,4 @@ def pattern_hover_callback(pattern: str, output: str, session: str, command: str
         return None
 
 
-__all__ = [
-    "show_hover",
-    "should_hover",
-    "check_tmux_hover_env",
-    "pattern_hover_callback",
-    "HoverResult",
-]
+# No exports - internal usage only

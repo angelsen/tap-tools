@@ -19,7 +19,7 @@ class Stream:
     - No global StreamManager needed
     """
     
-    def __init__(self, pane_id: str, session_window_pane: str, stream_dir: Path = None):
+    def __init__(self, pane_id: str, session_window_pane: str, stream_dir: Optional[Path] = None):
         self.pane_id = pane_id
         self.session_window_pane = session_window_pane
         self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
@@ -359,11 +359,4 @@ class Stream:
             return last_content
 
 
-# Temporary - to be removed when ExecutorState is refactored
-class StreamManager:
-    """DEPRECATED: Temporary for backward compatibility."""
-    def __init__(self, stream_dir: Path = None):
-        self.stream_dir = stream_dir or Path("/tmp/termtap/streams")
-    
-    def get_stream(self, pane_id: str, session_window_pane: str) -> Stream:
-        return Stream(pane_id, session_window_pane, self.stream_dir)
+# StreamManager removed - use Stream() constructor directly

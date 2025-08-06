@@ -4,13 +4,13 @@ Everything happens in panes. Sessions are just containers for organizing panes.
 Target resolution is explicit and unambiguous.
 """
 
-from typing import TypedDict, NotRequired, Literal, Optional, TYPE_CHECKING
+from typing import TypedDict, NotRequired, Literal, TYPE_CHECKING
 from dataclasses import dataclass, field
 import re
 
 # Avoid circular imports
 if TYPE_CHECKING:
-    from .process.tree import ProcessNode
+    pass
 
 
 # Pane-first identifiers
@@ -138,81 +138,7 @@ def parse_convenience_target(target: str) -> tuple[str, int | None, int | None]:
         return (session, int(parts[1]), None)
 
 
-# Process detection types
-@dataclass
-class ProcessInfo:
-    """Information about a process in a pane."""
-
-    shell: str | None
-    process: str | None
-    state: Literal["ready", "working", "unknown"]
-    pane_id: str  # The pane this process is in
-    wait_channel: str | None = None  # Kernel wait channel (for handler development)
-
-
-@dataclass
-class ProcessContext:
-    """Unified context for all handler operations.
-
-    Provides a consistent interface for handlers to access:
-    - Pane information (ID and session:window.pane format)
-    - Process tree node with all process details
-    - Lazy-loaded pane content for content-based detection
-    - Helper methods for common operations
-    """
-
-    pane_id: PaneID
-    process: "ProcessNode"  # Forward reference to avoid circular import
-    session_window_pane: SessionWindowPane  # "session:0.0" format
-
-    # Lazy-loaded content
-    _visible_content: Optional[str] = field(default=None, init=False)
-
-    def capture_visible(self) -> str:
-        """Get visible pane content (cached).
-
-        Content is loaded once and cached for the lifetime of this context.
-        This enables efficient content-based detection without repeated tmux calls.
-
-        Returns:
-            The visible content of the pane as a string.
-        """
-        if self._visible_content is None:
-            from .tmux import capture_visible
-
-            self._visible_content = capture_visible(self.pane_id)
-        return self._visible_content
-
-    def send_keys(self, *commands: str, enter: bool = True, delay: float = 0.05) -> bool:
-        """Send keys to this pane.
-
-        Args:
-            *commands: One or more key sequences to send
-            enter: Whether to send Enter after the commands
-            delay: Delay in seconds between commands (default 0.05)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        from .tmux import send_keys
-
-        return send_keys(self.pane_id, *commands, enter=enter, delay=delay)
-
-    def refresh(self) -> None:
-        """Update process information from current pane state."""
-        from .tmux import get_pane_pid
-        from .process.tree import get_process_chain
-        from .process import extract_shell_and_process
-        from .config import get_config_manager
-
-        pid = get_pane_pid(self.pane_id)
-        chain = get_process_chain(pid)
-        _, process = extract_shell_and_process(chain, get_config_manager().skip_processes)
-
-        if process:
-            self.process = process
-        # Clear cached content so next capture_visible gets fresh data
-        self._visible_content = None
+# Process detection types - ProcessInfo removed, use pane.get_process_info() dict instead
 
 
 # Configuration types

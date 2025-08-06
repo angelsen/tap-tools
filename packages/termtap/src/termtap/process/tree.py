@@ -310,3 +310,50 @@ def get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
         chains[pid] = extract_chain_from_tree(tree)
     
     return chains
+
+
+def extract_shell_and_process(
+    chain: List[ProcessNode], skip_processes: List[str]
+) -> tuple[Optional[ProcessNode], Optional[ProcessNode]]:
+    """Extract shell and active process from chain.
+
+    Args:
+        chain: Process chain from root to leaf.
+        skip_processes: Process names to skip when finding active process.
+
+    Returns:
+        (shell, process) where shell is the last shell in chain,
+        process is first non-shell or None if at shell prompt.
+    """
+    from ..types import KNOWN_SHELLS
+    
+    if not chain:
+        return None, None
+
+    # Find last shell in chain
+    shell = None
+    for proc in chain:
+        if proc.name in KNOWN_SHELLS:
+            shell = proc
+
+    # Find first non-skipped process
+    # Skip all shells and configured skip processes
+    skip = KNOWN_SHELLS.union(set(skip_processes))
+
+    process = None
+    for proc in chain:
+        if proc.name not in skip:
+            process = proc
+            break
+
+    # If no shell found and we have a process, it's a direct-launched process
+    # (e.g., tmux new-session -s foo claude)
+    if not shell and process:
+        # The process is running directly without a shell
+        return None, process
+
+    # If no shell found and no process, fallback to root as shell
+    if not shell:
+        shell = chain[0] if chain else None
+
+    return shell, process

@@ -29,7 +29,7 @@ def _capture_and_filter(pane: Pane, handler=None) -> str:
 def _check_ready(
     pane: Pane, 
     compiled_pattern: Optional[Pattern] = None
-) -> tuple[bool, bool]:
+) -> bool:
     """Check if pane is ready via pattern or handler.
     
     Should be called within a process_scan context.
@@ -40,40 +40,31 @@ def _check_ready(
         compiled_pattern: Optional compiled regex pattern to match
         
     Returns:
-        (is_ready, is_pattern_match) - ready state and whether it was a pattern match
+        True if ready, False otherwise
     """
     # Check pattern first (takes precedence)
     if compiled_pattern and pane.visible_content:
-        match = compiled_pattern.search(pane.visible_content)
-        if match:
-            return True, True
+        if compiled_pattern.search(pane.visible_content):
+            return True
     
     # Check handler state
     is_ready, _ = pane.handler.is_ready(pane)
-    return is_ready, False
+    # Treat None as False for execution decisions (safer to assume not ready)
+    # This preserves the three-state logic in handlers while providing binary decision here
+    return bool(is_ready)
 
 
-def _determine_status(
-    elapsed: float, 
-    timeout: float, 
-    pattern_matched: bool = False
-) -> str:
-    """Determine final command status based on timing and match type.
+def _determine_status(elapsed: float, timeout: float) -> str:
+    """Determine final command status based on timing.
     
     Args:
         elapsed: Time elapsed since command start
         timeout: Timeout threshold
-        pattern_matched: Whether a ready pattern was matched
         
     Returns:
-        Status string: "timeout", "ready", or "completed"
+        Status string: "timeout" or "completed"
     """
-    if elapsed >= timeout:
-        return "timeout"
-    elif pattern_matched:
-        return "ready"
-    else:
-        return "completed"
+    return "timeout" if elapsed >= timeout else "completed"
 
 
 def _build_result(
@@ -108,7 +99,7 @@ def _build_result(
         "process": pane.process.name if pane.process else None,
         "shell": pane.shell.name if pane.shell else None,
         "handler": type(pane.handler).__name__,
-        "language": (pane.process.name if pane.process else pane.shell.name) or "text",
+        "language": (pane.process.name if pane.process else pane.shell.name if pane.shell else None) or "text",
     }
     
     if error:
@@ -184,7 +175,6 @@ def send_command(
     final_handler = handler  # Track handler for post-execution
     actual_timeout = timeout or 30.0
     completed = False
-    pattern_matched = False
     
     # Compile ready pattern once if provided
     compiled_pattern = re.compile(ready_pattern) if ready_pattern else None
@@ -192,7 +182,7 @@ def send_command(
     # Check immediately first - many commands complete instantly
     with process_scan(pane.pane_id):
         current_handler = pane.handler
-        is_ready, pattern_matched = _check_ready(pane, compiled_pattern)
+        is_ready = _check_ready(pane, compiled_pattern)
         
         if is_ready:
             final_handler = current_handler
@@ -206,7 +196,7 @@ def send_command(
         while time.time() - start_time < actual_timeout:
             with process_scan(pane.pane_id):
                 current_handler = pane.handler
-                is_ready, pattern_matched = _check_ready(pane, compiled_pattern)
+                is_ready = _check_ready(pane, compiled_pattern)
                 
                 if is_ready:
                     final_handler = current_handler
@@ -228,7 +218,7 @@ def send_command(
     
     # Determine final status
     elapsed = time.time() - start_time
-    status = _determine_status(elapsed, actual_timeout, pattern_matched)
+    status = _determine_status(elapsed, actual_timeout)
     
     with process_scan(pane.pane_id):
         # Capture and filter output
