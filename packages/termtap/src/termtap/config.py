@@ -64,7 +64,7 @@ class ConfigManager:
                         pane=service_data.get("pane", len(services)),
                         command=service_data["command"],
                         path=service_data.get("path"),  # New field
-                        env=service_data.get("env"),    # New field
+                        env=service_data.get("env"),  # New field
                         ready_pattern=service_data.get("ready_pattern"),
                         timeout=service_data.get("timeout"),
                         depends_on=service_data.get("depends_on"),

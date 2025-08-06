@@ -52,11 +52,12 @@ class Pane:
     def process_chain(self) -> list["ProcessNode"]:
         """Get process chain - uses scan context if available."""
         # Check if we're in a scan context
-        if hasattr(_scan_context, 'chains'):
+        if hasattr(_scan_context, "chains"):
             return _scan_context.chains.get(self.pid, [])
         else:
             # No context, fetch directly
             from ..process.tree import get_process_chain
+
             return get_process_chain(self.pid)
 
     @property
@@ -65,9 +66,7 @@ class Pane:
         from ..process.tree import extract_shell_and_process
         from ..config import get_config_manager
 
-        shell, _ = extract_shell_and_process(
-            self.process_chain, get_config_manager().skip_processes
-        )
+        shell, _ = extract_shell_and_process(self.process_chain, get_config_manager().skip_processes)
         return shell
 
     @property
@@ -76,9 +75,7 @@ class Pane:
         from ..process.tree import extract_shell_and_process
         from ..config import get_config_manager
 
-        _, process = extract_shell_and_process(
-            self.process_chain, get_config_manager().skip_processes
-        )
+        _, process = extract_shell_and_process(self.process_chain, get_config_manager().skip_processes)
         return process
 
     @property
@@ -92,23 +89,24 @@ class Pane:
     def visible_content(self) -> str:
         """Get visible pane content - always fresh."""
         from ..tmux.pane import capture_visible
+
         return capture_visible(self.pane_id)
 
 
 @contextmanager
 def process_scan(*pane_ids: str):
     """Context manager for process scanning.
-    
+
     All process access within this context uses the same scan data.
-    
+
     Args:
         *pane_ids: Specific pane IDs to scan. If none provided, scans all.
-    
+
     Example:
         # Single pane - fresh scan each time
         with process_scan(pane.pane_id):
             is_ready = pane.handler.is_ready(pane)
-        
+
         # Multiple panes - one scan for all
         with process_scan():
             panes = [Pane(pid) for pid in pane_ids]
@@ -116,7 +114,7 @@ def process_scan(*pane_ids: str):
     """
     from ..process.tree import get_process_chains_batch
     from ..tmux.core import run_tmux
-    
+
     # Get PIDs for the panes we care about
     if pane_ids:
         # Specific panes
@@ -129,16 +127,16 @@ def process_scan(*pane_ids: str):
         # All panes
         code, stdout, _ = run_tmux(["list-panes", "-a", "-F", "#{pane_pid}"])
         if code == 0:
-            pids = [int(line) for line in stdout.strip().split('\n') if line]
+            pids = [int(line) for line in stdout.strip().split("\n") if line]
         else:
             pids = []
-    
+
     # Single scan for all PIDs
     _scan_context.chains = get_process_chains_batch(pids) if pids else {}
-    
+
     try:
         yield
     finally:
         # Clean up context
-        if hasattr(_scan_context, 'chains'):
+        if hasattr(_scan_context, "chains"):
             del _scan_context.chains

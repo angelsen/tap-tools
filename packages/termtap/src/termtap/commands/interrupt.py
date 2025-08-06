@@ -14,7 +14,7 @@ from ..types import Target
 )
 def interrupt(state, target: Target = "default") -> dict[str, Any]:
     """Send interrupt signal to target pane.
-    
+
     The handler determines how to interrupt the process.
     Most processes use Ctrl+C, but some may need special handling.
     """
@@ -26,29 +26,22 @@ def interrupt(state, target: Target = "default") -> dict[str, Any]:
             "elements": [{"type": "text", "content": f"Error: {e}"}],
             "frontmatter": {"error": str(e), "status": "error"},
         }
-    
+
     # Create pane and send interrupt
     pane = Pane(pane_id)
-    
+
     # Send interrupt - handler decides how
     result = send_interrupt(pane)
-    
+
     # Format response
     elements = []
-    
+
     if result["output"]:
-        elements.append({
-            "type": "code_block",
-            "content": result["output"],
-            "language": result["language"]
-        })
-    
+        elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
+
     if result["status"] == "failed":
-        elements.append({
-            "type": "blockquote",
-            "content": result.get("error", "Failed to send interrupt signal")
-        })
-    
+        elements.append({"type": "blockquote", "content": result.get("error", "Failed to send interrupt signal")})
+
     return {
         "elements": elements,
         "frontmatter": {
@@ -56,5 +49,5 @@ def interrupt(state, target: Target = "default") -> dict[str, Any]:
             "status": result["status"],
             "pane": result["pane"],
             "elapsed": round(result["elapsed"], 2),
-        }
+        },
     }

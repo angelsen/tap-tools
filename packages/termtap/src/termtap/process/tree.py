@@ -303,12 +303,12 @@ def get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
     """
     # Single scan of all processes
     all_processes = get_all_processes()
-    
+
     chains = {}
     for pid in pids:
         tree = build_tree_from_processes(all_processes, pid)
         chains[pid] = extract_chain_from_tree(tree)
-    
+
     return chains
 
 
@@ -326,7 +326,7 @@ def extract_shell_and_process(
         process is first non-shell or None if at shell prompt.
     """
     from ..types import KNOWN_SHELLS
-    
+
     if not chain:
         return None, None
 

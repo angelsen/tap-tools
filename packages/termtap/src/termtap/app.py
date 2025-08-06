@@ -8,6 +8,7 @@ from replkit2 import App
 @dataclass
 class TermTapState:
     """Application state for termtap pane management."""
+
     pass
 
 
@@ -25,13 +26,13 @@ app = App(
 
 
 # Import individual command modules (triggers registration via @app.command decorators)
-from .commands import bash       # noqa: E402, F401
-from .commands import read       # noqa: E402, F401
-from .commands import ls         # noqa: E402, F401
+from .commands import bash  # noqa: E402, F401
+from .commands import read  # noqa: E402, F401
+from .commands import ls  # noqa: E402, F401
 from .commands import interrupt  # noqa: E402, F401
 from .commands import send_keys  # noqa: E402, F401
-from .commands import track      # noqa: E402, F401
-from .commands import run        # noqa: E402, F401
+from .commands import track  # noqa: E402, F401
+from .commands import run  # noqa: E402, F401
 
 
 if __name__ == "__main__":

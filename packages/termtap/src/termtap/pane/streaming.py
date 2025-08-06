@@ -11,7 +11,7 @@ STREAM_DIR = Path("/tmp/termtap/streams")
 
 def get_stream(pane: Pane, stream_dir: Path = STREAM_DIR) -> Stream:
     """Get stream for pane - creates new instance each time.
-    
+
     No global state - each Stream instance coordinates through files.
     """
     return Stream(pane.pane_id, pane.session_window_pane, stream_dir)
@@ -27,11 +27,11 @@ def ensure_streaming(pane: Pane) -> bool:
 
 def mark_command_start(pane: Pane, command: str) -> str:
     """Mark command start position and return command ID.
-    
+
     Args:
         pane: Target pane
         command: Command being executed
-        
+
     Returns:
         Command ID for tracking
     """
@@ -43,7 +43,7 @@ def mark_command_start(pane: Pane, command: str) -> str:
 
 def mark_command_end(pane: Pane, cmd_id: str) -> None:
     """Mark command end position.
-    
+
     Args:
         pane: Target pane
         cmd_id: Command ID from mark_command_start
@@ -54,12 +54,12 @@ def mark_command_end(pane: Pane, cmd_id: str) -> None:
 
 def get_command_output(pane: Pane, cmd_id: str, as_displayed: bool = True) -> str:
     """Get output for specific command.
-    
+
     Args:
         pane: Target pane
         cmd_id: Command ID from mark_command_start
         as_displayed: Whether to render ANSI (default True)
-        
+
     Returns:
         Command output
     """

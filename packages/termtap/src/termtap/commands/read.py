@@ -20,7 +20,7 @@ def read(
     mode: str = "direct",
 ) -> dict[str, Any]:
     """Read output from target pane.
-    
+
     Args:
         target: Pane to read from
         lines: Number of lines to read (None = visible content)
@@ -33,7 +33,7 @@ def read(
             "elements": [{"type": "text", "content": "Error: since_last requires mode='stream'"}],
             "frontmatter": {"error": "Invalid parameters", "status": "error"},
         }
-    
+
     # Resolve target to single pane
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
@@ -42,10 +42,10 @@ def read(
             "elements": [{"type": "text", "content": f"Error: {e}"}],
             "frontmatter": {"error": str(e), "status": "error"},
         }
-    
+
     # Create pane and read output
     pane = Pane(pane_id)
-    
+
     if mode == "stream":
         if since_last:
             output = read_since_last(pane)
@@ -53,17 +53,20 @@ def read(
             output = read_recent(pane, lines=lines) if lines else read_recent(pane)
     else:  # direct
         output = read_output(pane, lines=lines, mode="direct")
-    
+
     # Format response
     from ..pane import get_process_info
+
     info = get_process_info(pane)
-    
-    elements = [{
-        "type": "code_block",
-        "content": output or "[No output]",
-        "language": info["language"],
-    }]
-    
+
+    elements = [
+        {
+            "type": "code_block",
+            "content": output or "[No output]",
+            "language": info["language"],
+        }
+    ]
+
     return {
         "elements": elements,
         "frontmatter": {
@@ -72,5 +75,5 @@ def read(
             "mode": mode,
             "lines": lines,
             "since_last": since_last,
-        }
+        },
     }

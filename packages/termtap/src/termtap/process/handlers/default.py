@@ -41,14 +41,14 @@ class _DefaultHandler(ProcessHandler):
             - Never returns None (always makes a determination)
         """
         # Check if shell is waiting for a child process
-        if pane.shell and pane.shell.wait_channel == 'do_wait':
+        if pane.shell and pane.shell.wait_channel == "do_wait":
             # Shell is waiting - check if it's an interactive app
             if pane.process and not pane.process.children:
                 # Process exists but has no subprocesses - likely interactive
                 return True, "interactive"
             # Process has children or doesn't exist - still working
             return False, "working"
-        
+
         # Shell not in do_wait (or no shell), so it's ready
         return True, "idle"
 

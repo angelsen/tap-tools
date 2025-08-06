@@ -14,9 +14,9 @@ from ..types import Target
 )
 def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
     """Send raw keys to target pane.
-    
+
     Each key is a separate argument. Special keys like Enter, Escape, C-c are supported.
-    
+
     Examples:
         send_keys("q")                      # Just q (exit less)
         send_keys("y", "Enter")             # y followed by Enter
@@ -33,29 +33,24 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
             "elements": [{"type": "text", "content": f"Error: {e}"}],
             "frontmatter": {"error": str(e), "status": "error"},
         }
-    
+
     # Create pane and send keys
     pane = Pane(pane_id)
-    
+
     # Send keys as separate arguments
     result = pane_send_keys(pane, *keys)
-    
+
     # Format response
     elements = []
-    
+
     if result["output"]:
-        elements.append({
-            "type": "code_block",
-            "content": result["output"],
-            "language": result["language"]
-        })
-    
+        elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
+
     if result["status"] == "failed":
-        elements.append({
-            "type": "blockquote",
-            "content": f"Failed to send keys: {result.get('error', 'Unknown error')}"
-        })
-    
+        elements.append(
+            {"type": "blockquote", "content": f"Failed to send keys: {result.get('error', 'Unknown error')}"}
+        )
+
     return {
         "elements": elements,
         "frontmatter": {
@@ -63,5 +58,5 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
             "status": result["status"],
             "pane": result["pane"],
             "elapsed": round(result["elapsed"], 2),
-        }
+        },
     }

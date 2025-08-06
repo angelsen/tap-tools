@@ -32,10 +32,10 @@ from .streaming import (
 __all__ = [
     "Pane",
     "process_scan",
-    "send_command", 
+    "send_command",
     "send_keys",
-    "send_interrupt", 
-    "read_output", 
+    "send_interrupt",
+    "read_output",
     "get_process_info",
     "ensure_streaming",
     "mark_command_start",

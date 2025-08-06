@@ -15,7 +15,7 @@ from ..types import Target
 
 def _collect_wait_channels(pane: Pane) -> list[str]:
     """Collect wait channels from process chain for debugging.
-    
+
     Internal helper for track command's debugging needs.
     """
     wait_channels = []
@@ -117,18 +117,19 @@ def track(
         if commands:
             # Check if we're trying to track current pane
             from ..tmux.core import run_tmux
+
             code, stdout, _ = run_tmux(["display-message", "-p", "#{pane_id}"])
             current_pane_id = stdout.strip() if code == 0 else None
-            
+
             if pane_id == current_pane_id:
                 return {
                     "elements": [{"type": "text", "content": f"Error: Cannot track in current pane ({pane_id})"}],
                     "frontmatter": {"error": "Cannot track current pane", "status": "error"},
                 }
-            
+
             # Send keys using tmux directly for minimal interference
             from ..tmux.pane import send_keys as tmux_send_keys
-            
+
             # Join commands and send with optional enter
             # Keep default 50ms delay before Enter for commands to register properly
             if not tmux_send_keys(pane.pane_id, " ".join(commands), enter=enter):
@@ -181,7 +182,7 @@ def track(
             final_info = get_process_info(pane)
             final_screenshot = read_output(pane)
             final_hash = hashlib.md5(final_screenshot.encode()).hexdigest()
-            
+
             samples.append(
                 {
                     "elapsed": round(duration, 1),
@@ -229,10 +230,10 @@ def track(
 
     # Quick analysis
     handlers_seen = sorted(set(s["handler"] for s in samples))
-    
+
     # Return summary
     commands_str = " ".join(commands) if commands else "(no commands)"
-    
+
     elements = [
         {"type": "text", "content": f"Process tracked: `{commands_str}`"},
         {"type": "text", "content": f"Enter: {enter}"},
@@ -242,12 +243,12 @@ def track(
         {"type": "text", "content": ""},
         {"type": "text", "content": f"Data: `{tracking_dir}`"},
     ]
-    
+
     return {
         "elements": elements,
         "frontmatter": {
             "command": "track",
             "status": "completed",
             "samples": len(samples),
-        }
+        },
     }

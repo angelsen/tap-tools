@@ -28,28 +28,21 @@ def bash(
             "elements": [{"type": "text", "content": f"Error: {e}"}],
             "frontmatter": {"error": str(e), "status": "error"},
         }
-    
+
     # Create pane and execute command
     pane = Pane(pane_id)
     result = send_command(pane, command, wait=wait, timeout=timeout)
-    
+
     # Format response
     elements = []
-    
+
     if result["output"]:
         # Use language from result metadata (no additional scan needed!)
-        elements.append({
-            "type": "code_block",
-            "content": result["output"],
-            "language": result["language"]
-        })
-    
+        elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
+
     if result["status"] == "timeout":
-        elements.append({
-            "type": "blockquote",
-            "content": f"Command timed out after {result['elapsed']:.1f}s"
-        })
-    
+        elements.append({"type": "blockquote", "content": f"Command timed out after {result['elapsed']:.1f}s"})
+
     return {
         "elements": elements,
         "frontmatter": {
@@ -57,5 +50,5 @@ def bash(
             "status": result["status"],
             "pane": result["pane"],
             "elapsed": round(result["elapsed"], 2),
-        }
+        },
     }

@@ -4,7 +4,7 @@ Most internal modules import directly from submodules.
 Only functions with confirmed external usage are exported.
 
 EXTERNAL PUBLIC API:
-  - get_pane_pid: Get pane process PID  
+  - get_pane_pid: Get pane process PID
   - get_pane_info: Get pane details
   - list_panes: List panes with filtering
   - send_keys: Send keystrokes to pane
@@ -21,7 +21,7 @@ For all other functions, import directly from submodules:
 # Only essential external functions
 from .pane import (
     get_pane_pid,
-    get_pane_info, 
+    get_pane_info,
     list_panes,
     send_keys,
     capture_visible,
@@ -34,9 +34,9 @@ from .resolution import (
 
 __all__ = [
     "get_pane_pid",
-    "get_pane_info", 
+    "get_pane_info",
     "list_panes",
-    "send_keys", 
+    "send_keys",
     "capture_visible",
     "resolve_target_to_pane",
     "resolve_or_create_target",
