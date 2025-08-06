@@ -14,16 +14,16 @@ from ..types import Target
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "description": "Send raw keys to a pane"},
+    fastmcp={"type": "tool", "tags": {"input", "control"}, "description": "Send keystrokes to tmux pane"},
 )
-def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
+def send_keys(state, keys: str, target: Target = "default") -> dict[str, Any]:
     """Send raw keys to target pane.
 
-    Each key is a separate argument. Special keys like Enter, Escape, C-c are supported.
+    Space-separated keys string. Special keys like Enter, Escape, C-c are supported.
 
     Args:
         state: Application state (unused).
-        *keys: Keys to send as separate arguments.
+        keys: Space-separated keys to send (e.g., "q", "Down Down Enter", "C-c").
         target: Target pane identifier. Defaults to "default".
 
     Returns:
@@ -31,11 +31,11 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
 
     Examples:
         send_keys("q")                      # Just q (exit less)
-        send_keys("y", "Enter")             # y followed by Enter
-        send_keys("Down", "Down", "Enter")  # Navigate and select
+        send_keys("y Enter")                # y followed by Enter
+        send_keys("Down Down Enter")        # Navigate and select
         send_keys("C-c")                    # Send Ctrl+C
-        send_keys("Escape", ":q", "Enter")  # Exit vim
-        send_keys("Hello", "Enter", "World") # Type text with newline
+        send_keys("Escape :q Enter")        # Exit vim
+        send_keys("Hello Enter World")      # Type text with newline
     """
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
@@ -47,7 +47,7 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
 
     pane = Pane(pane_id)
 
-    result = pane_send_keys(pane, *keys)
+    result = pane_send_keys(pane, keys)
 
     elements = []
 
@@ -62,7 +62,7 @@ def send_keys(state, *keys: str, target: Target = "default") -> dict[str, Any]:
     return {
         "elements": elements,
         "frontmatter": {
-            "keys": " ".join(keys)[:40] + ("..." if len(" ".join(keys)) > 40 else ""),
+            "keys": keys[:40] + ("..." if len(keys) > 40 else ""),
             "status": result["status"],
             "pane": result["pane"],
             "elapsed": round(result["elapsed"], 2),

@@ -242,7 +242,7 @@ def send_interrupt(pane: Pane) -> dict[str, Any]:
         return _build_result(pane, "C-c", status, start_time, filtered_output, error)
 
 
-def send_keys(pane: Pane, *keys: str, enter: bool = False) -> dict[str, Any]:
+def send_keys(pane: Pane, keys: str, enter: bool = False) -> dict[str, Any]:
     """Send raw keystrokes to pane.
 
     Bypasses command processing and handler lifecycle for direct key input.
@@ -250,26 +250,26 @@ def send_keys(pane: Pane, *keys: str, enter: bool = False) -> dict[str, Any]:
 
     Args:
         pane: Target pane.
-        *keys: Keys to send (e.g., "Up", "Down", "C-c").
+        keys: Space-separated keys to send (e.g., "Up", "Down Down", "C-c").
         enter: Whether to add Enter key at the end. Defaults to False.
 
     Returns:
         Dict with execution results.
     """
     start_time = time.time()
-    keys_str = " ".join(keys)
+    key_list = keys.split() if keys.strip() else []
 
     from ..tmux.pane import send_keys as tmux_send_keys
 
     try:
-        success = tmux_send_keys(pane.pane_id, *keys, enter=enter)
+        success = tmux_send_keys(pane.pane_id, *key_list, enter=enter)
     except Exception as e:
         with process_scan(pane.pane_id):
-            return _build_result(pane, keys_str, "failed", start_time, error=str(e))
+            return _build_result(pane, keys, "failed", start_time, error=str(e))
 
     if not success:
         with process_scan(pane.pane_id):
-            return _build_result(pane, keys_str, "failed", start_time, error="Failed to send keys")
+            return _build_result(pane, keys, "failed", start_time, error="Failed to send keys")
 
     time.sleep(0.02)
 
@@ -277,4 +277,4 @@ def send_keys(pane: Pane, *keys: str, enter: bool = False) -> dict[str, Any]:
         # Use unified capture method (visible fallback for key effects)
         filtered_output = pane.handler.capture_output(pane, method="visible")
 
-        return _build_result(pane, keys_str, "sent", start_time, filtered_output)
+        return _build_result(pane, keys, "sent", start_time, filtered_output)

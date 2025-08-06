@@ -5,7 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = ["fastapi>=0.116.1", "replkit2", "uvicorn>=0.35.0"]
+dependencies = [
+    "fastapi>=0.116.1",
+    "fastmcp>=2.11.2",
+    "replkit2",
+    "uvicorn>=0.35.0",
+]
 
 [project.scripts]
 termtap = "termtap:main"

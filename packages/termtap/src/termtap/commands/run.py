@@ -193,7 +193,11 @@ def _sort_by_dependencies(services: list[ServiceBuilder]) -> list[ServiceBuilder
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "description": "Run a development environment from configuration"},
+    fastmcp={
+        "type": "tool",
+        "description": "Run a development environment from configuration",
+        "tags": {"orchestration", "services"},
+    },
 )
 def run(state, group: str) -> dict[str, Any]:
     """Run a development environment from configuration.
@@ -334,7 +338,7 @@ def run(state, group: str) -> dict[str, Any]:
 @app.command(
     display="table",
     headers=["Group", "Services", "Layout", "Status"],
-    fastmcp={"type": "tool", "description": "List available run configurations"},
+    fastmcp={"enabled": False},
 )
 def run_list(state) -> list[dict]:
     """List available run configurations.
@@ -366,7 +370,7 @@ def run_list(state) -> list[dict]:
 
 @app.command(
     display="text",
-    fastmcp={"type": "tool", "description": "Stop a running environment"},
+    fastmcp={"enabled": False},
 )
 def kill(state, session: str) -> str:
     """Stop a running environment (kill tmux session).

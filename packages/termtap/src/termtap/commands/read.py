@@ -14,7 +14,19 @@ from ..types import Target
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "description": "Read output from tmux pane"},
+    fastmcp={
+        "type": "resource",
+        "mime_type": "text/markdown",
+        "tags": {"inspection", "output"},
+        "description": "Read output from tmux pane with metadata",
+        "stub": {
+            "response": {
+                "example": "termtap://read/test-session",
+                "description": "Replace 'test-session' with any pane target",
+                "usage": "Use termtap://ls to find available pane targets",
+            }
+        },
+    },
 )
 def read(
     state,

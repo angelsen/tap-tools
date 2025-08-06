@@ -14,7 +14,7 @@ from ..types import Target
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "description": "Execute command in tmux pane"},
+    fastmcp={"type": "tool", "tags": {"execution", "shell"}, "description": "Execute shell command in tmux pane"},
 )
 def bash(
     state,

@@ -14,6 +14,12 @@ from ..tmux import list_panes
 @app.command(
     display="table",
     headers=["Pane", "Shell", "Process", "State"],
+    fastmcp={
+        "type": "resource",
+        "mime_type": "application/json",
+        "tags": {"discovery", "inspection"},
+        "description": "List all tmux panes with process information",
+    },
 )
 def ls(state, filter: Optional[str] = None):
     """List all tmux panes with their current process.

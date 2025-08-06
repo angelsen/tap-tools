@@ -26,9 +26,8 @@ class TermTapState:
 app = App(
     "termtap",
     TermTapState,
-    uri_scheme="bash",
+    uri_scheme="termtap",
     fastmcp={
-        "name": "termtap",
         "description": "Terminal pane manager with tmux",
         "tags": {"terminal", "automation", "tmux"},
     },

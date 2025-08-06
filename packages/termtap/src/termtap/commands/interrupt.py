@@ -14,7 +14,7 @@ from ..types import Target
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "description": "Send interrupt signal to a pane"},
+    fastmcp={"type": "tool", "tags": {"control", "safety"}, "description": "Send interrupt signal to tmux pane"},
 )
 def interrupt(state, target: Target = "default") -> dict[str, Any]:
     """Send interrupt signal to target pane.
