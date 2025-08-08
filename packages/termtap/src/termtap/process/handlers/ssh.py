@@ -32,24 +32,49 @@ class _SSHHandler(ProcessHandler):
         return bool(pane.process and pane.process.name in self.handles)
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
-        """Determine if SSH is ready for input using connection state patterns.
+        """SSH is always ready - we can't detect remote state."""
+        return True, "connected"
 
-        Args:
-            pane: Pane with process information.
+    def before_send(self, pane: Pane, command: str) -> str | None:
+        """Show edit popup for SSH commands.
 
-        Returns:
-            Tuple of (readiness, description) based on observed patterns.
+        User can:
+        - Press Enter to execute as-is
+        - Edit the command and press Enter
+        - Press ESC to cancel
         """
-        if not pane.process:
-            return True, "at shell prompt"
+        from ...popup import Popup
 
-        if pane.process.has_children:
-            return False, "has subprocess"
+        # Use pane title (often set to remote hostname by SSH) or default
+        title = pane.title or "SSH Command"
 
-        if pane.process.wait_channel == "unix_stream_read_generic":
-            return True, "connected"
+        p = Popup(title=title)
+        p.header("Remote Execution")
+        p.warning(f"Command: {command}")
 
-        if pane.process.wait_channel == "do_sys_poll":
-            return True, "connected"
+        # Direct edit prompt - ESC cancels, Enter executes
+        edited = p.input(placeholder="Press Enter to execute or ESC to cancel", header="Edit command:", value=command)
 
-        return None, f"unrecognized wait_channel: {pane.process.wait_channel}"
+        # Empty string means user pressed ESC (cancelled)
+        return edited if edited else None
+
+    def after_send(self, pane: Pane, command: str) -> None:
+        """Wait for user to indicate when remote command is done.
+
+        Since we can't detect remote command completion, let the user
+        control when to continue.
+        """
+        import time
+        from ...popup import Popup
+        from ...utils import truncate_command
+
+        # Give command time to start on remote
+        time.sleep(0.5)
+
+        p = Popup(title=pane.title or "SSH Session")
+        p.header("Waiting for Remote Command")
+        p.info(f"Command: {truncate_command(command)}")
+        p.text("")
+        p.text("Press Enter when command completes")
+        p._add_line("read -r")  # Just wait for Enter key
+        p.show()

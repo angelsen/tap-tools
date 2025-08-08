@@ -125,7 +125,7 @@ def send_via_paste_buffer(pane_id: str, content: str, enter: bool = True, delay:
     if proc.returncode != 0:
         raise RuntimeError(f"Failed to load buffer: {stderr}")
 
-    code, _, stderr = run_tmux(["paste-buffer", "-t", pane_id, "-b", buffer_name, "-d"])
+    code, _, stderr = run_tmux(["paste-buffer", "-t", pane_id, "-b", buffer_name, "-d", "-p"])
 
     if code != 0:
         raise RuntimeError(f"Failed to paste buffer: {stderr}")

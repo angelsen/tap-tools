@@ -10,11 +10,17 @@ from ..app import app
 from ..pane import Pane, send_command
 from ..tmux import resolve_or_create_target
 from ..types import Target
+from ..utils import truncate_command
 
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "tags": {"execution", "shell"}, "description": "Execute shell command in tmux pane"},
+    fastmcp={
+        "type": "tool",
+        "mime_type": "text/markdown",
+        "tags": {"execution", "shell"},
+        "description": "Execute shell command in tmux pane",
+    },
 )
 def bash(
     state,
@@ -58,7 +64,7 @@ def bash(
     return {
         "elements": elements,
         "frontmatter": {
-            "command": command.replace("\n", "\\n")[:40],
+            "command": truncate_command(result["command"]),
             "status": result["status"],
             "pane": result["pane"],
             "elapsed": round(result["elapsed"], 2),

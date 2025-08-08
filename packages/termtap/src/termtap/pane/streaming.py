@@ -53,8 +53,8 @@ def mark_command_start(pane: Pane, command: str) -> str:
     """
     stream = _get_stream(pane)
     cmd_id = f"cmd_{int(time.time() * 1000)}"
-    stream.mark_command(cmd_id, command)
-    return cmd_id
+    returned_cmd_id = stream.mark_command(cmd_id, command)
+    return returned_cmd_id
 
 
 def mark_command_end(pane: Pane, cmd_id: str) -> None:

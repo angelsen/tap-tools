@@ -104,13 +104,31 @@ class Pane:
 
         return capture_visible(self.pane_id)
 
+    @property
+    def title(self) -> Optional[str]:
+        """Get current pane title - always fresh.
+
+        This is the terminal title that programs can set using escape sequences.
+        SSH often sets it to the remote hostname, editors to the filename, etc.
+
+        Returns:
+            Pane title string, or None if unavailable.
+        """
+        from ..tmux.pane import get_pane_info
+
+        try:
+            info = get_pane_info(self.pane_id)
+            return info.pane_title if info.pane_title else None
+        except Exception:
+            return None
+
 
 @contextmanager
 def process_scan(*pane_ids: str):
     """Context manager for efficient batch process scanning.
 
     All process access within this context uses the same scan data,
-    providing 70% performance improvement for multi-pane operations.
+    significantly reducing syscalls for multi-pane operations.
 
     Args:
         *pane_ids: Specific pane IDs to scan. If none provided, scans all.

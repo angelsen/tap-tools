@@ -117,7 +117,7 @@ def send_command(
         command = modified
 
     # === STREAMING SETUP ===
-    # Always start streaming - provides cmd_id to all handlers
+    # Start streaming after before_send hook to avoid hover dialog interference
     from .streaming import ensure_streaming, mark_command_start
 
     ensure_streaming(pane)

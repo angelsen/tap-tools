@@ -14,7 +14,12 @@ from ..types import Target
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "tool", "tags": {"input", "control"}, "description": "Send keystrokes to tmux pane"},
+    fastmcp={
+        "type": "tool",
+        "mime_type": "text/markdown",
+        "tags": {"input", "control"},
+        "description": "Send keystrokes to tmux pane",
+    },
 )
 def send_keys(state, keys: str, target: Target = "default") -> dict[str, Any]:
     """Send raw keys to target pane.

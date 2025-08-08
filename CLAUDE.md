@@ -74,5 +74,8 @@ Built on ReplKit2 for dual REPL/MCP functionality:
 The entire termtap architecture is built around the `Pane` abstraction:
 - Everything operates through `Pane` objects with lazy-loaded properties
 - Handlers accept `Pane` directly for process-specific behavior
-- 70% performance improvement through optimized process scans
+- Optimized execution with minimal process scans
 - Unified execution path with consistent return formats
+
+### gum tmux popup
+@./packages/termtap/src/termtap/popup/llms.txt

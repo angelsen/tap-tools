@@ -21,9 +21,14 @@ from ..types import Target
         "description": "Read output from tmux pane with metadata",
         "stub": {
             "response": {
-                "example": "termtap://read/test-session",
-                "description": "Replace 'test-session' with any pane target",
-                "usage": "Use termtap://ls to find available pane targets",
+                "description": "Read output from tmux pane with optional parameters",
+                "usage": [
+                    "termtap://read - Read from default pane",
+                    "termtap://read/session1 - Read from specific pane",
+                    "termtap://read/session1/100 - Read 100 lines",
+                    "termtap://read/session1/100/true/stream - All parameters",
+                ],
+                "discovery": "Use termtap://ls to find available pane targets",
             }
         },
     },

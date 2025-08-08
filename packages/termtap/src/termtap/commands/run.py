@@ -195,6 +195,7 @@ def _sort_by_dependencies(services: list[ServiceBuilder]) -> list[ServiceBuilder
     display="markdown",
     fastmcp={
         "type": "tool",
+        "mime_type": "text/markdown",
         "description": "Run a development environment from configuration",
         "tags": {"orchestration", "services"},
     },

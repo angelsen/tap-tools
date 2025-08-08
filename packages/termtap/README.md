@@ -12,7 +12,7 @@ Process-native tmux session manager with pane-centric architecture and MCP suppo
 - **Auto Shell Wrapping** - Automatically wraps non-bash shells for compatibility
 - **Service Targets** - Use `demo.backend` notation for multi-service sessions
 - **MCP Integration** - Use as MCP server for LLM-assisted terminal work
-- **70% Performance Improvement** - Optimized execution with minimal process scans
+- **Performance Optimized** - Minimal process scans with lazy-loaded properties
 
 ## Quick Start
 

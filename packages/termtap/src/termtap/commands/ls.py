@@ -16,9 +16,15 @@ from ..tmux import list_panes
     headers=["Pane", "Shell", "Process", "State"],
     fastmcp={
         "type": "resource",
-        "mime_type": "application/json",
+        "mime_type": "text/plain",
         "tags": {"discovery", "inspection"},
         "description": "List all tmux panes with process information",
+        "stub": {
+            "response": {
+                "description": "List tmux panes with optional filtering",
+                "usage": ["termtap://ls - List all panes", "termtap://ls/python - Filter by 'python'"],
+            }
+        },
     },
 )
 def ls(state, filter: Optional[str] = None):

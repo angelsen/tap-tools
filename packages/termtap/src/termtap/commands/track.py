@@ -60,11 +60,16 @@ def _collect_sample(pane: Pane, elapsed: float) -> dict:
 
 @app.command(
     display="markdown",
-    fastmcp={"enabled": False},  # Development tool, not exposed to MCP
+    fastmcp={
+        "type": "tool",
+        "mime_type": "text/markdown",
+        "tags": {"debug", "monitoring"},
+        "description": "Track process state changes for handler development",
+    },
 )
 def track(
     state,
-    *commands: str,
+    commands: str = "",
     target: Target = "default",
     duration: float = 10.0,
     enter: bool = True,
@@ -76,7 +81,7 @@ def track(
 
     Args:
         state: Application state (unused).
-        *commands: Commands/keys to send.
+        commands: Commands to send (or empty string for idle tracking).
         target: Target pane. Defaults to "default".
         duration: Tracking duration in seconds. Defaults to 10.0.
         enter: Whether to send Enter after commands. Defaults to True.
@@ -103,8 +108,8 @@ def track(
     base_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    command_str = " ".join(commands) if commands else "idle"
-    slug = re.sub(r"[^\w\s-]", "", command_str)[:30].strip().replace(" ", "_")
+    command_str = commands.strip() if commands.strip() else "idle"
+    slug = re.sub(r"[^\w-]", "_", command_str)[:20].strip("_")
     tracking_dir = base_dir / f"{timestamp}_{slug}"
     tracking_dir.mkdir(exist_ok=True)
     (tracking_dir / "screenshots").mkdir(exist_ok=True)
@@ -124,7 +129,7 @@ def track(
         pass
 
     # Send commands if specified
-    if commands:
+    if commands.strip():
         try:
             # Check not tracking current pane
             from ..tmux.core import run_tmux
@@ -139,7 +144,7 @@ def track(
             # Direct tmux key sending
             from ..tmux.pane import send_keys as tmux_send_keys
 
-            if not tmux_send_keys(pane.pane_id, " ".join(commands), enter=enter):
+            if not tmux_send_keys(pane.pane_id, commands.strip(), enter=enter):
                 raise RuntimeError("Failed to send keys")
         except Exception as e:
             return {
@@ -175,7 +180,7 @@ def track(
 
     # Save data to files
     metadata = {
-        "commands": list(commands),
+        "commands": [commands.strip()] if commands.strip() else [],
         "enter": enter,
         "target": str(target),
         "duration": duration,
@@ -199,7 +204,7 @@ def track(
 
     # Minimal return - data is in directory
     handlers = sorted(set(s["handler"] for s in samples))
-    cmd_desc = " ".join(commands) if commands else "idle"
+    cmd_desc = commands.strip() if commands.strip() else "idle"
 
     return {
         "elements": [

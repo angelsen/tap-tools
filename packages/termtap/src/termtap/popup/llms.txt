@@ -1,0 +1,126 @@
+# Popup System - LLM Guide
+
+## Overview
+Tmux-native popup windows using gum for rich terminal UIs. True popup windows with temp file IPC for results.
+
+## Key Concepts
+- **Tmux display-popup**: Real popup windows, not terminal output
+- **Gum commands**: Interactive components (choose, input, table, pager)
+- **Value/display separation**: Tuples for clean programmatic interfaces
+- **Auto-sizing**: Let tmux handle dimensions by default
+
+## Common Tasks
+
+### Basic Confirmation
+```python
+from termtap.popup import Popup
+p = Popup()
+if p.confirm("Proceed?"):
+    # User confirmed
+```
+
+### Choice with Values
+```python
+# Use tuples for value/display separation
+choice = p.choose([
+    ("save", "Save Changes"),
+    ("discard", "Discard"),
+    ("cancel", "Cancel")
+])
+# Returns 'save', not 'Save Changes'
+```
+
+### Table Selection
+```python
+rows = [["1", "nginx", "active"], ["2", "redis", "stopped"]]
+process = p.table(rows, headers=["PID", "Name", "Status"], return_column=2)
+# return_column is 1-indexed
+```
+
+### Input with Editing
+```python
+edited = p.input(
+    placeholder="Edit command...",
+    header="Modify:",
+    value=original_command  # Pre-fill
+)
+```
+
+## Best Practices
+
+### Be Explicit with Instructions
+When implementing popups, be specific about behavior:
+- Don't just "show popup" - specify what choices, what info to display
+- Add context about why popup is shown (e.g., "SSH command confirmation")
+
+### Clean Professional Style
+- Avoid emojis in production handlers
+- Use clear, descriptive labels
+- Separate values from display strings
+
+### Theme Usage
+```python
+from termtap.popup import Theme
+p = Popup()  # Uses default theme
+# Or customize:
+p = Popup(theme=Theme(header="--bold --foreground 14"))
+```
+
+### Error Handling
+- Check for None/empty returns from input
+- Handle cancel choices explicitly
+- Clean up temp files (automatic with context manager)
+
+## Architecture Notes
+
+### Build Phase
+Popup accumulates gum commands into a shell script.
+
+### Execution Phase
+Script runs in `tmux display-popup -E script.sh` with temp file redirects.
+
+### Result Phase
+Reads results from temp files, returns clean Python values.
+
+## Common Patterns
+
+### SSH Command Confirmation
+```python
+def before_send(self, pane: Pane, command: str) -> str | None:
+    p = Popup(title="SSH Command")
+    p.header("Remote Execution")
+    p.warning(f"Command: {command}")
+    
+    # Direct edit prompt - ESC cancels, Enter executes
+    edited = p.input(
+        placeholder="Press Enter to execute or ESC to cancel",
+        header="Edit command:",
+        value=command
+    )
+    
+    # Empty string means user pressed ESC
+    return edited if edited else None
+```
+
+### Multi-Select Features
+```python
+features = p.choose(
+    [("feat1", "Feature 1"), ("feat2", "Feature 2")],
+    limit=3,  # Allow multiple
+    selected_prefix="[✓] "
+)
+# Returns list when limit > 1
+```
+
+## Limitations
+- Requires tmux session
+- Interactive components block execution
+- No live updates (must recreate popup)
+
+## Testing
+```python
+from termtap.popup.examples import *
+basic_popup()  # Test display components
+choice_with_values()  # Test value/display
+table_selection()  # Test table with columns
+```
