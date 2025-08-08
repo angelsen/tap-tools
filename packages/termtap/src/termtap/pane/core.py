@@ -13,7 +13,6 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..process.tree import ProcessNode
 
-# Thread-local storage for process scan context
 _scan_context = threading.local()
 
 
@@ -30,7 +29,7 @@ class Pane:
 
     pane_id: str
 
-    # Cached properties - stable data that doesn't change during pane lifetime
+    # Cached for pane lifetime
     _session_window_pane: Optional[str] = field(default=None, init=False)
     _pid: Optional[int] = field(default=None, init=False)
 
@@ -63,18 +62,22 @@ class Pane:
     @property
     def process_chain(self) -> list["ProcessNode"]:
         """Get process chain - uses scan context if available."""
-        # Use cached scan data if available
+        # Use scan context when available for performance
         if hasattr(_scan_context, "chains"):
             return _scan_context.chains.get(self.pid, [])
         else:
-            # Fresh scan when no context available
+            # Fallback to fresh scan outside context
             from ..process.tree import get_process_chain
 
             return get_process_chain(self.pid)
 
     @property
     def shell(self) -> Optional["ProcessNode"]:
-        """Get shell process - always fresh from process_chain."""
+        """Get shell process - always fresh from process_chain.
+
+        Returns:
+            Shell process node or None if not found.
+        """
         from ..process.tree import _extract_shell_and_process
         from ..config import get_config_manager
 
@@ -83,7 +86,11 @@ class Pane:
 
     @property
     def process(self) -> Optional["ProcessNode"]:
-        """Get active process (non-shell) - always fresh from process_chain."""
+        """Get active process (non-shell) - always fresh from process_chain.
+
+        Returns:
+            Non-shell process node or None if only shell running.
+        """
         from ..process.tree import _extract_shell_and_process
         from ..config import get_config_manager
 
@@ -92,14 +99,22 @@ class Pane:
 
     @property
     def handler(self):
-        """Get handler for the current process in this pane."""
+        """Get handler for the current process in this pane.
+
+        Returns:
+            Handler instance appropriate for current process.
+        """
         from ..process.handlers import get_handler
 
         return get_handler(self)
 
     @property
     def visible_content(self) -> str:
-        """Get visible pane content - always fresh."""
+        """Get visible pane content - always fresh.
+
+        Returns:
+            Current visible content of the pane.
+        """
         from ..tmux.pane import capture_visible
 
         return capture_visible(self.pane_id)
@@ -146,7 +161,7 @@ def process_scan(*pane_ids: str):
     from ..process.tree import _get_process_chains_batch
     from ..tmux.core import run_tmux
 
-    # Collect PIDs for targeted or comprehensive scanning
+    # Collect PIDs based on scope
     if pane_ids:
         pids = []
         for pane_id in pane_ids:
@@ -160,7 +175,7 @@ def process_scan(*pane_ids: str):
         else:
             pids = []
 
-    # Perform batch scan once for all collected PIDs
+    # Single batch scan for all PIDs
     _scan_context.chains = _get_process_chains_batch(pids) if pids else {}
 
     try:

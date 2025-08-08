@@ -24,20 +24,20 @@ def read_output(pane: Pane, lines: Optional[int] = None, mode: str = "direct") -
         Filtered output string using handler's capture_output method.
     """
     if mode == "stream":
-        # Use streaming capture method
+        # Use streaming-based capture
         if lines and lines <= 50:
-            # For small line counts, use last_n which is more precise
+            # Use precise last_n for small requests
             return pane.handler.capture_output(pane, method="last_n")
         else:
-            # Use streaming method for larger requests or default
+            # Use streaming for larger requests
             return pane.handler.capture_output(pane, method="stream")
     else:
-        # Direct mode
+        # Direct capture mode
         if lines:
-            # Specific line count requested
+            # Use last_n for specific count
             return pane.handler.capture_output(pane, method="last_n")
         else:
-            # Default to visible content
+            # Default to visible content capture
             return pane.handler.capture_output(pane, method="visible")
 
 
@@ -63,7 +63,7 @@ def get_process_info(pane: Pane) -> dict[str, Any]:
         "handler": type(pane.handler).__name__,
     }
 
-    # Include three-state readiness assessment
+    # Add readiness state from handler
     is_ready, description = pane.handler.is_ready(pane)
     info["ready"] = is_ready
     info["state_description"] = description

@@ -21,7 +21,9 @@ STREAM_DIR = Path("/tmp/termtap/streams")
 def _get_stream(pane: Pane, stream_dir: Path = STREAM_DIR) -> Stream:
     """Get stream for pane - creates new instance each time.
 
-    No global state - each Stream instance coordinates through files.
+    Args:
+        pane: Target pane.
+        stream_dir: Stream directory path.
     """
     return Stream(pane.pane_id, pane.session_window_pane, stream_dir)
 

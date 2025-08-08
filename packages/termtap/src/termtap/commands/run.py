@@ -92,7 +92,6 @@ class ServiceBuilder:
 
         parts.append(self.command)
 
-        # Ensure each step succeeds
         return " && ".join(parts) if len(parts) > 1 else self.command
 
 
@@ -319,7 +318,7 @@ def run(state, group: str) -> dict[str, Any]:
             "frontmatter": {"status": "error", "group": group},
         }
     except Exception as e:
-        # Clean up session if created
+        # Clean up session on unexpected error
         try:
             if session_exists(group):
                 kill_session(group)

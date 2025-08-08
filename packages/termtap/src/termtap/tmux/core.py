@@ -1,9 +1,7 @@
 """Core tmux operations - shared utilities for all tmux modules.
 
 PUBLIC API:
-  - run_tmux: Execute tmux command and return result
-  - parse_format_line: Parse tmux format string output into dict
-  - check_tmux_available: Check if tmux is available and server running
+  - run_tmux: Run tmux command and return result
 """
 
 import os
@@ -25,7 +23,7 @@ def run_tmux(args: List[str]) -> Tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-def parse_format_line(line: str, delimiter: str = ":") -> dict:
+def _parse_format_line(line: str, delimiter: str = ":") -> dict:
     """Parse tmux format string output into dict.
 
     Args:
@@ -39,7 +37,7 @@ def parse_format_line(line: str, delimiter: str = ":") -> dict:
     return {str(i): part for i, part in enumerate(parts)}
 
 
-def check_tmux_available() -> bool:
+def _check_tmux_available() -> bool:
     """Check if tmux is available and server is running.
 
     Returns:
@@ -49,7 +47,7 @@ def check_tmux_available() -> bool:
     return code == 0
 
 
-def get_current_pane() -> Optional[str]:
+def _get_current_pane() -> Optional[str]:
     """Get current tmux pane ID if inside tmux.
 
     Returns:
@@ -64,7 +62,7 @@ def get_current_pane() -> Optional[str]:
     return None
 
 
-def is_current_pane(pane_id: str) -> bool:
+def _is_current_pane(pane_id: str) -> bool:
     """Check if given pane ID is the current pane.
 
     Args:
@@ -73,11 +71,11 @@ def is_current_pane(pane_id: str) -> bool:
     Returns:
         True if pane_id matches current pane.
     """
-    current = get_current_pane()
+    current = _get_current_pane()
     return current == pane_id if current else False
 
 
-def get_pane_id(session: str, window: str, pane: str) -> Optional[str]:
+def _get_pane_id(session: str, window: str, pane: str) -> Optional[str]:
     """Get pane ID for a specific session:window.pane location.
 
     Uses filtering for exact pane matching.

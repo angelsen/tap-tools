@@ -36,8 +36,6 @@ class _ClaudeHandler(ProcessHandler):
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if Claude is ready for input using content detection.
 
-        Requires content-based detection due to unreliable process patterns.
-
         Args:
             pane: Pane with process information.
 

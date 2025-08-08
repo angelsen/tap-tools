@@ -20,10 +20,8 @@ def truncate_command(command: str, max_length: int = 40) -> str:
     Returns:
         Formatted command string safe for display.
     """
-    # Replace newlines with escaped version for display
     formatted = command.replace("\n", "\\n")
 
-    # Truncate if too long
     if len(formatted) > max_length:
         return formatted[: max_length - 3] + "..."
 

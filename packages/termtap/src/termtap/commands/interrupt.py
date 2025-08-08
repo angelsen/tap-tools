@@ -44,7 +44,6 @@ def interrupt(state, target: Target = "default") -> dict[str, Any]:
 
     pane = Pane(pane_id)
 
-    # Handler decides interrupt method
     result = send_interrupt(pane)
 
     elements = []

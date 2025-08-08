@@ -46,8 +46,6 @@ class _PythonHandler(ProcessHandler):
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if Python is ready for input using wait channel patterns.
 
-        Based on tracking data observations from 2025-08-07.
-
         Args:
             pane: Pane with process information.
 
@@ -57,11 +55,10 @@ class _PythonHandler(ProcessHandler):
         if not pane.process:
             return True, "at shell prompt"
 
-        # Check children first - most reliable
         if pane.process.has_children:
             return False, "has subprocess"
 
-        # Ready states - Python waiting for input
+        # Ready states
         if pane.process.wait_channel == "do_select":
             return True, "termtap/Python REPL waiting"
 
@@ -71,12 +68,10 @@ class _PythonHandler(ProcessHandler):
         if pane.process.wait_channel == "do_epoll_wait":
             return True, "IPython waiting for input"
 
-        # Working states - Python executing code
+        # Working states
         if pane.process.wait_channel == "do_wait":
             return False, "waiting for subprocess"
 
         if pane.process.wait_channel == "hrtimer_nanosleep":
             return False, "executing sleep/timing operation"
-
-        # Default fallback for unknown states
         return None, f"unrecognized wait_channel: {pane.process.wait_channel}"

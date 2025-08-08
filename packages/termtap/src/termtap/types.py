@@ -4,16 +4,8 @@ Everything happens in panes. Sessions are just containers for organizing panes.
 Target resolution is explicit and unambiguous.
 
 PUBLIC API:
-  - PaneID: tmux native pane ID (e.g., "%42")
-  - SessionWindowPane: canonical format (e.g., "session:0.0")
-  - Target: union type for flexible pane targeting
-  - ExecutionConfig: configuration for command execution
-  - InitGroup: configuration for service groups
-  - ServiceConfig: individual service configuration
-  - KNOWN_SHELLS: frozenset of recognized shell names
-  - CommandStatus: literal type for command execution states
-  - ReadMode: literal type for read operation modes
-  - ShellType: literal type for shell types including unknown
+  - Target: Union type for flexible pane targeting
+  - SessionWindowPane: Canonical format (e.g., "session:0.0")
 """
 
 from typing import TypedDict, NotRequired, Literal, TYPE_CHECKING
@@ -24,21 +16,16 @@ if TYPE_CHECKING:
     pass
 
 
-# Pane-first identifiers
 type PaneID = str
 type SessionWindowPane = str
 type Target = PaneID | SessionWindowPane | str
 
-# Command execution states
 type CommandStatus = Literal["completed", "timeout", "aborted", "running", "ready"]
 
-# Read mode types
 type ReadMode = Literal["direct", "stream", "since_command"]
 
-# Known shells - single source of truth
 KNOWN_SHELLS = frozenset(["bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
 
-# Shell types for command wrapping
 type ShellType = Literal["bash", "fish", "zsh", "sh", "dash", "ksh", "tcsh", "csh", "unknown"]
 
 
@@ -123,10 +110,8 @@ def _classify_target(target: Target) -> tuple[Literal["pane_id", "swp", "service
     elif _is_session_window_pane(target):
         return ("swp", target)
     elif "." in target and ":" not in target:
-        # Service name format (demo.backend)
         return ("service", target)
     else:
-        # Convenience format - session name or session:window
         return ("convenience", target)
 
 
@@ -146,11 +131,9 @@ def _parse_convenience_target(target: str) -> tuple[str, int | None, int | None]
     session = parts[0]
 
     if "." in parts[1]:
-        # Full swp format in convenience target
         window, pane = parts[1].split(".", 1)
         return (session, int(window), int(pane))
     else:
-        # Session:window format
         return (session, int(parts[1]), None)
 
 

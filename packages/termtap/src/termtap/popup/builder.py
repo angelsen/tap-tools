@@ -1,7 +1,12 @@
 """Tmux popup system using gum for rich terminal UIs.
 
-True tmux-native implementation using display-popup.
-Results are passed back via temporary files for IPC.
+PUBLIC API:
+  - Popup: Main popup builder class
+  - Theme: Style configuration for consistent appearance
+  - quick_confirm: Simple confirmation dialog
+  - quick_choice: Simple choice selection
+  - quick_input: Simple text input
+  - quick_info: Simple information display
 """
 
 import os
@@ -18,7 +23,21 @@ from typing import List, Optional, Tuple, Union
 
 @dataclass
 class Theme:
-    """Style theme for consistent popup appearance."""
+    """Style theme for consistent popup appearance.
+
+    Provides predefined color and formatting combinations for different
+    message types and UI elements in tmux popups.
+
+    Attributes:
+        header: Bold centered header styling.
+        success: Green success message styling.
+        warning: Yellow warning message styling.
+        error: Red error message styling.
+        info: Blue informational message styling.
+        panel: Panel border and padding styling.
+        accent: Highlighted accent text styling.
+        faint: Dimmed secondary text styling.
+    """
 
     header: str = "--bold --foreground 14 --border rounded --align center"
     success: str = "--foreground 10"
@@ -34,7 +53,18 @@ class Theme:
 
 
 class Popup:
-    """Tmux-native popup builder using display-popup and gum."""
+    """Tmux-native popup builder using display-popup and gum.
+
+    Provides a fluent interface for building rich terminal popups with
+    interactive components. Supports text display, user input, choices,
+    tables, and confirmation dialogs.
+
+    Attributes:
+        theme: Styling configuration for consistent appearance.
+        width: Popup width specification.
+        height: Popup height specification.
+        title: Window title for the popup.
+    """
 
     def __init__(
         self,
@@ -43,13 +73,13 @@ class Popup:
         height: Optional[str] = None,
         title: Optional[str] = None,
     ):
-        """Initialize with optional theme, dimensions, and title.
+        """Initialize popup builder with optional configuration.
 
         Args:
-            theme: Style theme for consistent appearance
-            width: Popup width (percentage or characters)
-            height: Popup height (percentage or lines)
-            title: Window title for tmux popup
+            theme: Style theme for consistent appearance. Defaults to None.
+            width: Popup width (percentage or characters). Defaults to None.
+            height: Popup height (percentage or lines). Defaults to None.
+            title: Window title for tmux popup. Defaults to None.
         """
         self.theme = theme or Theme()
         self.width = width
@@ -68,7 +98,6 @@ class Popup:
 
     def _add_gum_style(self, text: str, style: str) -> "Popup":
         """Add a gum style command to display styled text."""
-        # Properly escape text for shell
         escaped_text = shlex.quote(text)
         style_args = shlex.split(style)
         style_cmd = " ".join(shlex.quote(arg) for arg in style_args)
@@ -80,7 +109,7 @@ class Popup:
     def header(self, text: str) -> "Popup":
         """Add styled header."""
         self._add_gum_style(text, getattr(self.theme, "header", ""))
-        self._add_line("")  # Add spacing
+        self._add_line("")  # Visual separation
         return self
 
     def text(self, content: str, style: Optional[str] = None) -> "Popup":
@@ -143,15 +172,11 @@ class Popup:
         Returns:
             Selected value(s) - when tuples are used, returns values not displays
         """
-
-        # Create result file for IPC
         result_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".result", delete=False)
         self._cleanup_files.append(Path(result_file.name))
 
-        # Check if we have tuples (value/display pairs)
         has_tuples = any(isinstance(opt, tuple) for opt in options)
 
-        # Build gum choose command
         cmd_parts = ["gum", "choose"]
         cmd_parts.extend(
             [
@@ -171,36 +196,29 @@ class Popup:
         if header:
             cmd_parts.extend(["--header", shlex.quote(header)])
 
-        # If using tuples, use label-delimiter feature
         if has_tuples:
             cmd_parts.extend(["--label-delimiter", ":"])
 
-            # Create temp file with formatted options (display:value)
             options_file = tempfile.NamedTemporaryFile(mode="w", suffix=".opts", delete=False)
             for option in options:
                 if isinstance(option, tuple):
                     value, display = option
-                    # Format as display:value for gum
                     options_file.write(f"{display}:{value}\n")
                 else:
-                    # If mixed, treat strings as both value and display
+                    # Handle mixed option types consistently
                     options_file.write(f"{option}:{option}\n")
             options_file.close()
             self._cleanup_files.append(Path(options_file.name))
 
-            # Use input redirection
             self._add_line(f"{' '.join(cmd_parts)} < {options_file.name} > {result_file.name}")
         else:
-            # Simple string options (has_tuples is False, so all are strings)
             for option in options:
-                assert isinstance(option, str)  # Type assertion for type checker
+                assert isinstance(option, str)  # Verify type consistency
                 cmd_parts.append(shlex.quote(option))
             self._add_line(f"{' '.join(cmd_parts)} > {result_file.name}")
 
-        # Show the popup
         self._show_popup()
 
-        # Read result
         result_file.close()
         with open(result_file.name, "r") as f:
             result = f.read().strip()
@@ -215,28 +233,23 @@ class Popup:
     ) -> bool:
         """Show confirmation prompt in tmux popup."""
 
-        # Create result file for IPC
         result_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".result", delete=False)
         self._cleanup_files.append(Path(result_file.name))
 
-        # Build gum confirm command
         cmd_parts = ["gum", "confirm", shlex.quote(prompt)]
         cmd_parts.extend(["--affirmative", shlex.quote(yes_text), "--negative", shlex.quote(no_text)])
 
         if default:
             cmd_parts.append("--default")
 
-        # Use exit code to determine result
         self._add_line(f"if {' '.join(cmd_parts)}; then")
         self._add_line(f"  echo 'true' > {result_file.name}")
         self._add_line("else")
         self._add_line(f"  echo 'false' > {result_file.name}")
         self._add_line("fi")
 
-        # Show the popup
         self._show_popup()
 
-        # Read result
         result_file.close()
         with open(result_file.name, "r") as f:
             result = f.read().strip()
@@ -254,11 +267,9 @@ class Popup:
     ) -> str:
         """Show input prompt in tmux popup."""
 
-        # Create result file for IPC
         result_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".result", delete=False)
         self._cleanup_files.append(Path(result_file.name))
 
-        # Build gum input command
         cmd_parts = ["gum", "input"]
         cmd_parts.extend(
             ["--placeholder", shlex.quote(placeholder), "--value", shlex.quote(value), "--char-limit", str(char_limit)]
@@ -271,13 +282,10 @@ class Popup:
         if password:
             cmd_parts.append("--password")
 
-        # Redirect output to result file
         self._add_line(f"{' '.join(cmd_parts)} > {result_file.name}")
 
-        # Show the popup
         self._show_popup()
 
-        # Read result
         result_file.close()
         with open(result_file.name, "r") as f:
             result = f.read().strip()
@@ -287,13 +295,11 @@ class Popup:
     def pager(self, content: str, show_line_numbers: bool = False, soft_wrap: bool = True) -> None:
         """Show content in pager within tmux popup."""
 
-        # Create content file
         content_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
         content_file.write(content)
         content_file.close()
         self._cleanup_files.append(Path(content_file.name))
 
-        # Build gum pager command
         cmd_parts = ["gum", "pager"]
 
         if show_line_numbers:
@@ -305,7 +311,6 @@ class Popup:
 
         self._add_line(" ".join(cmd_parts))
 
-        # Show the popup
         self._show_popup()
 
     def table(
@@ -331,20 +336,17 @@ class Popup:
             Selected value - either full row or specific column
         """
 
-        # Create result file for IPC
         result_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".result", delete=False)
         self._cleanup_files.append(Path(result_file.name))
 
-        # Create CSV data file
         data_file = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         for row in rows:
-            # Escape any separators in the data
+            # Prevent CSV injection
             escaped_row = [str(col).replace(separator, f"\\{separator}") for col in row]
             data_file.write(separator.join(escaped_row) + "\n")
         data_file.close()
         self._cleanup_files.append(Path(data_file.name))
 
-        # Build gum table command
         cmd_parts = ["gum", "table"]
         cmd_parts.extend(
             [
@@ -364,13 +366,10 @@ class Popup:
         if height > 0:
             cmd_parts.extend(["--height", str(height)])
 
-        # Add file input and output redirection
         self._add_line(f"{' '.join(cmd_parts)} < {data_file.name} > {result_file.name}")
 
-        # Show the popup
         self._show_popup()
 
-        # Read result
         result_file.close()
         with open(result_file.name, "r") as f:
             result = f.read().strip()
@@ -388,40 +387,33 @@ class Popup:
         if not self._script_lines:
             return
 
-        # Create script file
         script_file = tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False)
         script_file.write("#!/bin/bash\n")
         script_file.write("\n".join(self._script_lines))
         script_file.close()
         self._cleanup_files.append(Path(script_file.name))
 
-        # Make script executable
         os.chmod(script_file.name, 0o755)
 
-        # Build tmux popup command
         popup_cmd = ["tmux", "display-popup"]
 
-        # Add dimensions if specified
         if self.width:
             popup_cmd.extend(["-w", self.width])
         if self.height:
             popup_cmd.extend(["-h", self.height])
 
-        # Add title if specified
         if self.title:
             popup_cmd.extend(["-T", self.title])
 
         popup_cmd.extend(
             [
-                "-E",  # Close on exit
+                "-E",
                 script_file.name,
             ]
         )
 
-        # Execute popup
         subprocess.run(popup_cmd, check=False)
 
-        # Clear script lines for next use
         self._script_lines.clear()
 
     # --- Cleanup ---
@@ -446,7 +438,15 @@ class Popup:
 
 
 def quick_confirm(message: str, default: bool = False) -> bool:
-    """Quick confirmation dialog in tmux popup."""
+    """Quick confirmation dialog in tmux popup.
+
+    Args:
+        message: Confirmation message to display.
+        default: Default choice if user presses Enter. Defaults to False.
+
+    Returns:
+        True if user confirmed, False otherwise.
+    """
     with Popup() as p:
         p.header("Confirmation")
         p.text(message)
@@ -454,24 +454,45 @@ def quick_confirm(message: str, default: bool = False) -> bool:
 
 
 def quick_choice(title: str, options: List[str]) -> Union[str, List[str]]:
-    """Quick choice dialog in tmux popup."""
+    """Quick choice dialog in tmux popup.
+
+    Args:
+        title: Dialog title to display.
+        options: List of choice options.
+
+    Returns:
+        Selected option string.
+    """
     with Popup() as p:
         p.header(title)
         return p.choose(options)
 
 
 def quick_input(prompt: str, password: bool = False) -> str:
-    """Quick input dialog in tmux popup."""
+    """Quick input dialog in tmux popup.
+
+    Args:
+        prompt: Input prompt message.
+        password: Whether to mask input for passwords. Defaults to False.
+
+    Returns:
+        User input string.
+    """
     with Popup() as p:
         p.header("Input Required")
         return p.input(placeholder=prompt, password=password)
 
 
 def quick_info(title: str, message: str) -> None:
-    """Quick info message in tmux popup."""
+    """Quick info message in tmux popup.
+
+    Args:
+        title: Information dialog title.
+        message: Information message to display.
+    """
     with Popup() as p:
         p.header(title)
         p.info(message)
         p.text("\nPress Enter to close")
-        p._add_line("read -r")  # Wait for Enter
+        p._add_line("read -r")  # Pause for user input
         p.show()

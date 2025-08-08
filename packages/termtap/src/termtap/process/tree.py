@@ -1,10 +1,10 @@
 """Process tree analysis using /proc filesystem.
 
 PUBLIC API:
-  - ProcessNode: Tree node with process information (dataclass)
+  - ProcessNode: Tree node with process information
   - get_process_tree: Build complete process tree from a root PID
-  - get_process_chain: Get main execution chain (parent->child->grandchild)
-  - get_all_processes: Scan all processes from /proc (for batch operations)
+  - get_process_chain: Get main execution chain from root to leaf
+  - get_all_processes: Scan all processes from /proc
   - build_tree_from_processes: Build tree from pre-scanned processes
 """
 
@@ -13,7 +13,7 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Set
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -84,7 +84,7 @@ def _read_proc_file(path: str, default: str = "") -> str:
         with open(path, "r") as f:
             return f.read().strip()
     except (IOError, OSError) as e:
-        logger.debug(f"Could not read {path}: {e}")
+        _logger.debug(f"Could not read {path}: {e}")
         return default
 
 
@@ -98,7 +98,7 @@ def _read_proc_file_bytes(path: str) -> bytes:
         with open(path, "rb") as f:
             return f.read()
     except (IOError, OSError) as e:
-        logger.debug(f"Could not read {path}: {e}")
+        _logger.debug(f"Could not read {path}: {e}")
         return b""
 
 
@@ -120,7 +120,7 @@ def get_all_processes() -> Dict[int, Dict[str, Any]]:
             if info:
                 processes[pid] = {"node": info, "ppid": info.ppid}
     except OSError as e:
-        logger.error(f"Error scanning /proc: {e}")
+        _logger.error(f"Error scanning /proc: {e}")
 
     return processes
 
@@ -132,18 +132,15 @@ def _get_process_info(pid: int) -> Optional[ProcessNode]:
         pid: Process ID to get info for.
     """
     try:
-        # Get command name
         name = _read_proc_file(f"/proc/{pid}/comm")
         if not name:
             return None
 
-        # Get full command line
         cmdline_bytes = _read_proc_file_bytes(f"/proc/{pid}/cmdline")
         cmdline = cmdline_bytes.decode("utf-8", "replace").replace("\x00", " ").strip()
         if not cmdline:
-            cmdline = name  # Fallback to comm if cmdline is empty
+            cmdline = name
 
-        # Parse stat file for state and ppid
         stat_data = _read_proc_file(f"/proc/{pid}/stat")
         if not stat_data:
             return None
@@ -160,12 +157,10 @@ def _get_process_info(pid: int) -> Optional[ProcessNode]:
         state = stat_fields[0]
         ppid = int(stat_fields[1])
 
-        # Get wait channel
         wait_channel = _read_proc_file(f"/proc/{pid}/wchan")
         if wait_channel == "0":
             wait_channel = None
 
-        # Count file descriptors
         fd_count = None
         try:
             fd_count = len(os.listdir(f"/proc/{pid}/fd"))
@@ -177,7 +172,7 @@ def _get_process_info(pid: int) -> Optional[ProcessNode]:
         )
 
     except Exception as e:
-        logger.debug(f"Error getting process info for PID {pid}: {e}")
+        _logger.debug(f"Error getting process info for PID {pid}: {e}")
         return None
 
 

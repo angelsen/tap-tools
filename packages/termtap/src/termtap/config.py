@@ -1,13 +1,11 @@
 """Configuration management system for termtap applications.
 
-Provides centralized configuration loading from termtap.toml files with support
-for init groups, service definitions, and execution settings. Handles service
-name resolution (e.g., "demo.backend" → "demo:0.0") and configuration inheritance.
+Centralized configuration loading from termtap.toml files with support
+for init groups, service definitions, and execution settings.
 
 PUBLIC API:
   - get_config_manager: Get singleton configuration manager
-  - ConfigManager: Main configuration management class
-  - get_execution_config: Get execution config for a pane
+  - get_execution_config: Get execution configuration for a pane
   - resolve_service_target: Resolve service dot notation
 """
 
@@ -134,12 +132,10 @@ class ConfigManager:
 
         group_name, service_name = parts
 
-        # Look up the init group
         group = self._init_groups.get(group_name)
         if not group:
             return None
 
-        # Find the specific service within the group
         service = group.get_service(service_name)
         if not service:
             return None
@@ -195,7 +191,7 @@ class ConfigManager:
         try:
             return re.compile(ready_pattern)
         except re.error:
-            # Invalid regex patterns are silently ignored
+            # Silently ignore malformed patterns
             return None
 
     @property
@@ -203,8 +199,7 @@ class ConfigManager:
         """Get list of wrapper processes to skip in process detection.
 
         Returns:
-            List of process names that should be skipped when detecting the
-            primary process in a pane (e.g., package managers, shells).
+            List of process names to skip when detecting primary process.
         """
         return self._default_config.get("skip_processes", ["uv", "npm", "yarn", "poetry", "pipenv", "nix-shell"])
 
@@ -213,13 +208,11 @@ class ConfigManager:
         """Get hover dialog patterns for dangerous commands.
 
         Returns:
-            List of pattern dictionaries for showing hover dialogs when
-            potentially dangerous commands are detected.
+            List of pattern dictionaries for hover dialog triggers.
         """
         return self._default_config.get("hover_patterns", [])
 
 
-# Global instance
 _config_manager: Optional[ConfigManager] = None
 
 

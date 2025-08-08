@@ -1,7 +1,6 @@
 """Streaming output from tmux panes - no global state, multiple instances can coexist.
 
-PUBLIC API:
-  - Stream: Stream handler class for tmux pane output
+NOTE: All functions in this module are for internal use within tmux module.
 """
 
 import json
@@ -104,7 +103,6 @@ class Stream:
         # Always ensure sync first
         self._ensure_sync()
 
-        # Check if already piping
         code, out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
             # Someone is piping - check where
@@ -120,7 +118,6 @@ class Stream:
                 # Files missing or out of sync - clean up and start fresh
                 self.cleanup()
 
-        # Create directory and files
         self.stream_dir.mkdir(parents=True, exist_ok=True)
         self.stream_file.touch()
 
@@ -135,7 +132,6 @@ class Stream:
         }
         self._write_metadata_unsafe(metadata)
 
-        # Check again if someone started piping while we were setting up
         code, out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
             # Someone else started - that's fine, we have our tracking files
@@ -193,18 +189,15 @@ class Stream:
         if length <= 0:
             return ""
 
-        # Get session from pane's session:window.pane format
         session = self.session_window_pane.split(":")[0]
 
         # Generate unique window name
         content_hash = hashlib.md5(f"{self.pane_id}:{start}:{length}".encode()).hexdigest()[:8]
         window_name = f"tt_render_{content_hash}"
 
-        # Build command to extract and display the slice
         # Note: tail uses 1-based byte positions, so we add 1
         cmd = f"tail -c +{start + 1} '{self.stream_file}' | head -c {length} && sleep 0.2"
 
-        # Create temporary window
         code, _, _ = run_tmux(["new-window", "-t", session, "-d", "-n", window_name, "sh", "-c", cmd])
 
         if code != 0:
@@ -300,7 +293,6 @@ class Stream:
         if not cmd_info:
             return ""
 
-        # Get positions
         start = cmd_info["position"]
         end = cmd_info.get("end_position", self._get_file_position())
         length = end - start

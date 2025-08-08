@@ -198,7 +198,7 @@ def get_handler(pane: Pane) -> ProcessHandler:
             _ClaudeHandler(),
             _PythonHandler(),
             _SSHHandler(),
-            _DefaultHandler(),  # Keep default last
+            _DefaultHandler(),
         ]
 
     for handler in _handlers:
@@ -208,9 +208,9 @@ def get_handler(pane: Pane) -> ProcessHandler:
     # Safety fallback if no handler matches
     import logging
 
-    logger = logging.getLogger(__name__)
+    _logger = logging.getLogger(__name__)
     process_name = pane.process.name if pane.process else "shell"
-    logger.warning(f"Handler list misconfigured - no handler for {process_name}, using DefaultHandler")
+    _logger.warning(f"Handler list misconfigured - no handler for {process_name}, using DefaultHandler")
     from .default import _DefaultHandler
 
     return _DefaultHandler()

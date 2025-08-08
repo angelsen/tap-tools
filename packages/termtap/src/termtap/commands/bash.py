@@ -55,7 +55,6 @@ def bash(
     elements = []
 
     if result["output"]:
-        # Use language from result metadata
         elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
 
     if result["status"] == "timeout":

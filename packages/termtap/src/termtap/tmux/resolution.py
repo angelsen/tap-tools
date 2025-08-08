@@ -1,19 +1,18 @@
 """Target resolution - handles all target to pane resolution logic.
 
 PUBLIC API:
-  - resolve_target: Resolve target to one or more panes
   - resolve_target_to_pane: Resolve target to single pane
   - resolve_or_create_target: Resolve or create target session/pane
 """
 
 from typing import List, Tuple
-from .core import run_tmux, get_pane_id
+from .core import run_tmux, _get_pane_id
 from .pane import list_panes
 from .exceptions import PaneNotFoundError
 from ..types import Target, SessionWindowPane, _classify_target, _parse_convenience_target
 
 
-def resolve_target(target: Target) -> List[Tuple[str, SessionWindowPane]]:
+def _resolve_target(target: Target) -> List[Tuple[str, SessionWindowPane]]:
     """Resolve target to one or more panes, respecting hierarchy.
 
     Args:
@@ -38,7 +37,7 @@ def resolve_target(target: Target) -> List[Tuple[str, SessionWindowPane]]:
             window_pane = parts[1].split(".")
             window = window_pane[0]
             pane = window_pane[1]
-            pane_id = get_pane_id(session, window, pane)
+            pane_id = _get_pane_id(session, window, pane)
             if pane_id is None:
                 raise PaneNotFoundError(f"Pane not found: {session}:{window}.{pane}")
             return [(pane_id, value)]
@@ -58,14 +57,14 @@ def resolve_target(target: Target) -> List[Tuple[str, SessionWindowPane]]:
         resolved_swp = resolve_service_target(value)
         if resolved_swp is None:
             raise RuntimeError(f"Service not found: {value}")
-        return resolve_target(resolved_swp)
+        return _resolve_target(resolved_swp)
 
     else:  # convenience
         session, window, pane = _parse_convenience_target(value)
 
         if pane is not None:
             # "session:window.pane" parsed as convenience
-            pane_id = get_pane_id(session, str(window or 0), str(pane))
+            pane_id = _get_pane_id(session, str(window or 0), str(pane))
             if pane_id is None:
                 raise PaneNotFoundError(f"Pane not found: {session}:{window or 0}.{pane}")
             swp = f"{session}:{window or 0}.{pane}"
@@ -118,7 +117,7 @@ def resolve_target_to_pane(target: Target) -> tuple[str, SessionWindowPane]:
         target = f"{value}.0"
 
     # Now resolve to single pane
-    panes = resolve_target(target)
+    panes = _resolve_target(target)
     if not panes:
         raise RuntimeError(f"Target not found: {target}")
 
@@ -142,7 +141,7 @@ def resolve_or_create_target(target: Target, start_dir: str = ".") -> tuple[str,
     """
     # First try to resolve existing
     try:
-        panes = resolve_target(target)
+        panes = _resolve_target(target)
     except RuntimeError:
         # Target doesn't exist, proceed to creation
         pass
@@ -179,7 +178,6 @@ def resolve_or_create_target(target: Target, start_dir: str = ".") -> tuple[str,
         window = window or 0
         pane = pane or 0
 
-    # Create session with structure
-    from .structure import get_or_create_session_with_structure
+    from .structure import _get_or_create_session_with_structure
 
-    return get_or_create_session_with_structure(session, window, pane, start_dir)
+    return _get_or_create_session_with_structure(session, window, pane, start_dir)

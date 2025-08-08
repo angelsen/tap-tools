@@ -1,7 +1,7 @@
 """Composable output filter functions for termtap handlers.
 
-These filters can be chained together to transform process output before display.
-Handlers use these to clean up verbose output, remove noise, and improve readability.
+Filters transform process output before display, cleaning up verbose output
+and improving readability.
 
 PUBLIC API:
   - strip_trailing_empty_lines: Remove trailing empty lines from output
@@ -13,7 +13,6 @@ def strip_trailing_empty_lines(content: str) -> str:
     """Strip trailing empty lines that tmux adds to fill pane height.
 
     Preserves empty lines within the content but removes padding at the end.
-    Moved from tmux/pane.py to be used as a composable filter.
 
     Args:
         content: The text content to filter.
@@ -36,11 +35,11 @@ def collapse_empty_lines(content: str, threshold: int = 5) -> str:
     """Collapse consecutive empty lines above threshold.
 
     Args:
-        content: The text content to filter
-        threshold: Number of consecutive empty lines before collapsing
+        content: The text content to filter.
+        threshold: Number of consecutive empty lines before collapsing.
 
     Returns:
-        Content with collapsed empty lines
+        Content with collapsed empty lines.
     """
     if not content:
         return content
@@ -53,37 +52,31 @@ def collapse_empty_lines(content: str, threshold: int = 5) -> str:
     empty_count = 0
 
     for line in lines:
-        if not line.strip():  # Empty line
+        if not line.strip():
             empty_count += 1
         else:
-            # Handle accumulated empty lines
             if empty_count > 0:
                 if empty_count > threshold:
-                    # Collapse: keep one empty line, add message, keep one more
-                    result.append("")  # One empty line before
-                    omitted = empty_count - 2  # We're keeping 2
+                    result.append("")
+                    omitted = empty_count - 2
                     if omitted > 0:
                         result.append(f"... {omitted} empty lines omitted ...")
-                    result.append("")  # One empty line after
+                    result.append("")
                 else:
-                    # Keep all empty lines if below threshold
                     result.extend([""] * empty_count)
                 empty_count = 0
 
-            # Add the non-empty line
             result.append(line)
 
-    # Handle trailing empty lines
     if empty_count > 0:
         if empty_count > threshold:
-            result.append("")  # One empty line
+            result.append("")
             omitted = empty_count - 1
             if omitted > 0:
                 result.append(f"... {omitted} empty lines omitted ...")
         else:
             result.extend([""] * empty_count)
 
-    # Preserve the original ending (newline or not)
     if content.endswith("\n"):
         return "\n".join(result) + "\n"
     else:

@@ -1,18 +1,12 @@
 """Session management - pure session operations.
 
-PUBLIC API:
-  - SessionInfo: Session information data class
-  - list_sessions: List all tmux sessions
-  - session_exists: Check if session exists
-  - create_session: Create new session
-  - kill_session: Kill existing session
-  - get_or_create_session: Get existing or create new session
+NOTE: All functions in this module are for internal use within tmux module.
 """
 
 from typing import Optional, NamedTuple, List
 
-from .core import run_tmux, parse_format_line
-from .names import generate_session_name
+from .core import run_tmux, _parse_format_line
+from .names import _generate_session_name
 
 
 class SessionInfo(NamedTuple):
@@ -31,7 +25,7 @@ class SessionInfo(NamedTuple):
     @classmethod
     def from_format_line(cls, line: str) -> "SessionInfo":
         """Parse from tmux format string."""
-        parts = parse_format_line(line)
+        parts = _parse_format_line(line)
         return cls(name=parts["0"], created=parts.get("1", ""), attached=parts.get("2", "0"))
 
 
@@ -67,7 +61,6 @@ def create_session(name: str, start_dir: str = ".") -> tuple[str, str]:
     if code != 0:
         raise RuntimeError(f"Failed to create session: {stderr}")
 
-    # Get the pane ID of the new session
     code, stdout, _ = run_tmux(["list-panes", "-t", f"{name}:0.0", "-F", "#{pane_id}"])
     if code != 0:
         raise RuntimeError("Failed to get pane ID for new session")
@@ -76,7 +69,7 @@ def create_session(name: str, start_dir: str = ".") -> tuple[str, str]:
     return pane_id, f"{name}:0.0"
 
 
-def _new_session(name: str, start_dir: str = ".", attach: bool = False) -> tuple[str, str]:
+def __new_session(name: str, start_dir: str = ".", attach: bool = False) -> tuple[str, str]:
     """Create new session with window and pane.
 
     Args:
@@ -85,7 +78,6 @@ def _new_session(name: str, start_dir: str = ".", attach: bool = False) -> tuple
         attach: Whether to attach to session.
     """
     if attach:
-        # Use new-session without -d to attach
         args = ["new-session", "-s", name, "-c", start_dir, "-P", "-F", "#{pane_id}"]
         code, stdout, stderr = run_tmux(args)
 
@@ -111,7 +103,7 @@ def kill_session(name: str) -> bool:
     return code == 0
 
 
-def _attach_session(name: str) -> bool:
+def __attach_session(name: str) -> bool:
     """Attach to a tmux session.
 
     Args:
@@ -156,7 +148,7 @@ def get_or_create_session(
     if target is None:
         # Generate unique name
         while True:
-            name = generate_session_name()
+            name = _generate_session_name()
             if not session_exists(name):
                 break
     else:

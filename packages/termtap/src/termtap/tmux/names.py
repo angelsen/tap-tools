@@ -1,7 +1,6 @@
 """Docker-style session name generation.
 
-PUBLIC API:
-  - generate_session_name: Generate Docker-style session name (adjective-animal)
+NOTE: All functions in this module are for internal use within tmux module.
 """
 
 import random
@@ -263,7 +262,7 @@ _ANIMALS = [
 ]
 
 
-def generate_session_name() -> str:
+def _generate_session_name() -> str:
     """Generate a Docker-style session name.
 
     Returns:

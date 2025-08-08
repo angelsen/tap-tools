@@ -16,23 +16,17 @@ from .core import Pane, process_scan
 def _check_ready(pane: Pane, compiled_pattern: Optional[Pattern] = None) -> bool:
     """Check if pane is ready via pattern or handler.
 
-    Should be called within a process_scan context.
-    Pattern matching takes precedence over handler state.
-
     Args:
-        pane: The pane to check
-        compiled_pattern: Optional compiled regex pattern to match
-
-    Returns:
-        True if ready, False otherwise
+        pane: The pane to check.
+        compiled_pattern: Optional compiled regex pattern to match.
     """
-    # Pattern matching overrides handler state
+    # Pattern matching takes precedence over handler logic
     if compiled_pattern and pane.visible_content:
         if compiled_pattern.search(pane.visible_content):
             return True
 
     is_ready, _ = pane.handler.is_ready(pane)
-    # Convert three-state handler logic to binary decision for execution safety
+    # Convert three-state to binary for execution safety
     return bool(is_ready)
 
 
@@ -40,11 +34,8 @@ def _determine_status(elapsed: float, timeout: float) -> str:
     """Determine final command status based on timing.
 
     Args:
-        elapsed: Time elapsed since command start
-        timeout: Timeout threshold
-
-    Returns:
-        Status string: "timeout" or "completed"
+        elapsed: Time elapsed since command start.
+        timeout: Timeout threshold.
     """
     return "timeout" if elapsed >= timeout else "completed"
 
@@ -54,18 +45,13 @@ def _build_result(
 ) -> dict[str, Any]:
     """Build standard execution result dict.
 
-    Should be called within a process_scan context to avoid extra scans.
-
     Args:
-        pane: The pane (with cached process info)
-        command: The command/keys that were sent
-        status: Status string (completed, timeout, sent, failed, etc.)
-        start_time: When execution started (for elapsed calculation)
-        output: Captured output (already filtered)
-        error: Optional error message
-
-    Returns:
-        Standard result dict with all metadata
+        pane: The pane (with cached process info).
+        command: The command/keys that were sent.
+        status: Status string (completed, timeout, sent, failed, etc.).
+        start_time: When execution started (for elapsed calculation).
+        output: Captured output (already filtered).
+        error: Optional error message.
     """
     result = {
         "status": status,
@@ -105,29 +91,28 @@ def send_command(
     """
     start_time = time.time()
 
-    # === PRE-EXECUTION PHASE (1 scan) ===
+    # Pre-execution phase with single process scan
     with process_scan(pane.pane_id):
         handler = pane.handler
 
-        # Handler pre-processing with cancellation capability
+        # Handler can modify or cancel command
         modified = handler.before_send(pane, command)
         if modified is None:
             return _build_result(pane, command, "cancelled", start_time, error="Command cancelled by handler")
 
         command = modified
 
-    # === STREAMING SETUP ===
-    # Start streaming after before_send hook to avoid hover dialog interference
+    # Start streaming after handler preprocessing
     from .streaming import ensure_streaming, mark_command_start
 
     ensure_streaming(pane)
     cmd_id = mark_command_start(pane, command)
 
-    # === SEND PHASE (no scan needed) ===
+    # Send command to tmux
     from ..tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
 
     try:
-        # Route multiline vs single-line commands to appropriate tmux method
+        # Route based on command type
         if "\n" in command:
             success = send_via_paste_buffer(pane.pane_id, command)
         else:
@@ -138,30 +123,30 @@ def send_command(
     except Exception as e:
         return _build_result(pane, command, "failed", start_time, error=str(e))
 
-    # Post-send handler notification without additional scanning
+    # Notify handler of command send
     handler.after_send(pane, command)
 
-    # If not waiting, return immediately
+    # Fire-and-forget mode
     if not wait:
-        # End streaming for immediate return
+        # End streaming immediately
         from .streaming import mark_command_end
 
         mark_command_end(pane, cmd_id)
 
         with process_scan(pane.pane_id):
-            # Use unified capture method
+            # Capture output using handler method
             output = pane.handler.capture_output(pane, cmd_id)
             return _build_result(pane, command, "sent", start_time, output)
 
-    # === WAIT PHASE (periodic scans) ===
+    # Wait for completion with periodic readiness checks
     final_handler = handler
     actual_timeout = timeout or 30.0
     completed = False
 
-    # Pre-compile regex pattern for performance
+    # Optimize pattern matching
     compiled_pattern = re.compile(ready_pattern) if ready_pattern else None
 
-    # Initial readiness check - many commands complete immediately
+    # Check if already complete
     with process_scan(pane.pane_id):
         current_handler = pane.handler
         is_ready = _check_ready(pane, compiled_pattern)
@@ -170,9 +155,9 @@ def send_command(
             final_handler = current_handler
             completed = True
 
-    # If not ready, enter wait loop
+    # Enter polling loop if still running
     if not completed:
-        # Brief startup delay for command initialization
+        # Allow command to initialize
         time.sleep(0.02)
 
         while time.time() - start_time < actual_timeout:
@@ -185,27 +170,26 @@ def send_command(
                     completed = True
                     break
 
-                # Handler can abort execution during wait
+                # Handler can abort during execution
                 elapsed = time.time() - start_time
                 if not current_handler.during_command(pane, elapsed):
                     return _build_result(pane, command, "aborted", start_time, error="Aborted by handler")
 
             time.sleep(0.1)
 
-    # === POST-EXECUTION PHASE (1 scan) ===
-    # Output settling delay before final capture
+    # Final capture with settling delay
     time.sleep(0.02)
 
     elapsed = time.time() - start_time
     status = _determine_status(elapsed, actual_timeout)
 
-    # End streaming
+    # Complete streaming capture
     from .streaming import mark_command_end
 
     mark_command_end(pane, cmd_id)
 
     with process_scan(pane.pane_id):
-        # Use unified capture method with streaming
+        # Capture final output with streaming
         filtered_output = final_handler.capture_output(pane, cmd_id)
 
         final_handler.after_complete(pane, command, elapsed)
@@ -233,7 +217,7 @@ def send_interrupt(pane: Pane) -> dict[str, Any]:
 
         time.sleep(0.02)
 
-        # Use unified capture method (visible fallback for interrupts)
+        # Capture interrupt effects
         filtered_output = handler.capture_output(pane, method="visible")
 
         status = "sent" if success else "failed"
@@ -274,7 +258,7 @@ def send_keys(pane: Pane, keys: str, enter: bool = False) -> dict[str, Any]:
     time.sleep(0.02)
 
     with process_scan(pane.pane_id):
-        # Use unified capture method (visible fallback for key effects)
+        # Capture key effects
         filtered_output = pane.handler.capture_output(pane, method="visible")
 
         return _build_result(pane, keys, "sent", start_time, filtered_output)

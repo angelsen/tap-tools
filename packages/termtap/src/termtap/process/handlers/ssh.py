@@ -38,37 +38,34 @@ class _SSHHandler(ProcessHandler):
     def before_send(self, pane: Pane, command: str) -> str | None:
         """Show edit popup for SSH commands.
 
-        User can:
-        - Press Enter to execute as-is
-        - Edit the command and press Enter
-        - Press ESC to cancel
+        Args:
+            pane: Target pane.
+            command: Command to be sent.
+
+        Returns:
+            Modified command or None to cancel.
         """
         from ...popup import Popup
 
-        # Use pane title (often set to remote hostname by SSH) or default
         title = pane.title or "SSH Command"
-
         p = Popup(title=title)
         p.header("Remote Execution")
         p.warning(f"Command: {command}")
 
-        # Direct edit prompt - ESC cancels, Enter executes
         edited = p.input(placeholder="Press Enter to execute or ESC to cancel", header="Edit command:", value=command)
-
-        # Empty string means user pressed ESC (cancelled)
         return edited if edited else None
 
     def after_send(self, pane: Pane, command: str) -> None:
         """Wait for user to indicate when remote command is done.
 
-        Since we can't detect remote command completion, let the user
-        control when to continue.
+        Args:
+            pane: Target pane.
+            command: Command that was sent.
         """
         import time
         from ...popup import Popup
         from ...utils import truncate_command
 
-        # Give command time to start on remote
         time.sleep(0.5)
 
         p = Popup(title=pane.title or "SSH Session")
@@ -76,5 +73,5 @@ class _SSHHandler(ProcessHandler):
         p.info(f"Command: {truncate_command(command)}")
         p.text("")
         p.text("Press Enter when command completes")
-        p._add_line("read -r")  # Just wait for Enter key
+        p._add_line("read -r")
         p.show()

@@ -8,7 +8,7 @@ from ...pane import Pane
 
 
 class _DefaultHandler(ProcessHandler):
-    """Default handler - inherits streaming capture with sensible filtering."""
+    """Default handler for standard processes."""
 
     def can_handle(self, pane: Pane) -> bool:
         """Handle everything as fallback."""

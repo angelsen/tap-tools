@@ -103,7 +103,6 @@ def track(
             "frontmatter": {"error": str(e), "status": "error"},
         }
 
-    # Setup tracking directory
     base_dir = Path.home() / ".termtap" / "tracking"
     base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -119,7 +118,7 @@ def track(
     samples = []
     screenshots = {}  # hash -> (timestamp, content)
 
-    # DEFINITIVE: Capture initial state
+    # Capture initial state for baseline comparison
     try:
         with process_scan(pane.pane_id):
             sample = _collect_sample(pane, 0.0)
@@ -128,10 +127,9 @@ def track(
     except Exception:
         pass
 
-    # Send commands if specified
     if commands.strip():
         try:
-            # Check not tracking current pane
+            # Prevent recursive tracking scenarios
             from ..tmux.core import run_tmux
 
             code, stdout, _ = run_tmux(["display-message", "-p", "#{pane_id}"])
@@ -141,7 +139,6 @@ def track(
                     "frontmatter": {"error": "Current pane", "status": "error"},
                 }
 
-            # Direct tmux key sending
             from ..tmux.pane import send_keys as tmux_send_keys
 
             if not tmux_send_keys(pane.pane_id, commands.strip(), enter=enter):
@@ -152,9 +149,9 @@ def track(
                 "frontmatter": {"error": str(e), "status": "error"},
             }
 
-        time.sleep(0.1)  # Command startup
+        time.sleep(0.1)  # Allow command to start
 
-    # ROLLING: Track changes
+    # Collect samples during execution
     while time.time() - start_time < duration:
         elapsed = time.time() - start_time
         try:
@@ -162,14 +159,14 @@ def track(
                 sample = _collect_sample(pane, elapsed)
                 samples.append({k: v for k, v in sample.items() if k != "screenshot"})
 
-                # Only store unique screenshots
+                # Avoid duplicate screenshot storage
                 if sample["screenshot_hash"] not in screenshots:
                     screenshots[sample["screenshot_hash"]] = (elapsed, sample["screenshot"])
         except Exception:
             pass
         time.sleep(0.1)
 
-    # DEFINITIVE: Capture final state
+    # Capture final state for comparison
     try:
         with process_scan(pane.pane_id):
             sample = _collect_sample(pane, duration)
@@ -178,7 +175,6 @@ def track(
     except Exception:
         pass
 
-    # Save data to files
     metadata = {
         "commands": [commands.strip()] if commands.strip() else [],
         "enter": enter,
@@ -197,12 +193,10 @@ def track(
     (tracking_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
     (tracking_dir / "timeline.json").write_text(json.dumps(samples, indent=2))
 
-    # Save screenshots with debug formatting
     for hash_val, (ts, content) in screenshots.items():
         debug_content = "\n".join(repr(line) for line in content.split("\n"))
         (tracking_dir / "screenshots" / f"{ts:.1f}s.txt").write_text(debug_content)
 
-    # Minimal return - data is in directory
     handlers = sorted(set(s["handler"] for s in samples))
     cmd_desc = commands.strip() if commands.strip() else "idle"
 

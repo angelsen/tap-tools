@@ -2,12 +2,14 @@
 
 PUBLIC API:
   - PaneInfo: Complete pane information data class
-  - list_panes: List all panes with optional filtering
   - get_pane_pid: Get process ID for pane
   - get_pane_info: Get complete pane information
+  - list_panes: List all panes with optional filtering
   - send_keys: Send keystrokes to pane
+  - send_via_paste_buffer: Send content using paste buffer
   - capture_visible: Capture visible pane content
-  - create_panes_with_layout: Create panes in specific layout
+  - capture_last_n: Capture last N lines from pane
+  - create_panes_with_layout: Create multiple panes with layout
 """
 
 from typing import List, Optional
@@ -16,7 +18,7 @@ import json
 import subprocess
 import hashlib
 
-from .core import run_tmux, is_current_pane, get_current_pane
+from .core import run_tmux, _is_current_pane, _get_current_pane
 from .exceptions import CurrentPaneError, PaneNotFoundError
 from ..types import SessionWindowPane
 
@@ -68,7 +70,7 @@ def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) 
     Raises:
         CurrentPaneError: If attempting to send to current pane.
     """
-    if is_current_pane(pane_id):
+    if _is_current_pane(pane_id):
         raise CurrentPaneError(f"Cannot send commands to current pane ({pane_id})")
 
     if not commands:
@@ -93,22 +95,15 @@ def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) 
 
 
 def send_via_paste_buffer(pane_id: str, content: str, enter: bool = True, delay: float = 0.05) -> bool:
-    """Send content to pane using tmux paste buffer (reliable for multiline/special content).
+    """Send content using tmux paste buffer for multiline/special content.
 
     Args:
-        pane_id: Target pane ID
-        content: Content to send (can be multiline)
-        enter: Whether to send Enter key after content
-        delay: Delay in seconds before sending Enter (default: 0.05)
-
-    Returns:
-        True if successful
-
-    Raises:
-        CurrentPaneError: If attempting to send to current pane
-        RuntimeError: If buffer operations fail
+        pane_id: Target pane ID.
+        content: Content to send (can be multiline).
+        enter: Whether to send Enter key after content.
+        delay: Delay in seconds before sending Enter.
     """
-    if is_current_pane(pane_id):
+    if _is_current_pane(pane_id):
         raise CurrentPaneError(f"Cannot send to current pane ({pane_id})")
 
     buffer_name = f"tt_{hashlib.md5(content.encode()).hexdigest()[:8]}"
@@ -152,7 +147,6 @@ def get_pane_pid(pane_id: str) -> int:
     Raises:
         PaneNotFoundError: If pane doesn't exist.
     """
-    # Use filter to get only the specific pane
     code, stdout, stderr = run_tmux(
         ["list-panes", "-t", pane_id, "-f", f"#{{==:#{{pane_id}},{pane_id}}}", "-F", "#{pane_pid}"]
     )
@@ -166,12 +160,8 @@ def get_pane_pid(pane_id: str) -> int:
         raise RuntimeError(f"Failed to parse PID: invalid format '{stdout}'")
 
 
-def _get_pane_session_window_pane(pane_id: str) -> SessionWindowPane:
-    """Get session:window.pane format for a pane ID.
-
-    Args:
-        pane_id: Tmux pane ID.
-    """
+def __get_pane_session_window_pane(pane_id: str) -> SessionWindowPane:
+    """Get session:window.pane format for pane ID."""
     code, stdout, stderr = run_tmux(
         ["display-message", "-p", "-t", pane_id, "#{session_name}:#{window_index}.#{pane_index}"]
     )
@@ -204,7 +194,7 @@ def get_pane_info(pane_id: str) -> PaneInfo:
     if len(parts) < 8:
         raise RuntimeError(f"Failed to parse pane info: invalid format '{stdout}'")
 
-    current_pane_id = get_current_pane()
+    current_pane_id = _get_current_pane()
 
     return PaneInfo(
         pane_id=parts[0],
@@ -240,7 +230,6 @@ def list_panes(all: bool = True, session: Optional[str] = None, window: Optional
     elif all:
         cmd.append("-a")
 
-    # Build JSON-like format for reliable parsing
     fields = {
         "pane_id": "#{pane_id}",
         "session_name": "#{session_name}",
@@ -261,7 +250,7 @@ def list_panes(all: bool = True, session: Optional[str] = None, window: Optional
         return []
 
     panes = []
-    current_pane_id = get_current_pane()
+    current_pane_id = _get_current_pane()
 
     for line in stdout.strip().split("\n"):
         if not line:
@@ -294,11 +283,8 @@ def list_panes(all: bool = True, session: Optional[str] = None, window: Optional
     return panes
 
 
-def _strip_trailing_empty_lines(content: str) -> str:
-    """Strip trailing empty lines that tmux adds to fill pane height.
-
-    Preserves empty lines within the content but removes padding at the end.
-    """
+def __strip_trailing_empty_lines(content: str) -> str:
+    """Strip tmux pane height padding lines."""
     if not content:
         return ""
 
@@ -320,34 +306,28 @@ def capture_visible(pane_id: str) -> str:
         Visible pane content.
     """
     code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p"])
-    return _strip_trailing_empty_lines(stdout) if code == 0 else ""
+    return __strip_trailing_empty_lines(stdout) if code == 0 else ""
 
 
-def capture_all(pane_id: str) -> str:
+def _capture_all(pane_id: str) -> str:
     """Capture all history from pane."""
     code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", "-"])
-    return _strip_trailing_empty_lines(stdout) if code == 0 else ""
+    return __strip_trailing_empty_lines(stdout) if code == 0 else ""
 
 
 def capture_last_n(pane_id: str, lines: int) -> str:
     """Capture last N lines from pane."""
     code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", f"-{lines}"])
-    return _strip_trailing_empty_lines(stdout) if code == 0 else ""
+    return __strip_trailing_empty_lines(stdout) if code == 0 else ""
 
 
 def create_panes_with_layout(session: str, num_panes: int, layout: str = "even-horizontal") -> List[str]:
-    """Create multiple panes in a session with layout.
+    """Create multiple panes in session with layout.
 
     Args:
         session: Session name.
         num_panes: Number of panes to create.
-        layout: Tmux layout name. Defaults to 'even-horizontal'.
-
-    Returns:
-        List of pane IDs.
-
-    Raises:
-        RuntimeError: If num_panes < 2 or creation fails.
+        layout: Tmux layout name.
     """
     if num_panes < 2:
         raise RuntimeError("Failed to create layout: need at least 2 panes")
@@ -363,12 +343,12 @@ def create_panes_with_layout(session: str, num_panes: int, layout: str = "even-h
         if code == 0:
             pane_ids.append(stdout.strip())
 
-    _apply_layout(session, layout)
+    __apply_layout(session, layout)
 
     return pane_ids
 
 
-def _apply_layout(session: str, layout: str, window: int = 0) -> bool:
+def __apply_layout(session: str, layout: str, window: int = 0) -> bool:
     """Apply layout to window.
 
     Args:

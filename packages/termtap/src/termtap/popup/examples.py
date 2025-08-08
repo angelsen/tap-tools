@@ -1,14 +1,13 @@
-"""Examples for the tmux-native popup system.
+"""Internal examples for the tmux-native popup system.
 
-Import and run these in the termtap REPL:
-    >>> from termtap.popup.examples import *
-    >>> basic_popup()
+These are implementation examples, not public API.
+Import specific functions if needed for testing.
 """
 
 from termtap.popup import Popup, quick_confirm, quick_choice, quick_input
 
 
-def basic_popup():
+def _basic_popup():
     """Simple popup with styled messages."""
     p = Popup(title="Basic Example")
     p.header("System Status")
@@ -19,7 +18,7 @@ def basic_popup():
     p.show()
 
 
-def choice_with_values():
+def _choice_with_values():
     """Choice dialog with value/display separation."""
     p = Popup(title="Action Selector")
     p.header("SSH Command")
@@ -34,7 +33,7 @@ def choice_with_values():
     return choice
 
 
-def table_selection():
+def _table_selection():
     """Table with selectable rows."""
     p = Popup(title="Process Manager")
 
@@ -56,7 +55,7 @@ def table_selection():
     return process
 
 
-def ssh_workflow():
+def _ssh_workflow():
     """SSH command edit workflow - simpler pattern."""
     # Direct edit popup - user can ESC to cancel
     p = Popup(title="SSH Command")
@@ -77,7 +76,7 @@ def ssh_workflow():
         return None
 
 
-def input_examples():
+def _input_examples():
     """Various input methods."""
     p = Popup(title="Input Examples")
 
@@ -92,7 +91,7 @@ def input_examples():
     return name, pwd
 
 
-def quick_dialogs():
+def _quick_dialogs():
     """Convenience functions for simple dialogs."""
 
     # Quick confirm
@@ -108,7 +107,7 @@ def quick_dialogs():
     print(f"Switching to: {branch}")
 
 
-def multi_select():
+def _multi_select():
     """Multiple selection example."""
     p = Popup(title="Feature Flags")
 
@@ -130,7 +129,7 @@ def multi_select():
     return features
 
 
-def pager_example():
+def _pager_example():
     """Display scrollable content."""
     p = Popup(title="Log Viewer")
 
