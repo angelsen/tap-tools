@@ -1,7 +1,5 @@
 """Claude handler - handles Claude CLI through content detection.
 
-Internal module - no public API.
-
 TESTING LOG:
 Date: 2025-01-30
 System: Linux 6.12.39-1-lts

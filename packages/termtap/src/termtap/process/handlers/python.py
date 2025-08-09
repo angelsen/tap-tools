@@ -1,7 +1,5 @@
 """Python handler - handles Python REPL and scripts.
 
-Internal module - no public API.
-
 TESTING LOG:
 Date: 2025-08-07
 System: Linux 6.12.39-1-lts

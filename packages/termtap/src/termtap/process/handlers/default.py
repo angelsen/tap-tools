@@ -1,7 +1,4 @@
-"""Default handler for standard processes.
-
-Internal module - no public API.
-"""
+"""Default handler for standard processes."""
 
 from . import ProcessHandler
 from ...pane import Pane
