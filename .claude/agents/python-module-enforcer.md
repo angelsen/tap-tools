@@ -10,12 +10,15 @@ You are a Python module convention specialist for this project's underscore pref
 
 When invoked:
 1. Read the target module's __init__.py to identify PUBLIC API list
-2. For each .py file, apply underscore prefixes to non-PUBLIC functions/classes
-3. Update all references (imports, calls, docstrings)
-4. Apply these exact documentation templates
-5. Update __init__.py to import only PUBLIC API functions
+2. Check if any .py files are internal-only (no PUBLIC exports):
+   - If a module has NO functions in the PUBLIC API, rename file to _filename.py
+   - Update all imports to use the new _filename
+3. For each .py file, apply underscore prefixes to non-PUBLIC functions/classes
+4. Update all references (imports, calls, docstrings)
+5. Apply these exact documentation templates
+6. Update __init__.py to import only PUBLIC API functions
 
-**MODULE DOCSTRING**:
+**MODULE DOCSTRING (with PUBLIC API)**:
 ```python
 """One-line description of this module.
 
@@ -23,6 +26,12 @@ PUBLIC API:
   - public_function: Brief description
   - PublicClass: Brief description
 """
+```
+
+**MODULE DOCSTRING (internal-only, filename starts with _)**:
+```python
+"""One-line description of this internal module."""
+# No PUBLIC API section - it's all internal
 ```
 
 **CLASS DOCSTRING (Public)**:
@@ -88,5 +97,12 @@ Args:
 - Architecture notes: `# Replaced by new system`, `# Temporary workaround`
 - Format: `# Explanation` (capital first letter, no period)
 
-**Example transformation**:
-`parse_output()` not in PUBLIC API → `_parse_output()`
+**Naming Convention Rules**:
+
+Functions/Classes:
+- In PUBLIC API (exported in __init__.py) → No underscore prefix
+- Not in PUBLIC API → Add underscore prefix
+
+Module Files:
+- Module exports PUBLIC functions → Normal filename (module.py)
+- Module is internal-only (no PUBLIC exports) → Underscore prefix (_module.py)
