@@ -6,7 +6,7 @@ Internal utilities for pane selection in termtap commands.
 from typing import List, Optional
 
 from ..popup import Popup
-from ..popup.gum import GumStyle, GumFilter
+from ..popup.gum import GumStyle, GumFilter, GumInput
 
 
 def _format_pane_for_selection(pane_info: dict) -> str:
@@ -101,3 +101,77 @@ def _select_multiple_panes(
     ).show()
 
     return selected if isinstance(selected, list) else []
+
+
+def _select_or_create_pane(
+    panes: List[dict],
+    title: str = "Select Pane",
+    action: str = "Choose Target Pane",
+    allow_create: bool = True
+) -> Optional[tuple[str, str]]:
+    """Select a single pane or create a new session.
+
+    Args:
+        panes: List of pane info dicts.
+        title: Tmux window title.
+        action: Header action text.
+        allow_create: Whether to offer session creation if no selection.
+
+    Returns:
+        Tuple of (pane_id, session_window_pane) or None if cancelled.
+    """
+    # First try to select an existing pane
+    if panes:
+        options = [
+            (pane_info.get("Pane", ""), _format_pane_for_selection(pane_info))
+            for pane_info in panes
+        ]
+        popup = Popup(title=title, width="65")
+        selected = popup.add(
+            GumStyle(action, header=True),
+            "Select the target pane for command execution:",
+            "",
+            GumFilter(
+                options=options,
+                placeholder="Type to search panes...",
+                fuzzy=True,
+                limit=1
+            )
+        ).show()
+        
+        if selected:
+            # Selected is the session:window.pane format
+            from ..tmux import resolve_target_to_pane
+            try:
+                pane_id, swp = resolve_target_to_pane(selected)
+                return (pane_id, swp)
+            except RuntimeError:
+                return None
+    
+    # Offer to create new session if no selection and creation is allowed
+    if allow_create:
+        from ..tmux.names import _generate_session_name
+        from ..tmux import resolve_or_create_target
+        
+        generated_name = _generate_session_name()
+        popup = Popup(title="Create Session", width="50")
+        session_name = popup.add(
+            GumStyle("Create New Session", header=True),
+            "No pane selected. Enter name for new session:",
+            "",
+            GumInput(
+                value=generated_name,
+                placeholder="Session name...",
+                prompt="Name: "
+            )
+        ).show()
+        
+        if session_name:
+            try:
+                pane_id, swp = resolve_or_create_target(session_name)
+                return (pane_id, swp)
+            except RuntimeError:
+                # Creation failed
+                return None
+    
+    return None
