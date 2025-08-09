@@ -3,6 +3,7 @@
 PUBLIC API:
   - (Internal module - no public API)
 
+# to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-07-30
 System: Linux 6.12.39-1-lts

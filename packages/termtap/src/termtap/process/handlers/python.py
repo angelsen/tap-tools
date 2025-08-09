@@ -1,5 +1,6 @@
 """Python handler - handles Python REPL and scripts.
 
+# to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-08-07
 System: Linux 6.12.39-1-lts

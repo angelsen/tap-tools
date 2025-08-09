@@ -79,6 +79,7 @@ Args:
 - Business logic: `# Handle special case`, `# Legacy compatibility`  
 - Non-obvious behavior: `# Fails silently on invalid input`, `# Side effect intended`
 - Architecture notes: `# Replaced by new system`, `# Temporary workaround`
+- Agent directives: `# to_agent:` messages should be respected
 - Format: `# Explanation` (capital first letter, no period)
 
 **Example transformations**:
