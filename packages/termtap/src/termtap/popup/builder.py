@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 
-# --- Theme System ---
 
 
 @dataclass
@@ -49,7 +48,6 @@ class Theme:
     faint: str = "--foreground 8 --faint"
 
 
-# --- Core Tmux Popup Builder ---
 
 
 class Popup:
@@ -89,7 +87,6 @@ class Popup:
         self._result_file: Optional[Path] = None
         self._cleanup_files: List[Path] = []
 
-    # --- Script Building ---
 
     def _add_line(self, line: str) -> "Popup":
         """Add a line to the popup script."""
@@ -104,12 +101,11 @@ class Popup:
         self._add_line(f"gum style {escaped_text} {style_cmd}")
         return self
 
-    # --- Content Components ---
 
     def header(self, text: str) -> "Popup":
         """Add styled header."""
         self._add_gum_style(text, getattr(self.theme, "header", ""))
-        self._add_line("")  # Visual separation
+        self._add_line("")
         return self
 
     def text(self, content: str, style: Optional[str] = None) -> "Popup":
@@ -146,7 +142,6 @@ class Popup:
         self._add_gum_style(line, getattr(self.theme, "faint", ""))
         return self
 
-    # --- Interactive Components ---
 
     def choose(
         self,
@@ -205,15 +200,14 @@ class Popup:
                     value, display = option
                     options_file.write(f"{display}:{value}\n")
                 else:
-                    # Handle mixed option types consistently
-                    options_file.write(f"{option}:{option}\n")
+                            options_file.write(f"{option}:{option}\n")
             options_file.close()
             self._cleanup_files.append(Path(options_file.name))
 
             self._add_line(f"{' '.join(cmd_parts)} < {options_file.name} > {result_file.name}")
         else:
             for option in options:
-                assert isinstance(option, str)  # Verify type consistency
+                assert isinstance(option, str)
                 cmd_parts.append(shlex.quote(option))
             self._add_line(f"{' '.join(cmd_parts)} > {result_file.name}")
 
@@ -313,6 +307,92 @@ class Popup:
 
         self._show_popup()
 
+    def filter(
+        self,
+        options: Union[List[str], List[Tuple[str, str]]],
+        placeholder: str = "Type to search...",
+        header: Optional[str] = None,
+        limit: int = 1,
+        fuzzy: bool = True,
+        height: int = 0,
+    ) -> Union[str, List[str]]:
+        """Show fuzzy-searchable filter selection in tmux popup.
+
+        Args:
+            options: List of strings or (value, display) tuples.
+            placeholder: Search box placeholder text. Defaults to "Type to search...".
+            header: Optional header text above results.
+            limit: Max selections (1 for single, 0 for unlimited). Defaults to 1.
+            fuzzy: Enable fuzzy matching. Defaults to True.
+            height: Display height (0 for auto). Defaults to 0.
+
+        Returns:
+            Selected value(s) - single string if limit=1, list otherwise.
+        """
+        result_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".result", delete=False)
+        self._cleanup_files.append(Path(result_file.name))
+
+        has_tuples = any(isinstance(opt, tuple) for opt in options)
+
+        # Create options file for filter input
+        options_file = tempfile.NamedTemporaryFile(mode="w", suffix=".opts", delete=False)
+        value_map = {}
+        
+        if has_tuples:
+            for option in options:
+                if isinstance(option, tuple):
+                    value, display = option
+                    options_file.write(f"{display}\n")
+                    value_map[display] = value
+                else:
+                    options_file.write(f"{option}\n")
+                    value_map[option] = option
+        else:
+            for option in options:
+                assert isinstance(option, str)
+                options_file.write(f"{option}\n")
+        options_file.close()
+        self._cleanup_files.append(Path(options_file.name))
+
+        cmd_parts = ["gum", "filter"]
+        
+        if fuzzy:
+            cmd_parts.append("--fuzzy")
+        
+        if limit == 0:
+            cmd_parts.append("--no-limit")
+        elif limit > 1:
+            cmd_parts.extend(["--limit", str(limit)])
+        
+        cmd_parts.extend(["--placeholder", shlex.quote(placeholder)])
+        
+        if header:
+            cmd_parts.extend(["--header", shlex.quote(header)])
+        
+        if height > 0:
+            cmd_parts.extend(["--height", str(height)])
+
+        self._add_line(f"{' '.join(cmd_parts)} < {options_file.name} > {result_file.name}")
+
+        self._show_popup()
+
+        result_file.close()
+        with open(result_file.name, "r") as f:
+            result_text = f.read().strip()
+
+        if not result_text:
+            return "" if limit == 1 else []
+
+        if limit == 1:
+            if has_tuples:
+                return value_map.get(result_text, result_text)
+            return result_text
+        else:
+            lines = result_text.split("\n")
+            if has_tuples:
+                return [value_map.get(line, line) for line in lines if line]
+            return [line for line in lines if line]
+
     def table(
         self,
         rows: List[List[str]],
@@ -376,7 +456,6 @@ class Popup:
 
         return result
 
-    # --- Display Methods ---
 
     def show(self) -> None:
         """Display the popup with accumulated content."""
@@ -416,7 +495,6 @@ class Popup:
 
         self._script_lines.clear()
 
-    # --- Cleanup ---
 
     def cleanup(self) -> None:
         """Clean up temporary files."""
@@ -434,7 +512,6 @@ class Popup:
         self.cleanup()
 
 
-# --- Convenience Functions ---
 
 
 def quick_confirm(message: str, default: bool = False) -> bool:

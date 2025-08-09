@@ -118,7 +118,6 @@ def track(
     samples = []
     screenshots = {}  # hash -> (timestamp, content)
 
-    # Capture initial state for baseline comparison
     try:
         with process_scan(pane.pane_id):
             sample = _collect_sample(pane, 0.0)
@@ -151,7 +150,6 @@ def track(
 
         time.sleep(0.1)  # Allow command to start
 
-    # Collect samples during execution
     while time.time() - start_time < duration:
         elapsed = time.time() - start_time
         try:
@@ -159,14 +157,12 @@ def track(
                 sample = _collect_sample(pane, elapsed)
                 samples.append({k: v for k, v in sample.items() if k != "screenshot"})
 
-                # Avoid duplicate screenshot storage
                 if sample["screenshot_hash"] not in screenshots:
                     screenshots[sample["screenshot_hash"]] = (elapsed, sample["screenshot"])
         except Exception:
             pass
         time.sleep(0.1)
 
-    # Capture final state for comparison
     try:
         with process_scan(pane.pane_id):
             sample = _collect_sample(pane, duration)

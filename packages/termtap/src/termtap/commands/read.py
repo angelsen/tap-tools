@@ -23,7 +23,7 @@ from ..types import Target
             "response": {
                 "description": "Read output from tmux pane with optional parameters",
                 "usage": [
-                    "termtap://read - Read from default pane",
+                    "termtap://read - Interactive pane selection",
                     "termtap://read/session1 - Read from specific pane",
                     "termtap://read/session1/100 - Read 100 lines",
                     "termtap://read/session1/100/true/stream - All parameters",
@@ -35,7 +35,7 @@ from ..types import Target
 )
 def read(
     state,
-    target: Target = "default",
+    target: Target = "interactive",
     lines: Optional[int] = None,
     since_last: bool = False,
     mode: str = "direct",
@@ -44,7 +44,7 @@ def read(
 
     Args:
         state: Application state (unused).
-        target: Pane to read from. Defaults to "default".
+        target: Pane to read from. Defaults to "interactive" for interactive selection.
         lines: Number of lines to read. Defaults to None.
         since_last: Read only new output since last read. Defaults to False.
         mode: Read mode - "direct" or "stream". Defaults to "direct".
@@ -58,13 +58,45 @@ def read(
             "frontmatter": {"error": "Invalid parameters", "status": "error"},
         }
 
-    try:
-        pane_id, session_window_pane = resolve_target_to_pane(target)
-    except RuntimeError as e:
-        return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"error": str(e), "status": "error"},
-        }
+    if target == "interactive":
+        from ._popup_utils import select_single_pane
+        from .ls import ls
+        
+        available_panes = ls(state)
+        if not available_panes:
+            return {
+                "elements": [{"type": "text", "content": "Error: No panes available"}],
+                "frontmatter": {"error": "No panes available", "status": "error"},
+            }
+        
+        selected_pane_id = select_single_pane(
+            available_panes,
+            title="Read Output",
+            action="Select Pane to Read From"
+        )
+        
+        if not selected_pane_id:
+            return {
+                "elements": [{"type": "text", "content": "Error: No pane selected"}],
+                "frontmatter": {"error": "No pane selected", "status": "error"},
+            }
+        
+        session_window_pane = selected_pane_id
+        pane_id = selected_pane_id
+        
+        from ..tmux import list_panes as tmux_list_panes
+        for pane_info in tmux_list_panes():
+            if pane_info.swp == selected_pane_id:
+                pane_id = pane_info.pane_id
+                break
+    else:
+        try:
+            pane_id, session_window_pane = resolve_target_to_pane(target)
+        except RuntimeError as e:
+            return {
+                "elements": [{"type": "text", "content": f"Error: {e}"}],
+                "frontmatter": {"error": str(e), "status": "error"},
+            }
 
     pane = Pane(pane_id)
 
