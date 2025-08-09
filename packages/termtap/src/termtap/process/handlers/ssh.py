@@ -1,4 +1,7 @@
-"""SSH handler - handles SSH client connections.
+"""SSH process handler with connection state detection and command confirmation.
+
+PUBLIC API:
+  - (Internal module - no public API)
 
 TESTING LOG:
 Date: 2025-07-30
@@ -19,26 +22,48 @@ Notes:
 import hashlib
 import os
 import time
+from typing import TYPE_CHECKING
 from . import ProcessHandler
 from ...pane import Pane
 
+if TYPE_CHECKING:
+    from ...popup import Popup
+
 
 class _SSHHandler(ProcessHandler):
-    """Handler for SSH client connections."""
+    """SSH client process handler with connection detection and command confirmation.
+
+    Provides connection state detection using screenshot stability and interactive
+    command confirmation for remote execution safety.
+
+    Attributes:
+        handles: List of process names this handler manages.
+        _screenshot_tracking: Per-pane tracking data for connection detection.
+    """
 
     handles = ["ssh"]
 
-    # Track screenshot changes per pane_id to detect connection establishment
     _screenshot_tracking = {}
 
     def can_handle(self, pane: Pane) -> bool:
-        """Check if this handler manages SSH processes."""
+        """Check if this handler manages SSH processes.
+
+        Args:
+            pane: Pane with process information.
+
+        Returns:
+            True if pane contains an SSH process.
+        """
         return bool(pane.process and pane.process.name in self.handles)
 
     def _get_process_age(self, pid: int) -> float:
         """Get process age in seconds from /proc.
 
-        Returns actual process age based on system uptime and process start time.
+        Args:
+            pid: Process ID to check.
+
+        Returns:
+            Process age in seconds, or 0.0 if unable to determine.
         """
         try:
             # Read stat file
@@ -65,23 +90,24 @@ class _SSHHandler(ProcessHandler):
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Check if SSH connection is established using screenshot stability.
 
-        For new SSH processes, we track screenshot changes to detect when
+        For new SSH processes, tracks screenshot changes to detect when
         the connection is established (screen stabilizes after initial output).
+        Established connections (>5s) are always considered ready.
+
+        Args:
+            pane: Pane with SSH process information.
+
+        Returns:
+            Tuple of (readiness, description) indicating connection state.
         """
         if not pane.process:
             return True, "no_process"
 
-        # Get actual process age from /proc
         process_age = self._get_process_age(pane.process.pid)
-
-        # For established connections (> 5 seconds), always ready
         if process_age > 5.0:
-            # Clean up any stale tracking
             if pane.pane_id in self._screenshot_tracking:
                 del self._screenshot_tracking[pane.pane_id]
             return True, "connected"
-
-        # For new connections, track screenshot stability
         pane_id = pane.pane_id
         if pane_id not in self._screenshot_tracking:
             self._screenshot_tracking[pane_id] = {
@@ -92,7 +118,7 @@ class _SSHHandler(ProcessHandler):
 
         track = self._screenshot_tracking[pane_id]
 
-        # Clean up tracking if process changed
+        # Reset tracking if process changed
         if track["process_pid"] != pane.process.pid:
             self._screenshot_tracking[pane_id] = {
                 "process_pid": pane.process.pid,
@@ -101,27 +127,46 @@ class _SSHHandler(ProcessHandler):
             }
             track = self._screenshot_tracking[pane_id]
 
-        # Check screenshot stability
         content = pane.visible_content
         content_hash = hashlib.md5(content.encode()).hexdigest()
 
         now = time.time()
         if content_hash != track["last_hash"]:
-            # Screenshot changed
             track["last_hash"] = content_hash
             track["last_change"] = now
-
-        # Check if screen has stabilized
         stable_for = now - track["last_change"]
 
-        # Consider connected if screen stable for 4+ seconds
         if stable_for > 4.0:
-            # Connection established - clean up tracking
             del self._screenshot_tracking[pane_id]
             return True, "connected"
-
-        # Still connecting
         return False, "connecting"
+
+    def _create_ssh_popup(self, pane: Pane, action: str) -> "Popup":
+        """Create consistently styled popup for SSH operations.
+
+        Args:
+            pane: Target pane for context.
+            action: Action being performed for popup header.
+
+        Returns:
+            Configured Popup instance with SSH-specific theming.
+        """
+        from ...popup import Popup, Theme
+        
+        tmux_title = pane.title or "SSH Session"
+        
+        theme = Theme(
+            header="--bold --foreground 14 --border rounded --align center --width 61"
+        )
+        
+        popup = Popup(
+            title=tmux_title, 
+            theme=theme,
+            width="65"
+        )
+        popup.header(action)
+        
+        return popup
 
     def before_send(self, pane: Pane, command: str) -> str | None:
         """Show edit popup for SSH commands.
@@ -133,14 +178,18 @@ class _SSHHandler(ProcessHandler):
         Returns:
             Modified command or None to cancel.
         """
-        from ...popup import Popup
-
-        title = pane.title or "SSH Command"
-        p = Popup(title=title)
-        p.header("Remote Execution")
-        p.warning(f"Command: {command}")
-
-        edited = p.input(placeholder="Press Enter to execute or ESC to cancel", header="Edit command:", value=command)
+        from ...utils import truncate_command
+        
+        p = self._create_ssh_popup(pane, "Remote Command Execution")
+        
+        p.info(f"Command: {truncate_command(command)}")
+        p.text("")
+        p.text("Edit the command or press Enter to execute as-is")
+        edited = p.input(
+            placeholder="Press Enter to execute or ESC to cancel", 
+            header="", 
+            value=command
+        )
         return edited if edited else None
 
     def after_send(self, pane: Pane, command: str) -> None:
@@ -151,13 +200,16 @@ class _SSHHandler(ProcessHandler):
             command: Command that was sent.
         """
         import time
-        from ...popup import quick_info
         from ...utils import truncate_command
 
         time.sleep(0.5)
 
-        # Use quick_info which properly handles the wait
-        quick_info(
-            title=pane.title or "SSH Session: Waiting for Remote Command",
-            message=f"Command: {truncate_command(command)}\n\nPress Enter when command completes",
-        )
+        p = self._create_ssh_popup(pane, "Waiting for Command Completion")
+        
+        p.info(f"Command: {truncate_command(command)}")
+        p.text("")
+        p.text("The command has been sent to the remote host.")
+        p.text("Press Enter when the command has completed.")
+        p.text("")
+        p._add_line("read -r")
+        p.show()
