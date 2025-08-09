@@ -21,3 +21,15 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
+
+[tool.ruff]
+line-length = 120
+include = ["src/**/*.py", "tests/**/*.py"]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+include = ["src/**/*.py"]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
