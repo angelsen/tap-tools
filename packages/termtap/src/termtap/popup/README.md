@@ -1,80 +1,59 @@
-# Tmux Popup System
+# Popup System
 
-Native tmux popup windows with gum for rich terminal UIs.
+Composable tmux popup system with gum-based UI components.
 
-## Features
-
-- **Tmux-native**: Uses `tmux display-popup` for proper windowing
-- **Gum-powered**: Rich interactive components (choose, input, table, pager)
-- **Value/display separation**: Clean programmatic interfaces
-- **Theme support**: Consistent styling across popups
-- **Auto-sizing**: Smart defaults, optional dimensions
-- **Temp file IPC**: Reliable result passing
-
-## Quick Start
+## Architecture
 
 ```python
-from termtap.popup import Popup, quick_confirm
+from termtap.popup import Popup
+from termtap.popup.gum import GumStyle, GumInput, GumChoose
 
-# Simple confirmation
-if quick_confirm("Proceed with operation?"):
-    print("Confirmed")
-
-# Choice with values
-p = Popup(title="Action")
-choice = p.choose([
-    ("save", "Save Changes"),
-    ("discard", "Discard"),
-    ("cancel", "Cancel")
-])
-print(f"Selected: {choice}")  # Returns 'save', not 'Save Changes'
-
-# Table selection
-rows = [["1", "nginx", "active"], ["2", "redis", "stopped"]]
-p.table(rows, headers=["PID", "Name", "Status"], return_column=2)
+popup = Popup(width="65", title="My Popup")
+result = popup.add(
+    GumStyle("Header", header=True),
+    GumStyle("Info message", info=True),
+    "",  # Spacer
+    GumInput(placeholder="Enter value...", value="default")
+).show()
 ```
 
 ## Components
 
-### Core Classes
-- `Popup`: Main builder for tmux popups
-- `Theme`: Style configuration dataclass
+### Core
+- `Popup` - Tmux display-popup runner
+- `Command` - Base class for all commands
 
-### Methods
-- `choose()`: Single/multi selection with optional value/display pairs
-- `table()`: Tabular selection with column return
-- `input()`: Text input with validation
-- `confirm()`: Yes/no confirmation
-- `pager()`: Scrollable content viewer
+### Gum Commands
+- **Selection**: `GumChoose`, `GumFilter`, `GumFile`, `GumTable`
+- **Input**: `GumInput`, `GumWrite`, `GumConfirm`
+- **Display**: `GumStyle`, `GumFormat`, `GumLog`, `GumPager`
+- **Layout**: `GumJoin`
+- **Process**: `GumSpin`
 
-### Display Methods
-- `header()`, `info()`, `success()`, `warning()`, `error()`
-- `text()`, `separator()`
+## Design
 
-### Quick Functions
-- `quick_confirm()`, `quick_choice()`, `quick_input()`, `quick_info()`
+Commands render to shell scripts, Popup executes them in tmux popups. 
+Commands that return values set `returns=True` and handle result parsing.
 
 ## Examples
 
-See `examples.py` for complete examples:
 ```python
-from termtap.popup.examples import *
-basic_popup()
-choice_with_values()
-table_selection()
-ssh_workflow()
+# Confirmation
+popup.add(
+    GumStyle("Warning", warning=True),
+    GumConfirm("Continue?", default=False)
+).show()  # Returns: bool
+
+# Selection with tuples
+popup.add(
+    GumChoose([
+        ("save", ":floppy_disk: Save"),
+        ("quit", ":x: Quit")
+    ])
+).show()  # Returns: "save" or "quit"
+
+# Multiple selection
+popup.add(
+    GumFilter(items, limit=0, fuzzy=True)
+).show()  # Returns: List[str]
 ```
-
-## Architecture
-
-1. **Build Phase**: Accumulate gum commands in script
-2. **Display Phase**: Execute script in tmux popup
-3. **Result Phase**: Read results from temp files
-4. **Cleanup**: Auto-remove temp files
-
-## Notes
-
-- Requires tmux and gum installed
-- Auto-sizes by default (no width/height specified)
-- Interactive components block until user responds
-- All temp files cleaned up automatically

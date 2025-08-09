@@ -1,7 +1,6 @@
 """SSH process handler with connection state detection and command confirmation.
 
-PUBLIC API:
-  - (Internal module - no public API)
+Internal handler module - no public API.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
@@ -23,12 +22,8 @@ Notes:
 import hashlib
 import os
 import time
-from typing import TYPE_CHECKING
 from . import ProcessHandler
 from ...pane import Pane
-
-if TYPE_CHECKING:
-    from ...popup import Popup
 
 
 class _SSHHandler(ProcessHandler):
@@ -139,27 +134,6 @@ class _SSHHandler(ProcessHandler):
             return True, "connected"
         return False, "connecting"
 
-    def _create_ssh_popup(self, pane: Pane, action: str) -> "Popup":
-        """Create consistently styled popup for SSH operations.
-
-        Args:
-            pane: Target pane for context.
-            action: Action being performed for popup header.
-
-        Returns:
-            Configured Popup instance with SSH-specific theming.
-        """
-        from ...popup import Popup, Theme
-
-        tmux_title = pane.title or "SSH Session"
-
-        theme = Theme(header="--bold --foreground 14 --border rounded --align center --width 61")
-
-        popup = Popup(title=tmux_title, theme=theme, width="65")
-        popup.header(action)
-
-        return popup
-
     def before_send(self, pane: Pane, command: str) -> str | None:
         """Show edit popup for SSH commands.
 
@@ -171,13 +145,21 @@ class _SSHHandler(ProcessHandler):
             Modified command or None to cancel.
         """
         from ...utils import truncate_command
+        from ...popup import Popup
+        from ...popup.gum import GumStyle, GumInput
 
-        p = self._create_ssh_popup(pane, "Remote Command Execution")
-
-        p.info(f"Command: {truncate_command(command)}")
-        p.text("")
-        p.text("Edit the command or press Enter to execute as-is")
-        edited = p.input(placeholder="Press Enter to execute or ESC to cancel", header="", value=command)
+        popup = Popup(width="65", title=pane.title or "SSH Session")
+        edited = popup.add(
+            GumStyle("Remote Command Execution", header=True),
+            GumStyle(f"Command: {truncate_command(command)}", info=True),
+            "",
+            "Edit the command or press Enter to execute as-is",
+            GumInput(
+                placeholder="Press Enter to execute or ESC to cancel",
+                value=command
+            )
+        ).show()
+        
         return edited if edited else None
 
     def after_send(self, pane: Pane, command: str) -> None:
@@ -188,15 +170,18 @@ class _SSHHandler(ProcessHandler):
             command: Command that was sent.
         """
         from ...utils import truncate_command
+        from ...popup import Popup
+        from ...popup.gum import GumStyle
 
         time.sleep(0.5)
 
-        p = self._create_ssh_popup(pane, "Waiting for Command Completion")
-
-        p.info(f"Command: {truncate_command(command)}")
-        p.text("")
-        p.text("The command has been sent to the remote host.")
-        p.text("Press Enter when the command has completed.")
-        p.text("")
-        p._add_line("read -r")
-        p.show()
+        popup = Popup(width="65", title=pane.title or "SSH Session")
+        popup.add(
+            GumStyle("Waiting for Command Completion", header=True),
+            GumStyle(f"Command: {truncate_command(command)}", info=True),
+            "",
+            "The command has been sent to the remote host.",
+            "Press Enter when the command has completed.",
+            "",
+            "read -r"
+        ).show()

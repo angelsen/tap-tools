@@ -1,126 +1,106 @@
 # Popup System - LLM Guide
 
-## Overview
-Tmux-native popup windows using gum for rich terminal UIs. True popup windows with temp file IPC for results.
+## Quick Start
 
-## Key Concepts
-- **Tmux display-popup**: Real popup windows, not terminal output
-- **Gum commands**: Interactive components (choose, input, table, pager)
-- **Value/display separation**: Tuples for clean programmatic interfaces
-- **Auto-sizing**: Let tmux handle dimensions by default
-
-## Common Tasks
-
-### Basic Confirmation
+Build tmux popups by composing Command objects:
 ```python
 from termtap.popup import Popup
-p = Popup()
-if p.confirm("Proceed?"):
-    # User confirmed
+from termtap.popup.gum import GumStyle, GumInput
+
+popup = Popup(width="65", title="Session")
+result = popup.add(
+    GumStyle("Header", header=True),
+    GumInput(value="default")
+).show()
 ```
 
-### Choice with Values
+## Key Concepts
+
+**Commands render, Popups execute.** Each gum command knows how to render itself to shell script. The Popup runner executes the combined script in tmux display-popup.
+
+**Value/display separation.** Use tuples for choices when display differs from value:
 ```python
-# Use tuples for value/display separation
-choice = p.choose([
-    ("save", "Save Changes"),
-    ("discard", "Discard"),
-    ("cancel", "Cancel")
-])
-# Returns 'save', not 'Save Changes'
+GumChoose([("id", "Display Name")])  # Returns "id"
 ```
 
-### Table Selection
-```python
-rows = [["1", "nginx", "active"], ["2", "redis", "stopped"]]
-process = p.table(rows, headers=["PID", "Name", "Status"], return_column=2)
-# return_column is 1-indexed
-```
-
-### Input with Editing
-```python
-edited = p.input(
-    placeholder="Edit command...",
-    header="Modify:",
-    value=original_command  # Pre-fill
-)
-```
+**Empty strings become spacers.** `popup.add("", "text", "")` adds blank lines.
 
 ## Best Practices
 
 ### Be Explicit with Instructions
-When implementing popups, be specific about behavior:
-- Don't just "show popup" - specify what choices, what info to display
-- Add context about why popup is shown (e.g., "SSH command confirmation")
+Instead of: "Show a popup"
+Use: "Create a popup with GumStyle header, info message, and GumInput for command editing"
 
-### Clean Professional Style
-- Avoid emojis in production handlers
-- Use clear, descriptive labels
-- Separate values from display strings
-
-### Theme Usage
+### Compose, Don't Chain
 ```python
-from termtap.popup import Theme
-p = Popup()  # Uses default theme
-# Or customize:
-p = Popup(theme=Theme(header="--bold --foreground 14"))
+# Good - explicit composition
+popup.add(
+    GumStyle("Title", header=True),
+    GumInput(placeholder="Enter..."),
+)
+
+# Avoid - no method chaining
+popup.header("Title").input("Enter...")  # Doesn't exist
 ```
 
-### Error Handling
-- Check for None/empty returns from input
-- Handle cancel choices explicitly
-- Clean up temp files (automatic with context manager)
+### Handle Results Properly
+Commands that return values (Input, Choose, Confirm) return None on cancel:
+```python
+result = popup.add(GumInput()).show()
+if result:  # User entered something
+    process(result)
+```
 
-## Architecture Notes
+### Use Style Shortcuts
+GumStyle has built-in shortcuts for common patterns:
+- `header=True` - Bold, centered, bordered
+- `info=True` - Blue text
+- `warning=True` - Yellow bold
+- `error=True` - Red bold
 
-### Build Phase
-Popup accumulates gum commands into a shell script.
-
-### Execution Phase
-Script runs in `tmux display-popup -E script.sh` with temp file redirects.
-
-### Result Phase
-Reads results from temp files, returns clean Python values.
+### Parallel Command Selection
+For multiple independent selections, use separate popups or GumFilter with limit=0:
+```python
+# Multiple selection in one popup
+selected = popup.add(
+    GumFilter(options, limit=0, fuzzy=True)
+).show()  # Returns list
+```
 
 ## Common Patterns
 
 ### SSH Command Confirmation
 ```python
-def before_send(self, pane: Pane, command: str) -> str | None:
-    p = Popup(title="SSH Command")
-    p.header("Remote Execution")
-    p.warning(f"Command: {command}")
-    
-    # Direct edit prompt - ESC cancels, Enter executes
-    edited = p.input(
-        placeholder="Press Enter to execute or ESC to cancel",
-        header="Edit command:",
-        value=command
-    )
-    
-    # Empty string means user pressed ESC
-    return edited if edited else None
+popup.add(
+    GumStyle("Remote Execution", header=True),
+    GumStyle(f"Command: {cmd}", info=True),
+    "",
+    "Edit or press Enter to execute",
+    GumInput(value=cmd, placeholder="ESC to cancel")
+).show()
 ```
 
-### Multi-Select Features
+### Process Selection
 ```python
-features = p.choose(
-    [("feat1", "Feature 1"), ("feat2", "Feature 2")],
-    limit=3,  # Allow multiple
-    selected_prefix="[✓] "
-)
-# Returns list when limit > 1
+rows = [["PID", "Name", "Status"], ...]
+popup.add(
+    GumTable(rows[1:], headers=rows[0], return_column=2)
+).show()  # Returns selected row's Name column
 ```
 
-## Limitations
-- Requires tmux session
-- Interactive components block execution
-- No live updates (must recreate popup)
-
-## Testing
+### Multi-Step Workflow
 ```python
-from termtap.popup.examples import *
-basic_popup()  # Test display components
-choice_with_values()  # Test value/display
-table_selection()  # Test table with columns
+# Step 1: Choose action
+action = popup.add(GumChoose([...]).show()
+
+# Step 2: Get details based on action
+if action == "edit":
+    text = Popup().add(GumWrite()).show()
 ```
+
+## Implementation Notes
+
+- Commands are single-use (create new for each popup)
+- Temp files auto-cleanup after show()
+- Raw shell commands can be mixed with Command objects
+- All gum styling flags available via command constructors
