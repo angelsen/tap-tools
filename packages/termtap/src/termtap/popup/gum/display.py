@@ -6,10 +6,10 @@ from .base import _DisplayCommand
 
 class GumStyle(_DisplayCommand):
     """Styled text display.
-    
+
     Supports colors, borders, alignment, and text formatting.
     """
-    
+
     def __init__(
         self,
         text: str,
@@ -29,16 +29,16 @@ class GumStyle(_DisplayCommand):
         # Borders and spacing
         border: Optional[str] = None,  # none, normal, rounded, thick, double, hidden
         padding: Optional[str] = None,  # "1" or "1 2" (vertical horizontal)
-        margin: Optional[str] = None,   # "1" or "1 2" (vertical horizontal)
+        margin: Optional[str] = None,  # "1" or "1 2" (vertical horizontal)
         # Style shortcuts
-        info: bool = False,     # Blue text
-        success: bool = False,   # Green text
-        warning: bool = False,   # Yellow text
-        error: bool = False,     # Red text
-        header: bool = False,    # Bold, centered, bordered
+        info: bool = False,  # Blue text
+        success: bool = False,  # Green text
+        warning: bool = False,  # Yellow text
+        error: bool = False,  # Red text
+        header: bool = False,  # Bold, centered, bordered
     ):
         """Initialize styled text.
-        
+
         Args:
             text: Text to display.
             bold: Bold text.
@@ -62,7 +62,7 @@ class GumStyle(_DisplayCommand):
         """
         super().__init__("style")
         self.text = text
-        
+
         # Apply shortcuts
         if header:
             bold = True
@@ -79,7 +79,7 @@ class GumStyle(_DisplayCommand):
         elif error:
             foreground = foreground or "9"
             bold = True
-        
+
         # Store final values
         self.bold = bold
         self.italic = italic
@@ -94,14 +94,14 @@ class GumStyle(_DisplayCommand):
         self.border = border
         self.padding = padding
         self.margin = margin
-    
+
     def render(self) -> List[str]:
         """Render style command."""
         args = self.build_base_cmd()
-        
+
         # Add text
         args.append(self.quote(self.text))
-        
+
         # Text formatting
         if self.bold:
             args.append("--bold")
@@ -113,22 +113,22 @@ class GumStyle(_DisplayCommand):
             args.append("--underline")
         if self.strikethrough:
             args.append("--strikethrough")
-        
+
         # Colors
         if self.foreground:
             args.extend(["--foreground", str(self.foreground)])
         if self.background:
             args.extend(["--background", str(self.background)])
-        
+
         # Layout
         if self.align != "left":
             args.extend(["--align", self.align])
-        
+
         if self.width > 0:
             args.extend(["--width", str(self.width)])
         if self.height > 0:
             args.extend(["--height", str(self.height)])
-        
+
         # Borders and spacing
         if self.border:
             args.extend(["--border", self.border])
@@ -136,25 +136,25 @@ class GumStyle(_DisplayCommand):
             args.extend(["--padding", self.quote(self.padding)])
         if self.margin:
             args.extend(["--margin", self.quote(self.margin)])
-        
+
         return [" ".join(args)]
 
 
 class GumFormat(_DisplayCommand):
     """Format text with various processors.
-    
+
     Supports markdown, template, code, and emoji formatting.
     """
-    
+
     def __init__(
         self,
         text: str,
         type: str = "markdown",  # markdown, template, code, emoji
-        theme: str = "pink",      # For markdown
-        language: str = "",       # For code
+        theme: str = "pink",  # For markdown
+        language: str = "",  # For code
     ):
         """Initialize format command.
-        
+
         Args:
             text: Text to format.
             type: Format type (markdown, template, code, emoji).
@@ -166,26 +166,26 @@ class GumFormat(_DisplayCommand):
         self.type = type
         self.theme = theme
         self.language = language
-    
+
     def render(self) -> List[str]:
         """Render format command."""
         args = self.build_base_cmd()
-        
+
         # Format-specific args
         args.extend(["--type", self.type])
-        
+
         if self.type == "markdown":
             args.extend(["--theme", self.theme])
         elif self.type == "code" and self.language:
             args.extend(["--language", self.language])
-        
+
         # Use echo to pipe text
         return [f"echo {self.quote(self.text)} | {' '.join(args)}"]
 
 
 class GumLog(_DisplayCommand):
     """Structured logging output."""
-    
+
     def __init__(
         self,
         message: str,
@@ -195,7 +195,7 @@ class GumLog(_DisplayCommand):
         structured: bool = False,
     ):
         """Initialize log command.
-        
+
         Args:
             message: Log message.
             level: Log level.
@@ -209,24 +209,24 @@ class GumLog(_DisplayCommand):
         self.prefix = prefix
         self.time = time
         self.structured = structured
-    
+
     def render(self) -> List[str]:
         """Render log command."""
         args = self.build_base_cmd()
-        
+
         # Add message
         args.append(self.quote(self.message))
-        
+
         # Log-specific args
         args.extend(["--level", self.level])
-        
+
         if self.prefix:
             args.extend(["--prefix", self.quote(self.prefix)])
-        
+
         if self.time:
             args.extend(["--time", self.time])
-        
+
         if self.structured:
             args.append("--structured")
-        
+
         return [" ".join(args)]

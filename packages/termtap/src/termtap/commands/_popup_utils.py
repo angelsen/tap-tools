@@ -27,9 +27,7 @@ def _format_pane_for_selection(pane_info: dict) -> str:
 
 
 def _select_single_pane(
-    panes: List[dict],
-    title: str = "Select Pane",
-    action: str = "Choose Target Pane"
+    panes: List[dict], title: str = "Select Pane", action: str = "Choose Target Pane"
 ) -> Optional[str]:
     """Select a single pane using fuzzy filtering with styled popup.
 
@@ -44,30 +42,20 @@ def _select_single_pane(
     if not panes:
         return None
 
-    options = [
-        (pane_info.get("Pane", ""), _format_pane_for_selection(pane_info))
-        for pane_info in panes
-    ]
+    options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
     popup = Popup(title=title, width="65")
     selected = popup.add(
         GumStyle(action, header=True),
         "Select the target pane for command execution:",
         "",
-        GumFilter(
-            options=options,
-            placeholder="Type to search panes...",
-            fuzzy=True,
-            limit=1
-        )
+        GumFilter(options=options, placeholder="Type to search panes...", fuzzy=True, limit=1),
     ).show()
 
     return selected if selected else None
 
 
 def _select_multiple_panes(
-    panes: List[dict],
-    title: str = "Select Panes",
-    action: str = "Choose Target Panes"
+    panes: List[dict], title: str = "Select Panes", action: str = "Choose Target Panes"
 ) -> List[str]:
     """Select multiple panes using fuzzy filtering with styled popup.
 
@@ -82,32 +70,21 @@ def _select_multiple_panes(
     if not panes:
         return []
 
-    options = [
-        (pane_info.get("Pane", ""), _format_pane_for_selection(pane_info))
-        for pane_info in panes
-    ]
+    options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
     popup = Popup(title=title, width="65")
     selected = popup.add(
         GumStyle(action, header=True),
         "Select panes to read from:",
         "Use space/tab to select multiple, Enter to confirm",
         "",
-        GumFilter(
-            options=options,
-            placeholder="Type to search, space to select multiple...",
-            fuzzy=True,
-            limit=0
-        )
+        GumFilter(options=options, placeholder="Type to search, space to select multiple...", fuzzy=True, limit=0),
     ).show()
 
     return selected if isinstance(selected, list) else []
 
 
 def _select_or_create_pane(
-    panes: List[dict],
-    title: str = "Select Pane",
-    action: str = "Choose Target Pane",
-    allow_create: bool = True
+    panes: List[dict], title: str = "Select Pane", action: str = "Choose Target Pane", allow_create: bool = True
 ) -> Optional[tuple[str, str]]:
     """Select a single pane or create a new session.
 
@@ -122,50 +99,39 @@ def _select_or_create_pane(
     """
     # First try to select an existing pane
     if panes:
-        options = [
-            (pane_info.get("Pane", ""), _format_pane_for_selection(pane_info))
-            for pane_info in panes
-        ]
+        options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
         popup = Popup(title=title, width="65")
         selected = popup.add(
             GumStyle(action, header=True),
             "Select the target pane for command execution:",
             "",
-            GumFilter(
-                options=options,
-                placeholder="Type to search panes...",
-                fuzzy=True,
-                limit=1
-            )
+            GumFilter(options=options, placeholder="Type to search panes...", fuzzy=True, limit=1),
         ).show()
-        
+
         if selected:
             # Selected is the session:window.pane format
             from ..tmux import resolve_target_to_pane
+
             try:
                 pane_id, swp = resolve_target_to_pane(selected)
                 return (pane_id, swp)
             except RuntimeError:
                 return None
-    
+
     # Offer to create new session if no selection and creation is allowed
     if allow_create:
         from ..tmux.names import _generate_session_name
         from ..tmux import resolve_or_create_target
-        
+
         generated_name = _generate_session_name()
         popup = Popup(title="Create Session", width="50")
         session_name = popup.add(
             GumStyle("Create New Session", header=True),
             "No pane selected. Enter name for new session:",
             "",
-            GumInput(
-                value=generated_name,
-                placeholder="Session name...",
-                prompt="Name: "
-            )
+            GumInput(value=generated_name, placeholder="Session name...", prompt="Name: "),
         ).show()
-        
+
         if session_name:
             try:
                 pane_id, swp = resolve_or_create_target(session_name)
@@ -173,5 +139,5 @@ def _select_or_create_pane(
             except RuntimeError:
                 # Creation failed
                 return None
-    
+
     return None

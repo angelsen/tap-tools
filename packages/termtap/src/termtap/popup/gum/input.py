@@ -6,7 +6,7 @@ from .base import _InputCommand
 
 class GumInput(_InputCommand):
     """Single-line text input."""
-    
+
     def __init__(
         self,
         placeholder: str = "Type something...",
@@ -20,7 +20,7 @@ class GumInput(_InputCommand):
         show_help: bool = True,
     ):
         """Initialize input command.
-        
+
         Args:
             placeholder: Placeholder text when empty.
             value: Initial value.
@@ -37,26 +37,26 @@ class GumInput(_InputCommand):
         self.width = width
         self.password = password
         self.timeout = timeout
-    
+
     def render(self) -> list[str]:
         """Render input command."""
         args = self.build_base_cmd()
-        
+
         # Add base input args
         self.add_input_args(args)
-        
+
         # Input-specific args
         args.extend(["--prompt", self.quote(self.prompt)])
-        
+
         if self.width > 0:
             args.extend(["--width", str(self.width)])
-        
+
         if self.password:
             args.append("--password")
-        
+
         if self.timeout is not None:
             args.extend(["--timeout", f"{self.timeout}s"])
-        
+
         if self._result_file:
             return [f"{' '.join(args)} > {self._result_file}"]
         else:
@@ -65,7 +65,7 @@ class GumInput(_InputCommand):
 
 class GumWrite(_InputCommand):
     """Multi-line text input."""
-    
+
     def __init__(
         self,
         placeholder: str = "Write something...",
@@ -81,7 +81,7 @@ class GumWrite(_InputCommand):
         show_help: bool = True,
     ):
         """Initialize write command.
-        
+
         Args:
             placeholder: Placeholder text when empty.
             value: Initial value.
@@ -102,32 +102,32 @@ class GumWrite(_InputCommand):
         self.show_line_numbers = show_line_numbers
         self.show_cursor_line = show_cursor_line
         self.timeout = timeout
-    
+
     def render(self) -> list[str]:
         """Render write command."""
         args = self.build_base_cmd()
-        
+
         # Add base input args
         self.add_input_args(args)
-        
+
         # Write-specific args
         if self.width > 0:
             args.extend(["--width", str(self.width)])
-        
+
         args.extend(["--height", str(self.height)])
-        
+
         if self.max_lines > 0:
             args.extend(["--max-lines", str(self.max_lines)])
-        
+
         if self.show_line_numbers:
             args.append("--show-line-numbers")
-        
+
         if self.show_cursor_line:
             args.append("--show-cursor-line")
-        
+
         if self.timeout is not None:
             args.extend(["--timeout", f"{self.timeout}s"])
-        
+
         if self._result_file:
             return [f"{' '.join(args)} > {self._result_file}"]
         else:

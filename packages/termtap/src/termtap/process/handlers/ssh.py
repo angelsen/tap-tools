@@ -154,12 +154,9 @@ class _SSHHandler(ProcessHandler):
             GumStyle(f"Command: {truncate_command(command)}", info=True),
             "",
             "Edit the command or press Enter to execute as-is",
-            GumInput(
-                placeholder="Press Enter to execute or ESC to cancel",
-                value=command
-            )
+            GumInput(placeholder="Press Enter to execute or ESC to cancel", value=command),
         ).show()
-        
+
         return edited if edited else None
 
     def after_send(self, pane: Pane, command: str) -> None:
@@ -183,5 +180,5 @@ class _SSHHandler(ProcessHandler):
             "The command has been sent to the remote host.",
             "Press Enter when the command has completed.",
             "",
-            "read -r"
+            "read -r",
         ).show()

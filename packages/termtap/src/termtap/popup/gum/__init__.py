@@ -6,21 +6,21 @@ PUBLIC API:
     - GumFilter: Fuzzy search selection
     - GumFile: File/directory picker
     - GumTable: Table row selection
-  
+
   Input Commands:
     - GumInput: Single-line text input
     - GumWrite: Multi-line text input
     - GumConfirm: Yes/no confirmation
-  
+
   Display Commands:
     - GumStyle: Styled text output
     - GumFormat: Format text (markdown/emoji/code)
     - GumLog: Structured logging
     - GumPager: Scrollable content viewer
-  
+
   Layout Commands:
     - GumJoin: Join text horizontally/vertically
-  
+
   Process Commands:
     - GumSpin: Execute with spinner
 """

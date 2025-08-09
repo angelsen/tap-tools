@@ -45,20 +45,18 @@ def bash(
     if target == "interactive":
         from ._popup_utils import _select_or_create_pane
         from .ls import ls
-        
+
         available_panes = ls(state)
         result = _select_or_create_pane(
-            available_panes,
-            title="Execute Command",
-            action="Choose Target Pane for Command Execution"
+            available_panes, title="Execute Command", action="Choose Target Pane for Command Execution"
         )
-        
+
         if not result:
             return {
                 "elements": [{"type": "text", "content": "Operation cancelled"}],
                 "frontmatter": {"status": "cancelled"},
             }
-        
+
         pane_id, session_window_pane = result
     else:
         try:
