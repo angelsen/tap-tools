@@ -2,6 +2,21 @@
 
 PUBLIC API:
   - (Internal module - no public API)
+
+TESTING LOG:
+Date: 2025-07-30
+System: Linux 6.12.39-1-lts
+Process: ssh (OpenSSH client)
+Tracking: ~/.termtap/tracking/20250730_001318_ssh_klaudone
+
+Observed wait_channels:
+- unix_stream_read_generic: SSH waiting for network data (ready)
+- do_sys_poll: SSH polling for input/output (ready)
+
+Notes:
+- SSH shows different wait_channels but both indicate ready state
+- Transitions between unix_stream_read_generic and do_sys_poll
+- No working states observed during connection
 """
 
 import hashlib
