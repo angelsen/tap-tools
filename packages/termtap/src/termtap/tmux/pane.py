@@ -19,7 +19,7 @@ import subprocess
 import hashlib
 
 from .core import run_tmux, _is_current_pane, _get_current_pane
-from .exceptions import CurrentPaneError, PaneNotFoundError
+from ._exceptions import CurrentPaneError, PaneNotFoundError
 from ..types import SessionWindowPane
 
 

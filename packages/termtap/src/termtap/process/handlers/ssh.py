@@ -2,21 +2,6 @@
 
 PUBLIC API:
   - (Internal module - no public API)
-
-TESTING LOG:
-Date: 2025-07-30
-System: Linux 6.12.39-1-lts
-Process: ssh (OpenSSH client)
-Tracking: ~/.termtap/tracking/20250730_001318_ssh_klaudone
-
-Observed wait_channels:
-- unix_stream_read_generic: SSH waiting for network data (ready)
-- do_sys_poll: SSH polling for input/output (ready)
-
-Notes:
-- SSH shows different wait_channels but both indicate ready state
-- Transitions between unix_stream_read_generic and do_sys_poll
-- No working states observed during connection
 """
 
 import hashlib
@@ -66,7 +51,6 @@ class _SSHHandler(ProcessHandler):
             Process age in seconds, or 0.0 if unable to determine.
         """
         try:
-            # Read stat file
             with open(f"/proc/{pid}/stat", "r") as f:
                 stat = f.read()
             fields = stat[stat.rfind(")") + 1 :].strip().split()
@@ -75,12 +59,10 @@ class _SSHHandler(ProcessHandler):
 
             starttime_ticks = int(fields[19])
 
-            # Get system info
             hz = os.sysconf(os.sysconf_names.get("SC_CLK_TCK", 2))
             with open("/proc/uptime", "r") as f:
                 uptime = float(f.read().split()[0])
 
-            # Calculate age
             process_uptime = starttime_ticks / hz
             age = uptime - process_uptime
             return age
@@ -118,7 +100,7 @@ class _SSHHandler(ProcessHandler):
 
         track = self._screenshot_tracking[pane_id]
 
-        # Reset tracking if process changed
+        # Process changed, reset tracking data
         if track["process_pid"] != pane.process.pid:
             self._screenshot_tracking[pane_id] = {
                 "process_pid": pane.process.pid,
@@ -152,20 +134,14 @@ class _SSHHandler(ProcessHandler):
             Configured Popup instance with SSH-specific theming.
         """
         from ...popup import Popup, Theme
-        
+
         tmux_title = pane.title or "SSH Session"
-        
-        theme = Theme(
-            header="--bold --foreground 14 --border rounded --align center --width 61"
-        )
-        
-        popup = Popup(
-            title=tmux_title, 
-            theme=theme,
-            width="65"
-        )
+
+        theme = Theme(header="--bold --foreground 14 --border rounded --align center --width 61")
+
+        popup = Popup(title=tmux_title, theme=theme, width="65")
         popup.header(action)
-        
+
         return popup
 
     def before_send(self, pane: Pane, command: str) -> str | None:
@@ -179,17 +155,13 @@ class _SSHHandler(ProcessHandler):
             Modified command or None to cancel.
         """
         from ...utils import truncate_command
-        
+
         p = self._create_ssh_popup(pane, "Remote Command Execution")
-        
+
         p.info(f"Command: {truncate_command(command)}")
         p.text("")
         p.text("Edit the command or press Enter to execute as-is")
-        edited = p.input(
-            placeholder="Press Enter to execute or ESC to cancel", 
-            header="", 
-            value=command
-        )
+        edited = p.input(placeholder="Press Enter to execute or ESC to cancel", header="", value=command)
         return edited if edited else None
 
     def after_send(self, pane: Pane, command: str) -> None:
@@ -199,13 +171,12 @@ class _SSHHandler(ProcessHandler):
             pane: Target pane.
             command: Command that was sent.
         """
-        import time
         from ...utils import truncate_command
 
         time.sleep(0.5)
 
         p = self._create_ssh_popup(pane, "Waiting for Command Completion")
-        
+
         p.info(f"Command: {truncate_command(command)}")
         p.text("")
         p.text("The command has been sent to the remote host.")

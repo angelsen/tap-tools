@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 
-
-
 @dataclass
 class Theme:
     """Style theme for consistent popup appearance.
@@ -46,8 +44,6 @@ class Theme:
     panel: str = "--border rounded --padding 1"
     accent: str = "--foreground 14 --bold"
     faint: str = "--foreground 8 --faint"
-
-
 
 
 class Popup:
@@ -87,7 +83,6 @@ class Popup:
         self._result_file: Optional[Path] = None
         self._cleanup_files: List[Path] = []
 
-
     def _add_line(self, line: str) -> "Popup":
         """Add a line to the popup script."""
         self._script_lines.append(line)
@@ -100,7 +95,6 @@ class Popup:
         style_cmd = " ".join(shlex.quote(arg) for arg in style_args)
         self._add_line(f"gum style {escaped_text} {style_cmd}")
         return self
-
 
     def header(self, text: str) -> "Popup":
         """Add styled header."""
@@ -141,7 +135,6 @@ class Popup:
         line = char * width
         self._add_gum_style(line, getattr(self.theme, "faint", ""))
         return self
-
 
     def choose(
         self,
@@ -200,7 +193,7 @@ class Popup:
                     value, display = option
                     options_file.write(f"{display}:{value}\n")
                 else:
-                            options_file.write(f"{option}:{option}\n")
+                    options_file.write(f"{option}:{option}\n")
             options_file.close()
             self._cleanup_files.append(Path(options_file.name))
 
@@ -337,7 +330,7 @@ class Popup:
         # Create options file for filter input
         options_file = tempfile.NamedTemporaryFile(mode="w", suffix=".opts", delete=False)
         value_map = {}
-        
+
         if has_tuples:
             for option in options:
                 if isinstance(option, tuple):
@@ -355,20 +348,20 @@ class Popup:
         self._cleanup_files.append(Path(options_file.name))
 
         cmd_parts = ["gum", "filter"]
-        
+
         if fuzzy:
             cmd_parts.append("--fuzzy")
-        
+
         if limit == 0:
             cmd_parts.append("--no-limit")
         elif limit > 1:
             cmd_parts.extend(["--limit", str(limit)])
-        
+
         cmd_parts.extend(["--placeholder", shlex.quote(placeholder)])
-        
+
         if header:
             cmd_parts.extend(["--header", shlex.quote(header)])
-        
+
         if height > 0:
             cmd_parts.extend(["--height", str(height)])
 
@@ -456,7 +449,6 @@ class Popup:
 
         return result
 
-
     def show(self) -> None:
         """Display the popup with accumulated content."""
         self._show_popup()
@@ -495,7 +487,6 @@ class Popup:
 
         self._script_lines.clear()
 
-
     def cleanup(self) -> None:
         """Clean up temporary files."""
         for temp_file in self._cleanup_files:
@@ -510,8 +501,6 @@ class Popup:
     def __exit__(self, *args) -> None:
         """Context manager exit with cleanup."""
         self.cleanup()
-
-
 
 
 def quick_confirm(message: str, default: bool = False) -> bool:
@@ -571,5 +560,5 @@ def quick_info(title: str, message: str) -> None:
         p.header(title)
         p.info(message)
         p.text("\nPress Enter to close")
-        p._add_line("read -r")  # Pause for user input
+        p._add_line("read -r")
         p.show()

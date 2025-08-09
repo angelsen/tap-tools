@@ -1,7 +1,4 @@
-"""Complex structure creation - handles multi-window/pane creation.
-
-NOTE: All functions in this module are for internal use within tmux module.
-"""
+"""Complex structure creation - handles multi-window/pane creation."""
 
 from .core import run_tmux, _get_pane_id
 from .session import session_exists, create_session
@@ -21,31 +18,24 @@ def _get_or_create_session_with_structure(
     Returns:
         Tuple of (pane_id, session:window.pane)
     """
-    # First check if the exact location exists
     swp = f"{session}:{window}.{pane}"
     pane_id = _get_pane_id(session, str(window), str(pane))
     if pane_id:
-        # Already exists
         return pane_id, swp
 
     if not session_exists(session):
         if window == 0 and pane == 0:
-            # Simple case - just create session
             return create_session(session, start_dir)
         else:
-            # Need to create session then add windows/panes
             pane_id, _ = create_session(session, start_dir)
-            # Fall through to create additional structure
 
-    # Session exists, check if we need to create window
     if window > 0:
         code, _, _ = run_tmux(["list-windows", "-t", f"{session}:{window}", "-F", "#{window_index}"])
         if code != 0:
-            current_windows = __count_windows(session)
+            current_windows = _count_windows(session)
             for i in range(current_windows, window + 1):
                 run_tmux(["new-window", "-t", f"{session}:", "-c", start_dir])
 
-    # Now handle panes
     if pane > 0:
         code, stdout, _ = run_tmux(["list-panes", "-t", f"{session}:{window}", "-F", "#{pane_index}"])
         if code == 0:
@@ -53,7 +43,6 @@ def _get_or_create_session_with_structure(
             for i in range(existing_panes, pane + 1):
                 run_tmux(["split-window", "-t", f"{session}:{window}.{i - 1}", "-c", start_dir])
 
-    # Get the final pane ID - need to filter to get exact pane
     code, stdout, _ = run_tmux(
         [
             "list-panes",
@@ -71,7 +60,7 @@ def _get_or_create_session_with_structure(
         raise RuntimeError(f"Failed to create pane at {swp}")
 
 
-def __count_windows(session: str) -> int:
+def _count_windows(session: str) -> int:
     """Count windows in a session.
 
     Args:

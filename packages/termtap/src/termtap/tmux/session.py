@@ -1,6 +1,9 @@
 """Session management - pure session operations.
 
-NOTE: All functions in this module are for internal use within tmux module.
+PUBLIC API:
+  - session_exists: Check if session exists
+  - create_session: Create new tmux session
+  - kill_session: Kill tmux session
 """
 
 from typing import Optional, NamedTuple, List
@@ -113,12 +116,8 @@ def __attach_session(name: str) -> bool:
     return code == 0
 
 
-def list_sessions() -> List[SessionInfo]:
-    """List all tmux sessions.
-
-    Returns:
-        List of session information objects.
-    """
+def _list_sessions() -> List[SessionInfo]:
+    """List all tmux sessions."""
     code, stdout, _ = run_tmux(["list-sessions", "-F", "#{session_name}:#{session_created}:#{session_attached}"])
 
     if code != 0:
@@ -132,7 +131,7 @@ def list_sessions() -> List[SessionInfo]:
     return sessions
 
 
-def get_or_create_session(
+def _get_or_create_session(
     target: Optional[str] = None, start_dir: str = "."
 ) -> tuple[str, Optional[str], Optional[str]]:
     """Get existing or create new session.
@@ -140,10 +139,6 @@ def get_or_create_session(
     Args:
         target: Target session name. Generates unique name if None.
         start_dir: Starting directory. Defaults to '.'.
-
-    Returns:
-        Tuple of (session_name, pane_id, session:window.pane).
-        For existing sessions, pane_id and swp are None.
     """
     if target is None:
         # Generate unique name
