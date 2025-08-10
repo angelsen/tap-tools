@@ -1,5 +1,7 @@
 """Internal Claude CLI handler using content detection.
 
+Specialized handler for Anthropic Claude CLI processes.
+
 # to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-01-30
@@ -24,13 +26,17 @@ from ...pane import Pane
 
 
 class _ClaudeHandler(ProcessHandler):
-    """Claude CLI handler using content-based state detection."""
+    """Claude CLI handler using content-based state detection.
 
-    handles = ["claude"]
+    Uses pane content to determine Claude's state since process-based
+    detection is unreliable (Claude always has MCP server children).
+    """
+
+    _handles = ["claude"]
 
     def can_handle(self, pane: Pane) -> bool:
         """Check if this handler manages Claude CLI processes."""
-        return bool(pane.process and pane.process.name in self.handles)
+        return bool(pane.process and pane.process.name in self._handles)
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if Claude is ready for input using content detection.

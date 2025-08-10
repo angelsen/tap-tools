@@ -1,5 +1,7 @@
 """Internal Python handler for REPL and script processes.
 
+Specialized handler for Python interpreters including IPython.
+
 # to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-08-07
@@ -34,13 +36,17 @@ from ...pane import Pane
 
 
 class _PythonHandler(ProcessHandler):
-    """Handler for Python processes including REPL and scripts."""
+    """Handler for Python processes including REPL and scripts.
 
-    handles = ["python", "python3", "python3.11", "python3.12", "python3.13", "ipython", "termtap"]
+    Provides specialized handling for Python REPLs including smart
+    indentation processing and wait channel detection.
+    """
+
+    _handles = ["python", "python3", "python3.11", "python3.12", "python3.13", "ipython", "termtap"]
 
     def can_handle(self, pane: Pane) -> bool:
         """Check if this handler manages Python processes."""
-        return bool(pane.process and pane.process.name in self.handles)
+        return bool(pane.process and pane.process.name in self._handles)
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Determine if Python is ready for input using wait channel patterns.
@@ -71,6 +77,59 @@ class _PythonHandler(ProcessHandler):
         if pane.process.wait_channel == "hrtimer_nanosleep":
             return False, "executing sleep/timing operation"
         return None, f"unrecognized wait_channel: {pane.process.wait_channel}"
+
+    def before_send(self, pane: Pane, command: str) -> str | None:
+        """Process command before sending to Python REPL.
+
+        Adds smart newlines for proper REPL indentation handling:
+        - Removes all empty lines first for consistent processing
+        - Adds blank line when transitioning from indented to non-indented code
+        - Preserves compound statements (if/elif/else, try/except/finally)
+        - Ensures proper block completion in interactive mode
+
+        Args:
+            pane: Target pane.
+            command: Command to process.
+
+        Returns:
+            Modified command or None to cancel.
+        """
+        # Only process multi-line commands for Python REPLs
+        if "\n" not in command:
+            return command
+
+        # Remove all empty lines first to normalize input
+        lines = [line for line in command.split("\n") if line.strip()]
+
+        # If no lines left, return empty
+        if not lines:
+            return ""
+
+        # Keywords that continue a compound statement (don't separate with blank line)
+        compound_keywords = {"elif", "else", "except", "finally"}
+
+        result = []
+        prev_indented = False
+
+        for line in lines:
+            is_indented = line[0] in " \t"
+
+            # Check if line starts with a compound keyword
+            starts_with_compound = any(line.strip().startswith(kw) for kw in compound_keywords)
+
+            # Transition from indented to non-indented? Add blank line
+            # UNLESS it's a compound statement continuation
+            if prev_indented and not is_indented and not starts_with_compound:
+                result.append("")
+
+            result.append(line)
+            prev_indented = is_indented
+
+        # Close any final indented block
+        if prev_indented:
+            result.append("")
+
+        return "\n".join(result)
 
     def _apply_filters(self, raw_output: str) -> str:
         """Apply minimal filtering for Python REPL output.

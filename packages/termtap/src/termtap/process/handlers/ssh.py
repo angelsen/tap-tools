@@ -1,5 +1,7 @@
 """Internal SSH handler with connection detection and command confirmation.
 
+Specialized handler for SSH client processes with interactive features.
+
 # to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-07-30
@@ -25,15 +27,19 @@ from ...pane import Pane
 
 
 class _SSHHandler(ProcessHandler):
-    """SSH client handler with connection detection and command confirmation."""
+    """SSH client handler with connection detection and command confirmation.
 
-    handles = ["ssh"]
+    Provides connection state detection and interactive command confirmation
+    popups for remote command execution safety.
+    """
+
+    _handles = ["ssh"]
 
     _screenshot_tracking = {}
 
     def can_handle(self, pane: Pane) -> bool:
         """Check if this handler manages SSH processes."""
-        return bool(pane.process and pane.process.name in self.handles)
+        return bool(pane.process and pane.process.name in self._handles)
 
     def _get_process_age(self, pid: int) -> float:
         """Get process age in seconds from /proc.
@@ -162,5 +168,5 @@ class _SSHHandler(ProcessHandler):
         from ...filters import strip_trailing_empty_lines, collapse_empty_lines
 
         output = strip_trailing_empty_lines(raw_output)
-        output = collapse_empty_lines(output, threshold=3)  # More aggressive
+        output = collapse_empty_lines(output, threshold=3)
         return output

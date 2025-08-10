@@ -1,4 +1,7 @@
-"""Internal default handler for standard processes."""
+"""Internal default handler for standard processes.
+
+Fallback handler for processes not handled by specialized handlers.
+"""
 
 from . import ProcessHandler
 from ...pane import Pane
