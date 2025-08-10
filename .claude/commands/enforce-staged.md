@@ -37,8 +37,8 @@ Apply Python naming conventions starting from staged files, then fix all necessa
 
 **Launch specialized agents for staged files:**
 1. For each staged file, determine the appropriate agent:
-   - Python module with __init__.py → Launch `python-module-enforcer` agent
-   - Standalone Python file → Launch `python-file-enforcer` agent
+   - Any Python file that's part of a module (has __init__.py in its directory or parent directories) → Launch `python-module-enforcer` agent for the entire module
+   - Standalone Python file (NOT in a module, no __init__.py anywhere in its path) → Launch `python-file-enforcer` agent
    - Shell script → Launch `shell-script-enforcer` agent
 2. Provide agents with:
    - Target path of the staged file or its parent module
