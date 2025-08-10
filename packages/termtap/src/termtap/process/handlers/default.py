@@ -1,11 +1,11 @@
-"""Default handler for standard processes."""
+"""Internal default handler for standard processes."""
 
 from . import ProcessHandler
 from ...pane import Pane
 
 
 class _DefaultHandler(ProcessHandler):
-    """Default handler for standard processes."""
+    """Fallback handler for standard processes."""
 
     def can_handle(self, pane: Pane) -> bool:
         """Handle everything as fallback."""
@@ -16,9 +16,6 @@ class _DefaultHandler(ProcessHandler):
 
         Args:
             pane: Pane with process information.
-
-        Returns:
-            Tuple of (readiness, description).
         """
         if pane.shell and pane.shell.wait_channel == "do_wait":
             if pane.process and not pane.process.children:

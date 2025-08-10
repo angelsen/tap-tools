@@ -1,4 +1,4 @@
-"""Interrupt command - send interrupt signal to panes.
+"""Send interrupt signal to tmux panes.
 
 PUBLIC API:
   - interrupt: Send interrupt signal to target pane
@@ -9,7 +9,6 @@ from typing import Any
 from ..app import app
 from ..pane import Pane, send_interrupt
 from ..tmux import resolve_target_to_pane
-from ..types import Target
 
 
 @app.command(
@@ -21,7 +20,7 @@ from ..types import Target
         "description": "Send interrupt signal to tmux pane",
     },
 )
-def interrupt(state, target: Target = "default") -> dict[str, Any]:
+def interrupt(state, target: str = None) -> dict[str, Any]:  # type: ignore[assignment]
     """Send interrupt signal to target pane.
 
     The handler determines how to interrupt the process.
@@ -29,11 +28,26 @@ def interrupt(state, target: Target = "default") -> dict[str, Any]:
 
     Args:
         state: Application state (unused).
-        target: Target pane identifier. Defaults to "default".
+        target: Target pane identifier. None for interactive selection.
 
     Returns:
         Markdown formatted result with interrupt status.
     """
+    if target is None:
+        from ._popup_utils import _select_single_pane
+        from .ls import ls
+
+        available_panes = ls(state)
+        target = _select_single_pane(
+            available_panes, title="Interrupt Process", action="Choose Target Pane to Interrupt"
+        )
+
+        if not target:
+            return {
+                "elements": [{"type": "text", "content": "Operation cancelled"}],
+                "frontmatter": {"status": "cancelled"},
+            }
+
     try:
         pane_id, session_window_pane = resolve_target_to_pane(target)
     except RuntimeError as e:

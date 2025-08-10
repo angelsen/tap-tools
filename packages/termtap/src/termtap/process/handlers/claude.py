@@ -1,4 +1,4 @@
-"""Claude handler - handles Claude CLI through content detection.
+"""Internal Claude CLI handler using content detection.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
@@ -24,7 +24,7 @@ from ...pane import Pane
 
 
 class _ClaudeHandler(ProcessHandler):
-    """Handler for Claude CLI - content-based detection."""
+    """Claude CLI handler using content-based state detection."""
 
     handles = ["claude"]
 
@@ -37,9 +37,6 @@ class _ClaudeHandler(ProcessHandler):
 
         Args:
             pane: Pane with process information.
-
-        Returns:
-            Tuple of (readiness, description) based on visible content patterns.
         """
         content = pane.visible_content
 

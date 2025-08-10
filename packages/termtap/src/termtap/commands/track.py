@@ -1,4 +1,4 @@
-"""Track command - monitor process state changes over time.
+"""Monitor process state changes over time.
 
 PUBLIC API:
   - track: Monitor process state changes for handler development
@@ -15,11 +15,17 @@ from typing import Any
 from ..app import app
 from ..pane import Pane, process_scan
 from ..tmux import resolve_or_create_target
-from ..types import Target
 
 
 def _capture_raw_state(pane: Pane) -> dict:
-    """Capture raw pane state without handler interpretation."""
+    """Capture raw pane state without handler interpretation.
+    
+    Args:
+        pane: Pane to capture state from.
+        
+    Returns:
+        Dict with raw pane state information.
+    """
     from ..tmux.pane import capture_visible
 
     screenshot = capture_visible(pane.pane_id)
@@ -41,7 +47,15 @@ def _capture_raw_state(pane: Pane) -> dict:
 
 
 def _collect_sample(pane: Pane, elapsed: float) -> dict:
-    """Collect single tracking sample with timestamp."""
+    """Collect single tracking sample with timestamp.
+    
+    Args:
+        pane: Pane to sample.
+        elapsed: Time elapsed since tracking start.
+        
+    Returns:
+        Dict with tracking sample data.
+    """
     state = _capture_raw_state(pane)
 
     return {
@@ -69,8 +83,8 @@ def _collect_sample(pane: Pane, elapsed: float) -> dict:
 )
 def track(
     state,
-    commands: str = "",
-    target: Target = "default",
+    commands: str = None,  # type: ignore[assignment]
+    target: str = None,  # type: ignore[assignment]
     duration: float = 10.0,
     enter: bool = True,
 ) -> dict[str, Any]:
@@ -81,8 +95,8 @@ def track(
 
     Args:
         state: Application state (unused).
-        commands: Commands to send (or empty string for idle tracking).
-        target: Target pane. Defaults to "default".
+        commands: Commands to send (None for idle tracking).
+        target: Target pane. None for interactive selection.
         duration: Tracking duration in seconds. Defaults to 10.0.
         enter: Whether to send Enter after commands. Defaults to True.
 
@@ -95,19 +109,36 @@ def track(
             "frontmatter": {"error": "Invalid duration", "status": "error"},
         }
 
-    try:
-        pane_id, _ = resolve_or_create_target(target)
-    except Exception as e:
-        return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"error": str(e), "status": "error"},
-        }
+    if target is None:
+        from ._popup_utils import _select_or_create_pane
+        from .ls import ls
+
+        available_panes = ls(state)
+        result = _select_or_create_pane(
+            available_panes, title="Track Process", action="Choose Target Pane for Tracking"
+        )
+
+        if not result:
+            return {
+                "elements": [{"type": "text", "content": "Operation cancelled"}],
+                "frontmatter": {"status": "cancelled"},
+            }
+
+        pane_id, _ = result
+    else:
+        try:
+            pane_id, _ = resolve_or_create_target(target)
+        except Exception as e:
+            return {
+                "elements": [{"type": "text", "content": f"Error: {e}"}],
+                "frontmatter": {"error": str(e), "status": "error"},
+            }
 
     base_dir = Path.home() / ".termtap" / "tracking"
     base_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    command_str = commands.strip() if commands.strip() else "idle"
+    command_str = commands.strip() if commands and commands.strip() else "idle"
     slug = re.sub(r"[^\w-]", "_", command_str)[:20].strip("_")
     tracking_dir = base_dir / f"{timestamp}_{slug}"
     tracking_dir.mkdir(exist_ok=True)
@@ -126,9 +157,9 @@ def track(
     except Exception:
         pass
 
-    if commands.strip():
+    if commands and commands.strip():
         try:
-            # Prevent recursive tracking scenarios
+            # Avoid tracking the current pane
             from ..tmux.core import run_tmux
 
             code, stdout, _ = run_tmux(["display-message", "-p", "#{pane_id}"])
@@ -148,7 +179,7 @@ def track(
                 "frontmatter": {"error": str(e), "status": "error"},
             }
 
-        time.sleep(0.1)  # Allow command to start
+        time.sleep(0.1)
 
     while time.time() - start_time < duration:
         elapsed = time.time() - start_time
@@ -172,7 +203,7 @@ def track(
         pass
 
     metadata = {
-        "commands": [commands.strip()] if commands.strip() else [],
+        "commands": [commands.strip()] if commands and commands.strip() else [],
         "enter": enter,
         "target": str(target),
         "duration": duration,
@@ -194,7 +225,7 @@ def track(
         (tracking_dir / "screenshots" / f"{ts:.1f}s.txt").write_text(debug_content)
 
     handlers = sorted(set(s["handler"] for s in samples))
-    cmd_desc = commands.strip() if commands.strip() else "idle"
+    cmd_desc = commands.strip() if commands and commands.strip() else "idle"
 
     return {
         "elements": [

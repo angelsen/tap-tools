@@ -1,4 +1,4 @@
-"""The Pane - pure data with lazy-loaded properties.
+"""Pure pane data class with lazy-loaded properties.
 
 PUBLIC API:
   - Pane: The fundamental data class
@@ -29,7 +29,6 @@ class Pane:
 
     pane_id: str
 
-    # Cached for pane lifetime
     _session_window_pane: Optional[str] = field(default=None, init=False)
     _pid: Optional[int] = field(default=None, init=False)
 
@@ -62,11 +61,11 @@ class Pane:
     @property
     def process_chain(self) -> list["ProcessNode"]:
         """Get process chain - uses scan context if available."""
-        # Use scan context when available for performance
+        # Use scan context for performance
         if hasattr(_scan_context, "chains"):
             return _scan_context.chains.get(self.pid, [])
         else:
-            # Fallback to fresh scan outside context
+            # Fallback when no scan context
             from ..process.tree import get_process_chain
 
             return get_process_chain(self.pid)
@@ -161,7 +160,6 @@ def process_scan(*pane_ids: str):
     from ..process.tree import _get_process_chains_batch
     from ..tmux.core import run_tmux
 
-    # Collect PIDs based on scope
     if pane_ids:
         pids = []
         for pane_id in pane_ids:
@@ -175,7 +173,6 @@ def process_scan(*pane_ids: str):
         else:
             pids = []
 
-    # Single batch scan for all PIDs
     _scan_context.chains = _get_process_chains_batch(pids) if pids else {}
 
     try:

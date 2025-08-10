@@ -1,6 +1,4 @@
-"""SSH process handler with connection state detection and command confirmation.
-
-Internal handler module - no public API.
+"""Internal SSH handler with connection detection and command confirmation.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
@@ -27,29 +25,14 @@ from ...pane import Pane
 
 
 class _SSHHandler(ProcessHandler):
-    """SSH client process handler with connection detection and command confirmation.
-
-    Provides connection state detection using screenshot stability and interactive
-    command confirmation for remote execution safety.
-
-    Attributes:
-        handles: List of process names this handler manages.
-        _screenshot_tracking: Per-pane tracking data for connection detection.
-    """
+    """SSH client handler with connection detection and command confirmation."""
 
     handles = ["ssh"]
 
     _screenshot_tracking = {}
 
     def can_handle(self, pane: Pane) -> bool:
-        """Check if this handler manages SSH processes.
-
-        Args:
-            pane: Pane with process information.
-
-        Returns:
-            True if pane contains an SSH process.
-        """
+        """Check if this handler manages SSH processes."""
         return bool(pane.process and pane.process.name in self.handles)
 
     def _get_process_age(self, pid: int) -> float:
@@ -57,9 +40,6 @@ class _SSHHandler(ProcessHandler):
 
         Args:
             pid: Process ID to check.
-
-        Returns:
-            Process age in seconds, or 0.0 if unable to determine.
         """
         try:
             with open(f"/proc/{pid}/stat", "r") as f:
@@ -83,15 +63,8 @@ class _SSHHandler(ProcessHandler):
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
         """Check if SSH connection is established using screenshot stability.
 
-        For new SSH processes, tracks screenshot changes to detect when
-        the connection is established (screen stabilizes after initial output).
-        Established connections (>5s) are always considered ready.
-
         Args:
             pane: Pane with SSH process information.
-
-        Returns:
-            Tuple of (readiness, description) indicating connection state.
         """
         if not pane.process:
             return True, "no_process"
@@ -140,9 +113,6 @@ class _SSHHandler(ProcessHandler):
         Args:
             pane: Target pane.
             command: Command to be sent.
-
-        Returns:
-            Modified command or None to cancel.
         """
         from ...utils import truncate_command
         from ...popup import Popup
@@ -182,3 +152,15 @@ class _SSHHandler(ProcessHandler):
             "",
             "read -r",
         ).show()
+
+    def _apply_filters(self, raw_output: str) -> str:
+        """Apply aggressive filtering for SSH output.
+
+        Args:
+            raw_output: Raw captured output.
+        """
+        from ...filters import strip_trailing_empty_lines, collapse_empty_lines
+
+        output = strip_trailing_empty_lines(raw_output)
+        output = collapse_empty_lines(output, threshold=3)  # More aggressive
+        return output

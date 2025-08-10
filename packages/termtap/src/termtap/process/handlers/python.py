@@ -1,4 +1,4 @@
-"""Python handler - handles Python REPL and scripts.
+"""Internal Python handler for REPL and script processes.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
@@ -34,7 +34,7 @@ from ...pane import Pane
 
 
 class _PythonHandler(ProcessHandler):
-    """Handler for Python processes - REPL and scripts."""
+    """Handler for Python processes including REPL and scripts."""
 
     handles = ["python", "python3", "python3.11", "python3.12", "python3.13", "ipython", "termtap"]
 
@@ -47,9 +47,6 @@ class _PythonHandler(ProcessHandler):
 
         Args:
             pane: Pane with process information.
-
-        Returns:
-            Tuple of (readiness, description) based on observed patterns.
         """
         if not pane.process:
             return True, "at shell prompt"
@@ -74,3 +71,13 @@ class _PythonHandler(ProcessHandler):
         if pane.process.wait_channel == "hrtimer_nanosleep":
             return False, "executing sleep/timing operation"
         return None, f"unrecognized wait_channel: {pane.process.wait_channel}"
+
+    def _apply_filters(self, raw_output: str) -> str:
+        """Apply minimal filtering for Python REPL output.
+
+        Args:
+            raw_output: Raw captured output.
+        """
+        from ...filters import strip_trailing_empty_lines
+
+        return strip_trailing_empty_lines(raw_output)

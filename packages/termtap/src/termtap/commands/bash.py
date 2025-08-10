@@ -1,16 +1,14 @@
 """Execute commands in tmux panes.
 
 PUBLIC API:
-  - bash: Execute command in target pane
+  - bash: Execute command in target pane with output caching
 """
 
 from typing import Any
 
-from ..app import app
+from ..app import app, DEFAULT_LINES_PER_PAGE
 from ..pane import Pane, send_command
 from ..tmux import resolve_or_create_target
-from ..types import Target
-from ..utils import truncate_command
 
 
 @app.command(
@@ -25,24 +23,24 @@ from ..utils import truncate_command
 def bash(
     state,
     command: str,
-    target: Target = "interactive",
+    target: str = None,  # type: ignore[assignment]
     wait: bool = True,
-    timeout: float | None = None,
+    timeout: float = 30.0,
 ) -> dict[str, Any]:
-    """Execute command in target pane.
+    """Execute command in target pane with output caching.
 
     Args:
-        state: Application state (unused).
+        state: Application state with read_cache for output caching.
         command: Command to execute.
-        target: Target pane identifier. Defaults to "interactive".
+        target: Target pane identifier. None for interactive selection.
         wait: Whether to wait for command completion. Defaults to True.
-        timeout: Command timeout in seconds. Defaults to None.
+        timeout: Command timeout in seconds. 0 means no timeout.
 
     Returns:
         Markdown formatted result with command output and metadata.
+        Full output is cached, but only last 50 lines are displayed.
     """
-    # Handle interactive selection
-    if target == "interactive":
+    if target is None:
         from ._popup_utils import _select_or_create_pane
         from .ls import ls
 
@@ -67,23 +65,47 @@ def bash(
                 "frontmatter": {"error": str(e), "status": "error"},
             }
 
+    from ._cache_utils import build_frontmatter, truncate_command
+
     pane = Pane(pane_id)
-    result = send_command(pane, command, wait=wait, timeout=timeout)
+    result = send_command(pane, command, wait=wait, timeout=timeout, state=state)
+
+    # Handler already cached, use returned data for display
+    displayed_output = result["output"]
+    lines = displayed_output.splitlines() if displayed_output else []
+    lines_shown = len(lines)
+
+    truncated = False
+    if session_window_pane in state.read_cache:
+        cache = state.read_cache[session_window_pane]
+        full_lines = cache.content.splitlines()
+        truncated = len(full_lines) > DEFAULT_LINES_PER_PAGE
 
     elements = []
-
-    if result["output"]:
-        elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
+    if displayed_output:
+        elements.append({"type": "code_block", "content": displayed_output, "language": result["language"]})
 
     if result["status"] == "timeout":
         elements.append({"type": "blockquote", "content": f"Command timed out after {result['elapsed']:.1f}s"})
 
+    total_lines = lines_shown
+    cache_time = None
+    if session_window_pane in state.read_cache:
+        cache = state.read_cache[session_window_pane]
+        total_lines = len(cache.content.splitlines())
+        cache_time = cache.timestamp
+
     return {
         "elements": elements,
-        "frontmatter": {
-            "command": truncate_command(result["command"]),
-            "status": result["status"],
-            "pane": result["pane"],
-            "elapsed": round(result["elapsed"], 2),
-        },
+        "frontmatter": build_frontmatter(
+            target=session_window_pane,
+            lines_shown=lines_shown,
+            total_lines=total_lines,
+            cached=bool(cache_time),
+            cache_time=cache_time,
+            command=truncate_command(result["command"]),
+            status=result["status"],
+            elapsed=round(result["elapsed"], 2),
+            truncated=truncated,
+        ),
     }

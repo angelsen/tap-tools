@@ -112,62 +112,71 @@ class ProcessHandler(ABC):
         """
         pass
 
-    def capture_output(
-        self, pane: Pane, cmd_id: str | None = None, method: str | None = None, filters: list | None = None
-    ) -> str:
-        """Capture and process command output with unified approach.
+    def capture_output(self, pane: Pane, cmd_id: str | None = None, state=None, display_lines: int = 50) -> str:
+        """Capture and process command output with handler-centric approach.
 
-        Always start streaming provides cmd_id. Base class handles all capture methods
-        and filtering. Pass empty list for raw output, None for sensible defaults.
+        Centralizes capture, filtering, caching, and subset logic. Handler decides
+        capture method based on context (cmd_id presence) and applies process-specific
+        filtering.
 
         Args:
-            pane: Target pane (process may have changed during execution).
-            cmd_id: Stream command ID (always provided by execution pipeline).
-            method: Capture method override ("stream", "visible", "last_n").
-            filters: Filter functions to apply. None=defaults, []=raw output.
+            pane: Target pane.
+            cmd_id: Command ID for stream capture (from execution pipeline).
+            state: Application state for caching (optional).
+            display_lines: Number of lines to return for display.
 
         Returns:
-            Processed output ready for display.
+            Processed output subset ready for display.
         """
-        # Default method: streaming for clean command output
-        capture_method = method or "stream"
+        import time
 
-        # Capture based on method
-        if capture_method == "stream" and cmd_id:
-            from ...pane.streaming import get_command_output
+        # 1. Decide capture method based on context
+        if cmd_id:
+            # Stream method for command output
+            from ...tmux.stream import _Stream
 
-            raw_output = get_command_output(pane, cmd_id, as_displayed=True)
-        elif capture_method == "visible":
-            from ...tmux.pane import capture_visible
-
-            raw_output = capture_visible(pane.pane_id)
-        elif capture_method == "last_n":
-            from ...tmux.pane import capture_last_n
-
-            raw_output = capture_last_n(pane.pane_id, 50)
+            stream = _Stream(pane.pane_id, pane.session_window_pane)
+            raw_output = stream.read_command_output(cmd_id, as_displayed=True)
         else:
-            # Fallback to visible if streaming not available
-            from ...tmux.pane import capture_visible
+            # Full buffer for general reads
+            from ...tmux.core import run_tmux
 
-            raw_output = capture_visible(pane.pane_id)
+            code, raw_output, _ = run_tmux(["capture-pane", "-t", pane.pane_id, "-p", "-S", "-", "-E", "-"])
+            raw_output = raw_output if code == 0 else ""
 
-        if not raw_output:
-            return ""
+        # 2. Apply process-specific filters (override in subclasses)
+        filtered = self._apply_filters(raw_output)
 
-        # Apply filtering: signature filters OR sensible defaults (not both)
-        if filters is not None:
-            # Explicit filters passed - use only these (empty list = raw output)
-            output = raw_output
-            for filter_func in filters:
-                output = filter_func(output)
-            return output
-        else:
-            # No filters specified - use sensible defaults
-            from ...filters import strip_trailing_empty_lines, collapse_empty_lines
+        # 3. Cache if state provided
+        if state and filtered:
+            from ...app import PaneCache
 
-            output = strip_trailing_empty_lines(raw_output)
-            output = collapse_empty_lines(output, threshold=5)
-            return output
+            state.read_cache[pane.session_window_pane] = PaneCache(
+                content=filtered, timestamp=time.time(), lines_per_page=display_lines, source="handler"
+            )
+
+        # 4. Return display subset (last N lines)
+        lines = filtered.splitlines()
+        if len(lines) > display_lines:
+            return "\n".join(lines[-display_lines:])
+        return filtered
+
+    def _apply_filters(self, raw_output: str) -> str:
+        """Apply process-specific filters. Override in subclasses.
+
+        Default implementation provides sensible filtering for most processes.
+
+        Args:
+            raw_output: Raw captured output.
+
+        Returns:
+            Filtered output.
+        """
+        from ...filters import strip_trailing_empty_lines, collapse_empty_lines
+
+        output = strip_trailing_empty_lines(raw_output)
+        output = collapse_empty_lines(output, threshold=5)
+        return output
 
 
 _handlers = []
@@ -177,7 +186,7 @@ def get_handler(pane: Pane) -> ProcessHandler:
     """Get the appropriate handler for a given process.
 
     Searches registered handlers in priority order and returns the first one
-    that can handle the process. Always returns a handler using DefaultHandler
+    that can handle the process. Always returns a handler using _DefaultHandler
     as fallback.
 
     Args:
@@ -210,7 +219,7 @@ def get_handler(pane: Pane) -> ProcessHandler:
 
     _logger = logging.getLogger(__name__)
     process_name = pane.process.name if pane.process else "shell"
-    _logger.warning(f"Handler list misconfigured - no handler for {process_name}, using DefaultHandler")
+    _logger.warning(f"Handler list misconfigured - no handler for {process_name}, using _DefaultHandler")
     from .default import _DefaultHandler
 
     return _DefaultHandler()

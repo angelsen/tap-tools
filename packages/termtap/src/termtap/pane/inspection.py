@@ -1,4 +1,4 @@
-"""Pane inspection functions - read output and get process info.
+"""Pane inspection functions for output and process information.
 
 PUBLIC API:
   - read_output: Read output from pane with automatic filtering
@@ -23,22 +23,10 @@ def read_output(pane: Pane, lines: Optional[int] = None, mode: str = "direct") -
     Returns:
         Filtered output string using handler's capture_output method.
     """
-    if mode == "stream":
-        # Use streaming-based capture
-        if lines and lines <= 50:
-            # Use precise last_n for small requests
-            return pane.handler.capture_output(pane, method="last_n")
-        else:
-            # Use streaming for larger requests
-            return pane.handler.capture_output(pane, method="stream")
+    if lines:
+        return pane.handler.capture_output(pane, display_lines=lines)
     else:
-        # Direct capture mode
-        if lines:
-            # Use last_n for specific count
-            return pane.handler.capture_output(pane, method="last_n")
-        else:
-            # Default to visible content capture
-            return pane.handler.capture_output(pane, method="visible")
+        return pane.handler.capture_output(pane)
 
 
 def get_process_info(pane: Pane) -> dict[str, Any]:
@@ -63,7 +51,6 @@ def get_process_info(pane: Pane) -> dict[str, Any]:
         "handler": type(pane.handler).__name__,
     }
 
-    # Add readiness state from handler
     is_ready, description = pane.handler.is_ready(pane)
     info["ready"] = is_ready
     info["state_description"] = description

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 
 [manifest]
@@ -789,7 +789,7 @@ wheels = [
 
 [[package]]
 name = "replkit2"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "../replkit2" }
 
 [package.metadata]

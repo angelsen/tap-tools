@@ -1,4 +1,4 @@
-"""Direct command execution with minimal overhead and smart context management.
+"""Direct command execution with handler lifecycle management.
 
 PUBLIC API:
   - send_command: Execute command in pane with handler lifecycle
@@ -30,13 +30,15 @@ def _check_ready(pane: Pane, compiled_pattern: Optional[Pattern] = None) -> bool
     return bool(is_ready)
 
 
-def _determine_status(elapsed: float, timeout: float) -> str:
+def _determine_status(elapsed: float, timeout: Optional[float]) -> str:
     """Determine final command status based on timing.
 
     Args:
         elapsed: Time elapsed since command start.
-        timeout: Timeout threshold.
+        timeout: Timeout threshold (None means no timeout).
     """
+    if timeout is None:
+        return "completed"
     return "timeout" if elapsed >= timeout else "completed"
 
 
@@ -72,7 +74,12 @@ def _build_result(
 
 
 def send_command(
-    pane: Pane, command: str, wait: bool = True, timeout: Optional[float] = None, ready_pattern: Optional[str] = None
+    pane: Pane,
+    command: str,
+    wait: bool = True,
+    timeout: Optional[float] = None,
+    ready_pattern: Optional[str] = None,
+    state=None,
 ) -> dict[str, Any]:
     """Execute command in pane with handler lifecycle.
 
@@ -83,15 +90,15 @@ def send_command(
         pane: Target pane.
         command: Command to execute.
         wait: Whether to wait for completion. Defaults to True.
-        timeout: Maximum wait time in seconds. Defaults to 30.0.
+        timeout: Maximum wait time in seconds. None means no timeout.
         ready_pattern: Optional regex pattern to match for readiness.
+        state: Application state for caching (optional).
 
     Returns:
         Dict with status, output, elapsed time, and metadata.
     """
     start_time = time.time()
 
-    # Pre-execution phase with single process scan
     with process_scan(pane.pane_id):
         handler = pane.handler
 
@@ -102,17 +109,19 @@ def send_command(
 
         command = modified
 
-    # Start streaming after handler preprocessing
-    from .streaming import ensure_streaming, mark_command_start
+    from ..tmux.stream import _Stream
 
-    ensure_streaming(pane)
-    cmd_id = mark_command_start(pane, command)
+    stream = _Stream(pane.pane_id, pane.session_window_pane)
+    if not stream.is_active():
+        stream.start()
+
+    cmd_id = f"cmd_{int(time.time() * 1000)}"
+    cmd_id = stream.mark_command(cmd_id, command)
 
     # Send command to tmux
     from ..tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
 
     try:
-        # Route based on command type
         if "\n" in command:
             success = send_via_paste_buffer(pane.pane_id, command)
         else:
@@ -123,30 +132,20 @@ def send_command(
     except Exception as e:
         return _build_result(pane, command, "failed", start_time, error=str(e))
 
-    # Notify handler of command send
     handler.after_send(pane, command)
 
-    # Fire-and-forget mode
     if not wait:
-        # End streaming immediately
-        from .streaming import mark_command_end
-
-        mark_command_end(pane, cmd_id)
+        stream.mark_command_end(cmd_id)
 
         with process_scan(pane.pane_id):
-            # Capture output using handler method
-            output = pane.handler.capture_output(pane, cmd_id)
+            output = pane.handler.capture_output(pane, cmd_id, state)
             return _build_result(pane, command, "sent", start_time, output)
 
-    # Wait for completion with periodic readiness checks
     final_handler = handler
-    actual_timeout = timeout or 30.0
     completed = False
 
-    # Optimize pattern matching
     compiled_pattern = re.compile(ready_pattern) if ready_pattern else None
 
-    # Check if already complete
     with process_scan(pane.pane_id):
         current_handler = pane.handler
         is_ready = _check_ready(pane, compiled_pattern)
@@ -155,12 +154,15 @@ def send_command(
             final_handler = current_handler
             completed = True
 
-    # Enter polling loop if still running
     if not completed:
-        # Allow command to initialize
         time.sleep(0.02)
 
-        while time.time() - start_time < actual_timeout:
+        if timeout is None:
+            timeout_at = float("inf")
+        else:
+            timeout_at = start_time + timeout
+
+        while time.time() < timeout_at:
             with process_scan(pane.pane_id):
                 current_handler = pane.handler
                 is_ready = _check_ready(pane, compiled_pattern)
@@ -170,27 +172,21 @@ def send_command(
                     completed = True
                     break
 
-                # Handler can abort during execution
                 elapsed = time.time() - start_time
                 if not current_handler.during_command(pane, elapsed):
                     return _build_result(pane, command, "aborted", start_time, error="Aborted by handler")
 
             time.sleep(0.1)
 
-    # Final capture with settling delay
     time.sleep(0.02)
 
     elapsed = time.time() - start_time
-    status = _determine_status(elapsed, actual_timeout)
+    status = _determine_status(elapsed, timeout)
 
-    # Complete streaming capture
-    from .streaming import mark_command_end
-
-    mark_command_end(pane, cmd_id)
+    stream.mark_command_end(cmd_id)
 
     with process_scan(pane.pane_id):
-        # Capture final output with streaming
-        filtered_output = final_handler.capture_output(pane, cmd_id)
+        filtered_output = final_handler.capture_output(pane, cmd_id, state)
 
         final_handler.after_complete(pane, command, elapsed)
 
@@ -217,8 +213,7 @@ def send_interrupt(pane: Pane) -> dict[str, Any]:
 
         time.sleep(0.02)
 
-        # Capture interrupt effects
-        filtered_output = handler.capture_output(pane, method="visible")
+        filtered_output = handler.capture_output(pane)
 
         status = "sent" if success else "failed"
         error = None if success else (message or "Failed to send interrupt")
@@ -258,7 +253,6 @@ def send_keys(pane: Pane, keys: str, enter: bool = False) -> dict[str, Any]:
     time.sleep(0.02)
 
     with process_scan(pane.pane_id):
-        # Capture key effects
-        filtered_output = pane.handler.capture_output(pane, method="visible")
+        filtered_output = pane.handler.capture_output(pane)
 
         return _build_result(pane, keys, "sent", start_time, filtered_output)

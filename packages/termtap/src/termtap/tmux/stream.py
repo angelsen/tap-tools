@@ -1,6 +1,7 @@
-"""Streaming output from tmux panes - no global state, multiple instances can coexist.
+"""Internal streaming output from tmux panes.
 
-NOTE: All functions in this module are for internal use within tmux module.
+All classes and functions in this module are internal to the tmux package.
+Multiple Stream instances can coexist safely.
 """
 
 import json
@@ -12,8 +13,8 @@ from typing import Optional
 from .core import run_tmux
 
 
-class Stream:
-    """Stream handler for tmux pane output.
+class _Stream:
+    """Internal stream handler for tmux pane output.
 
     Handles streaming output from tmux panes with position tracking.
     Multiple instances can coexist safely.
@@ -34,15 +35,16 @@ class Stream:
         self.metadata_file = self.stream_dir / f"{pane_id}.json"
 
     def _ensure_sync(self) -> bool:
-        """Ensure files are in sync. Returns True if ready, False if cleaned up."""
+        """Ensure files are in sync.
+        
+        Returns:
+            True if ready, False if cleaned up.
+        """
         stream_exists = self.stream_file.exists()
         metadata_exists = self.metadata_file.exists()
 
-        # Both missing - clean state
         if not stream_exists and not metadata_exists:
             return True
-
-        # One missing - delete the other
         if stream_exists != metadata_exists:
             if stream_exists:
                 self.stream_file.unlink()
@@ -56,7 +58,6 @@ class Stream:
         current_inode = self._get_stream_file_inode()
 
         if stored_inode != current_inode:
-            # Inode mismatch - files out of sync
             self.stream_file.unlink()
             self.metadata_file.unlink()
             return False
@@ -100,49 +101,41 @@ class Stream:
         Returns:
             True if streaming started successfully.
         """
-        # Always ensure sync first
         self._ensure_sync()
 
         code, out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
-            # Someone is piping - check where
             cmd_code, cmd_out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_command}"])
             if cmd_code == 0 and str(self.stream_file) in cmd_out:
-                # Already piping to our file
                 if self.stream_file.exists() and self.metadata_file.exists():
-                    # Verify sync
                     metadata = self._read_metadata_unsafe()
                     if metadata.get("stream_inode") == self._get_stream_file_inode():
-                        return True  # All good, reuse existing pipe
+                        return True
 
-                # Files missing or out of sync - clean up and start fresh
                 self.cleanup()
 
         self.stream_dir.mkdir(parents=True, exist_ok=True)
         self.stream_file.touch()
 
-        # Initialize metadata
         metadata = {
             "pane_id": self.pane_id,
             "session_window_pane": self.session_window_pane,
             "stream_inode": self._get_stream_file_inode(),
             "created": time.time(),
             "commands": {},
-            "positions": {"bash_last": 0, "user_last": 0},
+            "positions": {"bash_last": 0},
         }
         self._write_metadata_unsafe(metadata)
 
         code, out, _ = run_tmux(["display", "-t", self.pane_id, "-p", "#{pane_pipe}"])
         if code == 0 and out.strip() == "1":
-            # Someone else started - that's fine, we have our tracking files
             return True
 
-        # Start piping - escape % as %%
+        # Escape % characters for tmux
         escaped_path = str(self.stream_file).replace("%", "%%")
         code, _, _ = run_tmux(["pipe-pane", "-t", self.pane_id, f"cat >> {escaped_path}"])
 
         if code != 0:
-            # Failed - clean up
             self.cleanup()
             return False
 
@@ -173,8 +166,6 @@ class Stream:
         """Check if we have valid tracking files."""
         return self._ensure_sync() and self.stream_file.exists()
 
-    # Reading utilities
-
     def _read_stream_slice(self, start: int, length: int) -> bytes:
         """Read raw bytes from stream file."""
         if not self.stream_file.exists() or length <= 0:
@@ -195,60 +186,52 @@ class Stream:
         content_hash = hashlib.md5(f"{self.pane_id}:{start}:{length}".encode()).hexdigest()[:8]
         window_name = f"tt_render_{content_hash}"
 
-        # Note: tail uses 1-based byte positions, so we add 1
+        # Tail uses 1-based byte positions
         cmd = f"tail -c +{start + 1} '{self.stream_file}' | head -c {length} && sleep 0.2"
 
         code, _, _ = run_tmux(["new-window", "-t", session, "-d", "-n", window_name, "sh", "-c", cmd])
 
         if code != 0:
-            # Fallback to raw content
             content = self._read_stream_slice(start, length)
             return content.decode("utf-8", errors="replace")
 
-        # Give time for content to render
         time.sleep(0.1)
 
-        # Capture the rendered output
-        code, output, _ = run_tmux(["capture-pane", "-t", f"{session}:{window_name}", "-p"])
+        code, output, _ = run_tmux(["capture-pane", "-t", f"{session}:{window_name}", "-p", "-S", "-", "-E", "-"])
 
-        # Clean up window
         run_tmux(["kill-window", "-t", f"{session}:{window_name}"])
 
         if code == 0 and output:
-            # Strip trailing empty lines that tmux adds
+            # Remove trailing empty lines from tmux output
             lines = output.rstrip("\n").split("\n")
             while lines and not lines[-1].strip():
                 lines.pop()
             return "\n".join(lines) + "\n" if lines else ""
 
-        # Fallback to raw content
         content = self._read_stream_slice(start, length)
         return content.decode("utf-8", errors="replace")
-
-    # Command tracking
 
     def mark_command(self, cmd_id: str, command: str) -> str:
         """Mark command start position.
 
         Args:
-            cmd_id: Command identifier
-            command: Command string being executed
+            cmd_id: Command identifier.
+            command: Command string being executed.
 
         Returns:
-            Command ID for retrieving output later
+            Command ID for retrieving output later.
         """
         if not self._ensure_sync():
-            # Files were cleaned, start fresh
             if not self.start():
                 return cmd_id
 
         metadata = self._read_metadata_unsafe()
 
-        # Ensure structure exists
+        # Initialize structure if missing
         if "commands" not in metadata:
             metadata["commands"] = {}
         if "positions" not in metadata:
-            metadata["positions"] = {"bash_last": 0, "user_last": 0}
+            metadata["positions"] = {"bash_last": 0}
 
         position = self._get_file_position()
         metadata["commands"][cmd_id] = {"position": position, "command": command, "time": time.time()}
@@ -268,19 +251,6 @@ class Stream:
             metadata["commands"][cmd_id]["end_position"] = end_pos
             metadata["positions"]["bash_last"] = end_pos
             self._write_metadata_unsafe(metadata)
-
-    def mark_user_read(self) -> None:
-        """Mark position for user read operation."""
-        if not self._ensure_sync():
-            return
-
-        metadata = self._read_metadata_unsafe()
-        if "positions" not in metadata:
-            metadata["positions"] = {"bash_last": 0, "user_last": 0}
-        metadata["positions"]["user_last"] = self._get_file_position()
-        self._write_metadata_unsafe(metadata)
-
-    # Reading operations
 
     def read_command_output(self, cmd_id: str, as_displayed: bool = False) -> str:
         """Read output for a specific command."""
@@ -306,25 +276,6 @@ class Stream:
             content = self._read_stream_slice(start, length)
             return content.decode("utf-8", errors="replace")
 
-    def read_since_user_last(self, as_displayed: bool = False) -> str:
-        """Read new content since last user read."""
-        if not self._ensure_sync():
-            return ""
-
-        metadata = self._read_metadata_unsafe()
-        last_pos = metadata.get("positions", {}).get("user_last", 0)
-        current_pos = self._get_file_position()
-        length = current_pos - last_pos
-
-        if length <= 0:
-            return ""
-
-        if as_displayed:
-            return self._render_stream_slice(last_pos, length)
-        else:
-            content = self._read_stream_slice(last_pos, length)
-            return content.decode("utf-8", errors="replace")
-
     def read_all(self, as_displayed: bool = False) -> str:
         """Read entire stream content."""
         if not self._ensure_sync():
@@ -348,31 +299,39 @@ class Stream:
         if not self._ensure_sync():
             return ""
 
-        # For line-based reading, we need to read the content first
+        # Line-based reading requires full content first
         content = self.read_all(as_displayed=False)
         if not content:
             return ""
 
         lines_list = content.splitlines()
         if len(lines_list) <= lines:
-            # Return all content
             if as_displayed:
                 return self.read_all(as_displayed=True)
             else:
                 return content
 
-        # Find where the last N lines start
+        # Locate start of last N lines
         last_lines = lines_list[-lines:]
         last_content = "\n".join(last_lines)
 
         if as_displayed:
-            # Find byte position where these lines start
+            # Calculate byte position for display rendering
             prefix = "\n".join(lines_list[:-lines])
-            start_pos = len(prefix.encode("utf-8")) + (1 if prefix else 0)  # +1 for newline
+            start_pos = len(prefix.encode("utf-8")) + (1 if prefix else 0)
             length = len(content.encode("utf-8")) - start_pos
             return self._render_stream_slice(start_pos, length)
         else:
             return last_content
 
+    def capture_full_buffer(self, pane_id: str) -> str:
+        """Capture entire pane content including scrollback.
 
-# StreamManager removed - use Stream() constructor directly
+        Args:
+            pane_id: The tmux pane ID to capture from.
+
+        Returns:
+            Complete pane content with scrollback.
+        """
+        code, output, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", "-", "-E", "-"])
+        return output if code == 0 else ""

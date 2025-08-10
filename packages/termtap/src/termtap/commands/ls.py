@@ -1,10 +1,8 @@
-"""List command - show all tmux panes.
+"""List all tmux panes with their current process.
 
 PUBLIC API:
   - ls: List all tmux panes with their current process
 """
-
-from typing import Optional
 
 from ..app import app
 from ..pane import Pane, process_scan, get_process_info
@@ -27,12 +25,12 @@ from ..tmux import list_panes
         },
     },
 )
-def ls(state, filter: Optional[str] = None):
+def ls(state, filter: str = None):  # type: ignore[assignment]
     """List all tmux panes with their current process.
 
     Args:
         state: Application state (unused).
-        filter: Optional filter string to search pane/process names. Defaults to None.
+        filter: Filter string to search pane/process names. None shows all.
 
     Returns:
         Table data with pane information and process states.

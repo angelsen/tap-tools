@@ -1,25 +1,50 @@
-"""termtap ReplKit2 application - pane-first architecture.
+"""Main application entry point for termtap terminal pane manager.
 
-Main application entry point providing dual REPL/MCP functionality for terminal
-pane management with tmux integration. Built on ReplKit2 framework with
-pane-centric design for process-native terminal operations.
+Provides dual REPL/MCP functionality for terminal pane management with tmux
+integration. Built on ReplKit2 framework with pane-centric design for
+process-native terminal operations leveraging OS-level information.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from replkit2 import App
+
+DEFAULT_TIMEOUT = 30.0
+DEFAULT_LINES_PER_PAGE = 50
+
+
+@dataclass
+class PaneCache:
+    """Cache entry for a single pane's output.
+
+    Stores command output with metadata for efficient pagination
+    and browsing without re-execution.
+
+    Attributes:
+        content: Captured output content from the pane.
+        timestamp: Unix timestamp when content was captured.
+        lines_per_page: Number of lines to display per page.
+        source: Source of the content, either "bash" or "read".
+    """
+
+    content: str
+    timestamp: float
+    lines_per_page: int = 50
+    source: str = "read"
 
 
 @dataclass
 class TermTapState:
     """Application state for termtap pane management.
 
-    Currently minimal state container for the pane-centric architecture.
-    State is maintained through individual pane objects rather than
-    centralized application state.
+    Includes per-pane cache for command outputs to enable efficient
+    pagination and browsing without re-execution.
+
+    Attributes:
+        read_cache: Mapping of session_window_pane identifiers to PaneCache entries.
     """
 
-    pass
+    read_cache: dict[str, PaneCache] = field(default_factory=dict)
 
 
 # Must be created before command imports for decorator registration

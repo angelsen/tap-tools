@@ -33,8 +33,8 @@ def _select_single_pane(
 
     Args:
         panes: List of pane info dicts.
-        title: Tmux window title.
-        action: Header action text.
+        title: Tmux window title. Defaults to 'Select Pane'.
+        action: Header action text. Defaults to 'Choose Target Pane'.
 
     Returns:
         Selected pane ID or None if cancelled.
@@ -61,8 +61,8 @@ def _select_multiple_panes(
 
     Args:
         panes: List of pane info dicts.
-        title: Tmux window title.
-        action: Header action text.
+        title: Tmux window title. Defaults to 'Select Panes'.
+        action: Header action text. Defaults to 'Choose Target Panes'.
 
     Returns:
         List of selected pane IDs.
@@ -90,14 +90,13 @@ def _select_or_create_pane(
 
     Args:
         panes: List of pane info dicts.
-        title: Tmux window title.
-        action: Header action text.
-        allow_create: Whether to offer session creation if no selection.
+        title: Tmux window title. Defaults to 'Select Pane'.
+        action: Header action text. Defaults to 'Choose Target Pane'.
+        allow_create: Whether to offer session creation if no selection. Defaults to True.
 
     Returns:
         Tuple of (pane_id, session_window_pane) or None if cancelled.
     """
-    # First try to select an existing pane
     if panes:
         options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
         popup = Popup(title=title, width="65")
@@ -109,7 +108,6 @@ def _select_or_create_pane(
         ).show()
 
         if selected:
-            # Selected is the session:window.pane format
             from ..tmux import resolve_target_to_pane
 
             try:
@@ -117,8 +115,6 @@ def _select_or_create_pane(
                 return (pane_id, swp)
             except RuntimeError:
                 return None
-
-    # Offer to create new session if no selection and creation is allowed
     if allow_create:
         from ..tmux.names import _generate_session_name
         from ..tmux import resolve_or_create_target
@@ -137,7 +133,6 @@ def _select_or_create_pane(
                 pane_id, swp = resolve_or_create_target(session_name)
                 return (pane_id, swp)
             except RuntimeError:
-                # Creation failed
                 return None
 
     return None

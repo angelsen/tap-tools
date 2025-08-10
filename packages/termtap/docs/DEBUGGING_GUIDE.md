@@ -59,8 +59,8 @@ for proc in chain:
         break
 
 if python_proc:
-    from termtap.process.handlers.python import _PythonHandler
-    handler = _PythonHandler()
+    from termtap.process.handlers import get_handler
+    handler = get_handler(python_proc)
     is_ready, reason = handler.is_ready(python_proc)
     print(f"Handler says: ready={is_ready}, reason='{reason}'")
 ```

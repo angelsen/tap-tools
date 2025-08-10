@@ -1,15 +1,13 @@
 """Read output from tmux panes.
 
 PUBLIC API:
-  - read: Read output from target pane
+  - read: Read output from target pane with caching and pagination
 """
 
-from typing import Any, Optional, Union, List
+from typing import Any
 
-from ..app import app
-from ..pane import Pane, read_output, read_since_last, read_recent
+from ..app import app, DEFAULT_LINES_PER_PAGE
 from ..tmux import resolve_targets_to_panes
-from ..types import Target
 
 
 @app.command(
@@ -18,15 +16,16 @@ from ..types import Target
         "type": "resource",
         "mime_type": "text/markdown",
         "tags": {"inspection", "output"},
-        "description": "Read output from tmux pane with metadata",
+        "description": "Read output from tmux pane with caching and pagination",
         "stub": {
             "response": {
-                "description": "Read output from tmux pane with optional parameters",
+                "description": "Read output from tmux pane with optional pagination",
                 "usage": [
-                    "termtap://read - Interactive pane selection",
-                    "termtap://read/session1 - Read from specific pane",
-                    "termtap://read/session1/100 - Read 100 lines",
-                    "termtap://read/session1/100/true/stream - All parameters",
+                    "termtap://read - Interactive pane selection with fresh read",
+                    "termtap://read/session1 - Fresh read from specific pane",
+                    "termtap://read/session1/0 - Page 0 (most recent) from cache",
+                    "termtap://read/session1/1 - Page 1 (older) from cache",
+                    "termtap://read/session1/-1 - Last page (oldest) from cache",
                 ],
                 "discovery": "Use termtap://ls to find available pane targets",
             }
@@ -35,32 +34,22 @@ from ..types import Target
 )
 def read(
     state,
-    target: Union[Target, List[Target]] = "interactive",
-    lines: Optional[int] = None,
-    since_last: bool = False,
-    mode: str = "direct",
+    target: list = None,  # type: ignore[assignment]
+    page: int = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
-    """Read output from one or more target panes.
+    """Read full pane buffer with caching and pagination.
 
     Args:
-        state: Application state (unused).
-        target: Single target, list of targets, or "interactive" for selection.
-                Examples: "demo", ["demo.frontend", "test:0"], "interactive"
-        lines: Number of lines to read. Defaults to None.
-        since_last: Read only new output since last read. Defaults to False.
-        mode: Read mode - "direct" or "stream". Defaults to "direct".
+        state: Application state with read_cache.
+        target: List of target panes. None for interactive selection.
+        page: None for fresh read, 0 for most recent cached, 1+ for older pages, -1 for oldest.
 
     Returns:
         Markdown formatted result with pane output(s).
     """
-    if since_last and mode != "stream":
-        return {
-            "elements": [{"type": "text", "content": "Error: since_last requires mode='stream'"}],
-            "frontmatter": {"error": "Invalid parameters", "status": "error"},
-        }
+    from ._cache_utils import format_pane_output
 
-    # Handle interactive selection
-    if target == "interactive":
+    if target is None:
         from ._popup_utils import _select_multiple_panes
         from .ls import ls
 
@@ -99,46 +88,43 @@ def read(
             "frontmatter": {"error": "No panes found", "status": "error"},
         }
 
-    elements = []
-    pane_info_list = []
-
-    for pane_id, session_window_pane in panes_to_read:
-        pane = Pane(pane_id)
-
-        if mode == "stream":
-            if since_last:
-                output = read_since_last(pane)
+    # Use cached content when page is specified
+    if page is not None:
+        outputs = []
+        for pane_id, swp in panes_to_read:
+            if swp in state.read_cache:
+                cache = state.read_cache[swp]
+                outputs.append((swp, cache.content))
             else:
-                output = read_recent(pane, lines=lines) if lines else read_recent(pane)
-        else:
-            output = read_output(pane, lines=lines, mode="direct")
+                outputs.append((swp, "[No cached content - run read() first]"))
 
-        from ..pane import get_process_info
+        cache_time = 0.0
+        if outputs and panes_to_read[0][1] in state.read_cache:
+            cache_time = state.read_cache[panes_to_read[0][1]].timestamp
 
-        info = get_process_info(pane)
-
-        if len(panes_to_read) > 1:
-            elements.append({"type": "heading", "content": f"{session_window_pane}", "level": 3})
-
-        elements.append(
-            {
-                "type": "code_block",
-                "content": output or "[No output]",
-                "language": info.get("language", "text"),
-            }
+        return format_pane_output(
+            outputs, page=page, lines_per_page=DEFAULT_LINES_PER_PAGE, cached=True, cache_time=cache_time
         )
 
-        pane_info_list.append(session_window_pane)
+    # Fresh read when page is None
+    from ..pane import Pane, process_scan
 
-    frontmatter = {
-        "target": target if target != "interactive" else "interactive selection",
-        "panes": pane_info_list if len(pane_info_list) > 1 else pane_info_list[0],
-        "mode": mode,
-        "lines": lines,
-        "since_last": since_last,
-    }
+    outputs = []
+    for pane_id, swp in panes_to_read:
+        with process_scan(pane_id):
+            pane = Pane(pane_id)
+            output = pane.handler.capture_output(pane, state=state)
 
-    return {
-        "elements": elements,
-        "frontmatter": frontmatter,
-    }
+        if swp in state.read_cache:
+            full_content = state.read_cache[swp].content
+        else:
+            full_content = output
+
+        outputs.append((swp, full_content))
+
+    return format_pane_output(
+        outputs,
+        page=None,
+        lines_per_page=DEFAULT_LINES_PER_PAGE,
+        cached=False,
+    )

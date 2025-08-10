@@ -1,7 +1,7 @@
 [project]
 name = "termtap"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Process-native tmux session manager with MCP support"
 readme = "README.md"
 authors = [{ name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }]
 requires-python = ">=3.12"
@@ -21,15 +21,3 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
-
-[tool.ruff]
-line-length = 120
-include = ["src/**/*.py", "tests/**/*.py"]
-exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
-
-[tool.basedpyright]
-typeCheckingMode = "standard"
-pythonVersion = "3.12"
-pythonPlatform = "Linux"
-include = ["src/**/*.py"]
-exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
