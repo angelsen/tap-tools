@@ -291,7 +291,7 @@ def run(state, group: str) -> dict[str, Any]:
                     {"type": "text", "content": "Target services with:"},
                     {
                         "type": "code_block",
-                        "content": f'bash("ps aux", "{group}.backend")\nread("{group}.frontend")',
+                        "content": f'execute("ps aux", "{group}.backend")\nread("{group}.frontend")',
                         "language": "python",
                     },
                 ]

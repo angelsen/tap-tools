@@ -35,7 +35,7 @@ read("demo.backend")   # Read backend logs
 read("demo.frontend")  # Read frontend logs
 
 # Send commands to services
-bash("curl http://localhost:8000/health", "demo.backend")
+execute("curl http://localhost:8000/health", "demo.backend")
 send_keys("demo.frontend", "r")  # Send 'r' to trigger Vite refresh
 
 # Interrupt a service

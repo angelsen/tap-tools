@@ -17,7 +17,7 @@ from ..tmux import resolve_target_to_pane
         "type": "tool",
         "mime_type": "text/markdown",
         "tags": {"input", "control"},
-        "description": "Send keystrokes to tmux pane",
+        "description": "Send raw keystrokes to tmux pane (for special keys like Ctrl+C, arrows, Escape). Use execute for commands",
     },
 )
 def send_keys(state, keys: str, target: str = None) -> dict[str, Any]:  # type: ignore[assignment]

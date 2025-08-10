@@ -16,16 +16,16 @@ from ..tmux import resolve_targets_to_panes
         "type": "resource",
         "mime_type": "text/markdown",
         "tags": {"inspection", "output"},
-        "description": "Read output from tmux pane with caching and pagination",
+        "description": "Read output from tmux pane with pagination",
         "stub": {
             "response": {
                 "description": "Read output from tmux pane with optional pagination",
                 "usage": [
-                    "termtap://read - Interactive pane selection with fresh read",
-                    "termtap://read/session1 - Fresh read from specific pane",
-                    "termtap://read/session1/0 - Page 0 (most recent) from cache",
-                    "termtap://read/session1/1 - Page 1 (older) from cache",
-                    "termtap://read/session1/-1 - Last page (oldest) from cache",
+                    "termtap://read - Interactive pane selection",
+                    "termtap://read/session1 - Read from specific pane",
+                    "termtap://read/session1/0 - Page 0 (most recent output)",
+                    "termtap://read/session1/1 - Page 1 (older output)",
+                    "termtap://read/session1/-1 - Last page (oldest output)",
                 ],
                 "discovery": "Use termtap://ls to find available pane targets",
             }

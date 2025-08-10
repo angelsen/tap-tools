@@ -29,7 +29,7 @@ ls("demo")      # Sessions containing "demo"
 ls("python")    # Sessions running python
 
 # Run commands
-bash("echo hello", "my-session")
+execute("echo hello", "my-session")
 
 # Read output (fresh capture)
 read("my-session")
@@ -52,7 +52,7 @@ kill("my-session")
 
 ## Commands
 
-- `bash(cmd, target)` - Execute command in target pane with output caching
+- `execute(cmd, target)` - Execute command in target pane with output caching
 - `read(target, page=None)` - Read pane output (None=fresh, 0+=cached pages)
 - `ls(filter)` - List panes with process info and optional filter
 - `interrupt(target)` - Send interrupt signal (Ctrl+C)

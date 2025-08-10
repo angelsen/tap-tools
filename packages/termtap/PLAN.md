@@ -31,7 +31,7 @@ packages/termtap/src/termtap/
 │   └── streaming.py     # Stream-based output tracking
 ├── commands/            # REPL/MCP commands using pane API
 │   ├── __init__.py      # Command registration
-│   ├── bash.py          # bash() - execute commands with streaming
+│   ├── execute.py       # execute() - execute commands with streaming
 │   ├── read.py          # read() - MCP resource for output
 │   ├── ls.py            # ls() - MCP resource for session list
 │   ├── interrupt.py     # interrupt() - send Ctrl+C
@@ -80,7 +80,7 @@ Each command uses the pane-centric API:
     display="markdown",
     fastmcp={"type": "tool", "mime_type": "text/markdown"}
 )
-def bash(state, command: str, target: Target = "default"):
+def execute(state, command: str, target: Target = "default"):
     """Execute command in target pane."""
     try:
         pane_id, session_window_pane = resolve_or_create_target(target)

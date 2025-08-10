@@ -36,7 +36,7 @@ class _Stream:
 
     def _ensure_sync(self) -> bool:
         """Ensure files are in sync.
-        
+
         Returns:
             True if ready, False if cleaned up.
         """

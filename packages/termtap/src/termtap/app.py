@@ -24,7 +24,7 @@ class PaneCache:
         content: Captured output content from the pane.
         timestamp: Unix timestamp when content was captured.
         lines_per_page: Number of lines to display per page.
-        source: Source of the content, either "bash" or "read".
+        source: Source of the content, either "execute" or "read".
     """
 
     content: str
@@ -60,7 +60,7 @@ app = App(
 
 
 # Command imports trigger @app.command decorator registration
-from .commands import bash  # noqa: E402, F401
+from .commands import execute  # noqa: E402, F401
 from .commands import read  # noqa: E402, F401
 from .commands import ls  # noqa: E402, F401
 from .commands import interrupt  # noqa: E402, F401

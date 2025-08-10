@@ -19,10 +19,10 @@ from ..tmux import resolve_or_create_target
 
 def _capture_raw_state(pane: Pane) -> dict:
     """Capture raw pane state without handler interpretation.
-    
+
     Args:
         pane: Pane to capture state from.
-        
+
     Returns:
         Dict with raw pane state information.
     """
@@ -48,11 +48,11 @@ def _capture_raw_state(pane: Pane) -> dict:
 
 def _collect_sample(pane: Pane, elapsed: float) -> dict:
     """Collect single tracking sample with timestamp.
-    
+
     Args:
         pane: Pane to sample.
         elapsed: Time elapsed since tracking start.
-        
+
     Returns:
         Dict with tracking sample data.
     """

@@ -1,7 +1,7 @@
 """Execute commands in tmux panes.
 
 PUBLIC API:
-  - bash: Execute command in target pane with output caching
+  - execute: Execute command in target pane with output caching
 """
 
 from typing import Any
@@ -17,10 +17,10 @@ from ..tmux import resolve_or_create_target
         "type": "tool",
         "mime_type": "text/markdown",
         "tags": {"execution", "shell"},
-        "description": "Execute shell command in tmux pane",
+        "description": "Execute command in any shell or REPL within tmux pane",
     },
 )
-def bash(
+def execute(
     state,
     command: str,
     target: str = None,  # type: ignore[assignment]

@@ -1,7 +1,7 @@
 """Cache utilities for termtap commands.
 
 Shared utilities for cache operations including pagination, frontmatter building,
-and output formatting. Used by both bash and read commands for consistent behavior.
+and output formatting. Used by both execute and read commands for consistent behavior.
 """
 
 from typing import Optional, Tuple, List, Any

@@ -4,7 +4,7 @@ Commands are registered directly with ReplKit2 app via decorators.
 All imports handled by app.py for command registration.
 
 PUBLIC API:
-  - bash: Execute command in tmux pane
+  - execute: Execute command in tmux pane
   - interrupt: Send interrupt signal to pane
   - ls: List all tmux panes with process info
   - read: Read output from tmux pane
@@ -15,7 +15,7 @@ PUBLIC API:
   - track: Track process state changes (development tool)
 """
 
-from .bash import bash
+from .execute import execute
 from .interrupt import interrupt
 from .ls import ls
 from .read import read
@@ -24,7 +24,7 @@ from .send_keys import send_keys
 from .track import track
 
 __all__ = [
-    "bash",
+    "execute",
     "interrupt",
     "ls",
     "read",

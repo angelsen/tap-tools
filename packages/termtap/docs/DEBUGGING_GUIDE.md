@@ -79,7 +79,7 @@ print(f"Timeout: {config.timeout}")
 
 ### Python REPL Hanging
 
-**Symptom**: `bash("python3", target)` hangs until timeout
+**Symptom**: `execute("python3", target)` hangs until timeout
 
 **Cause**: Python REPL wait channel not recognized as "ready"
 
@@ -173,7 +173,7 @@ buffer_name = f"tt_{hashlib.md5(content.encode()).hexdigest()[:8]}"
 print(f"Buffer name: {buffer_name}")
 
 # List tmux buffers (run in bash)
-bash("tmux list-buffers", wait=False)
+execute("tmux list-buffers", wait=False)
 read()
 ```
 
@@ -185,7 +185,7 @@ read()
 
 3. **Inspect raw process info**: The `/proc` filesystem has detailed process information:
    ```python
-   bash(f"cat /proc/{pid}/stat", wait=False)
+   execute(f"cat /proc/{pid}/stat", wait=False)
    ```
 
 4. **Test handlers in isolation**: Import and test handler methods directly as shown above

@@ -43,7 +43,7 @@ The tmux `capture-pane` pipe that feeds stream files can become stale/broken ove
 - ✅ Metadata is recorded correctly in JSON files (command IDs, positions, timestamps)
 - ❌ Stream files stop growing (frozen at last captured position)
 - ❌ All subsequent commands have identical start/end positions
-- ❌ `bash()` commands return empty elements in MCP mode
+- ❌ `execute()` commands return empty elements in MCP mode
 - ❌ Stream-based output capture returns empty strings
 
 ### Root Cause Analysis
@@ -66,7 +66,7 @@ Command Execution Flow:
 1. Command recorded with `position: 594, end_position: 594`
 2. Stream file frozen at 594 bytes (no new content appended)
 3. `read_command_output()` extracts text between positions 594-594 → empty string
-4. `bash()` result: `if result["output"]:` → false → no elements
+4. `execute()` result: `if result["output"]:` → false → no elements
 
 ### Current Workaround
 

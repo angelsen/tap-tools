@@ -17,7 +17,7 @@ from ..tmux import resolve_target_to_pane
         "type": "tool",
         "mime_type": "text/markdown",
         "tags": {"control", "safety"},
-        "description": "Send interrupt signal to tmux pane",
+        "description": "Send interrupt signal to stop running process in tmux pane",
     },
 )
 def interrupt(state, target: str = None) -> dict[str, Any]:  # type: ignore[assignment]
