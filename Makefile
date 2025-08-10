@@ -1,35 +1,45 @@
-# Code Convention Conformance using Claude Code
-
+# tap-tools workspace management
 SHELL := /bin/bash
-.PHONY: conform-module conform-file conform-shell format
 
-# Conform Python module to conventions
-conform-module:
-	@echo "Conforming module $(TARGET) to Python conventions..."
-	@PROMPT=$$(cat .prompts/conventions/python-module.prompt | sed "s|\$$(MODULE)|$(TARGET)|g") && \
-	claude --model sonnet -p "$$PROMPT" \
-	--add-dir $(TARGET) \
-	--allowedTools "Read" "Edit" "MultiEdit" "Grep" "Glob"
+# Development shortcuts
+.PHONY: dev-termtap dev-webtap dev-logtap
+dev-termtap:
+	@uv run --package termtap termtap
 
-# Conform Python file to conventions
-conform-file:
-	@echo "Conforming file $(TARGET) to Python conventions..."
-	@PROMPT=$$(cat .prompts/conventions/python-file.prompt | sed "s|\$$(FILE)|$(TARGET)|g") && \
-	claude --model sonnet -p "$$PROMPT" \
-	--add-dir $$(dirname $(TARGET)) \
-	--allowedTools "Read" "Edit" "MultiEdit" "Grep" "Glob"
+dev-webtap:
+	@uv run --package webtap webtap
 
-# Conform shell script to conventions
-conform-shell:
-	@echo "Conforming script $(TARGET) to shell conventions..."
-	@PROMPT=$$(cat .prompts/conventions/shell-script.prompt | sed "s|\$$(SCRIPT)|$(TARGET)|g") && \
-	claude --model sonnet -p "$$PROMPT" \
-	--add-dir $$(dirname $(TARGET)) \
-	--allowedTools "Read" "Edit"
+dev-logtap:
+	@uv run --package logtap logtap
 
-# Format both Python and shell files in a directory
+# Generic release template
+# Usage: make release-termtap, make release-webtap, etc.
+.PHONY: release-%
+release-%:
+	@if [ ! -d "packages/$*" ]; then \
+		echo "Error: Package $* not found in packages/"; \
+		exit 1; \
+	fi
+	@VERSION=$$(grep '^version = ' packages/$*/pyproject.toml | cut -d'"' -f2); \
+	echo "Releasing $* v$$VERSION..."; \
+	git tag -a $*-v$$VERSION -m "Release $* v$$VERSION"; \
+	uv tool install packages/$*; \
+	echo "✓ Tagged and installed $* v$$VERSION"; \
+	echo "✓ Now '$*' runs the released version"; \
+	echo "Push with: git push origin $*-v$$VERSION"
+
+# Workspace operations
+.PHONY: sync format lint check
+
+sync:
+	@echo "Syncing workspace dependencies..."
+	@uv sync
+
 format:
-	@echo "Formatting Python files in $(TARGET)..."
-	@uv run ruff format $(TARGET)
-	@echo "Formatting shell scripts in $(TARGET)..."
-	@find $(TARGET) -type f \( -name "*.sh" -o -name "*.bash" \) -exec sh -c 'echo "Formatting {}" && shfmt -w "{}"' \;
+	@uv run ruff format .
+
+lint:
+	@uv run ruff check . --fix
+
+check:
+	@basedpyright
