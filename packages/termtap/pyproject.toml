@@ -1,6 +1,6 @@
 [project]
 name = "termtap"
-version = "0.3.4"
+version = "0.4.0"
 description = "Process-native tmux session manager with MCP support"
 readme = "README.md"
 license = { text = "MIT" }

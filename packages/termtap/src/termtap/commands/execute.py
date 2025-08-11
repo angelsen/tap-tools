@@ -18,6 +18,13 @@ from ..tmux import resolve_or_create_target
         "mime_type": "text/markdown",
         "tags": {"execution", "shell"},
         "description": "Execute command in any shell or REPL within tmux pane",
+        "aliases": [
+            {
+                "name": "send",
+                "description": "Send a message to the target pane",
+                "param_mapping": {"command": "message"},
+            }
+        ],
     },
 )
 def execute(
