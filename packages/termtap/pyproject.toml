@@ -1,16 +1,28 @@
 [project]
 name = "termtap"
-version = "0.3.1"
+version = "0.3.2"
 description = "Process-native tmux session manager with MCP support"
 readme = "README.md"
+license = { text = "MIT" }
 authors = [{ name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }]
 requires-python = ">=3.12"
+keywords = ["tmux", "terminal", "mcp", "session-manager"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
+    "replkit2[all]>=0.7.2",
+]
+
+[project.optional-dependencies]
+examples = [
     "fastapi>=0.116.1",
-    "fastmcp>=2.11.2",
-    "replkit2",
     "uvicorn>=0.35.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/angelsen/tap-tools"
 
 [project.scripts]
 termtap = "termtap:main"

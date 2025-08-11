@@ -2,96 +2,112 @@
 
 Process-native tmux session manager with MCP support.
 
-## Features
+## ✨ Features
 
-- **Pane-Centric Architecture** - Everything operates through `Pane` objects with lazy-loaded properties
-- **Smart Process Detection** - Shows actual running processes using pstree algorithm
-- **Handler-Centric Output** - Process-specific capture, filtering, and caching
-- **Service Orchestration** - Run multi-service environments with dependency management
-- **Ready Pattern Support** - Detect service startup with custom regex patterns
-- **Fuzzy Search** - Filter sessions with `ls("python")` or `ls("demo")`
-- **Auto Shell Wrapping** - Automatically wraps non-bash shells for compatibility
-- **Service Targets** - Use `demo.backend` notation for multi-service sessions
-- **MCP Integration** - Use as MCP server for LLM-assisted terminal work
-- **0-Based Pagination** - Navigate cached output with `read(target, page=0)`
+- 🎯 **Smart Detection** - Auto-detects Python, SSH, Claude processes
+- 📝 **Handler System** - Process-specific output filtering and caching
+- 🔌 **MCP Ready** - Tools and resources for Claude/LLMs
+- 🚀 **Service Orchestration** - Run multi-service environments
+- 🔍 **Fuzzy Search** - Filter sessions with patterns
+- 🎨 **Rich Display** - Tables, boxes, and formatted output
 
-## Quick Start
+## 📋 Prerequisites
 
-```python
-# Start termtap REPL
-uv run termtap
+Required system dependencies:
+- **tmux** - Terminal multiplexer
+- **gum** - Interactive terminal UI components
 
-# List all sessions with process info
-ls()
+```bash
+# macOS
+brew install tmux gum
 
-# Filter sessions
-ls("demo")      # Sessions containing "demo"
-ls("python")    # Sessions running python
+# Arch Linux
+sudo pacman -S tmux gum
 
-# Run commands
-execute("echo hello", "my-session")
+# Ubuntu/Debian
+sudo apt install tmux
+# For gum, see: https://github.com/charmbracelet/gum#installation
 
-# Read output (fresh capture)
-read("my-session")
-
-# Read from cache (0=most recent, 1=older, -1=oldest)
-read("my-session", page=0)
-
-# Send raw keys
-send_keys("my-session", "Up", "Enter")
-
-# Interrupt a process
-interrupt("my-session")
-
-# Run development environment
-run("demo")  # Starts services from termtap.toml
-
-# Kill session
-kill("my-session")
+# Fedora
+sudo dnf install tmux
+# For gum, use: go install github.com/charmbracelet/gum@latest
 ```
 
-## Commands
+## 📦 Installation
 
-- `execute(cmd, target)` - Execute command in target pane with output caching
-- `read(target, page=None)` - Read pane output (None=fresh, 0+=cached pages)
-- `ls(filter)` - List panes with process info and optional filter
-- `interrupt(target)` - Send interrupt signal (Ctrl+C)
-- `send_keys(target, *keys, enter=False)` - Send raw key sequences
-- `run(group)` - Run service group from configuration
-- `run_list()` - List available service configurations
-- `kill(target)` - Kill session or pane
-- `track(target)` - Monitor pane state and handler detection
+```bash
+# Install via uv tool (recommended)
+uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
 
-## Pane-Centric Architecture
+# Update to latest
+uv tool upgrade termtap
 
-All operations in termtap work through the `Pane` abstraction:
-
-```python
-from termtap.pane import Pane, send_command
-
-# Create pane object
-pane = Pane("%42")  # Using tmux pane ID
-
-# Access properties (lazy-loaded)
-pane.session_window_pane  # "demo:0.1"
-pane.pid                  # 12345
-pane.process             # First non-shell process
-pane.shell               # Shell process
-pane.visible_content     # Current pane content
-pane.handler             # Process-specific handler
-
-# Execute commands
-result = send_command(pane, "echo hello")
-# Returns: {
-#   "status": "completed",
-#   "output": "hello",
-#   "elapsed": 0.388,
-#   "process": "bash",
-#   ...
-# }
+# Uninstall
+uv tool uninstall termtap
 ```
 
-## Service Configuration
+## 🚀 Quick Start
+
+```bash
+# 1. Install termtap
+uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+
+# 2. Add to Claude
+claude mcp add termtap termtap --mcp
+
+# 3. Run REPL
+termtap
+```
+
+## 🔌 MCP Setup for Claude
+
+```bash
+# Quick setup with Claude CLI
+claude mcp add termtap termtap --mcp
+```
+
+Or manually configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "termtap": {
+      "command": "termtap",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+## 🎮 Usage
+
+### Interactive REPL
+```bash
+termtap                     # Start REPL
+termtap --mcp              # Start as MCP server
+```
+
+### Commands
+```python
+>>> ls()                    # List all sessions with processes
+>>> execute("python3")      # Start Python REPL in tmux
+>>> read()                  # Read output with caching
+>>> interrupt()            # Send Ctrl+C to current pane
+>>> run("demo")            # Run service group from config
+```
+
+### Command Reference
+
+| Command | Description |
+|---------|------------|
+| `execute(command, target=None)` | Run command in tmux pane |
+| `read(target=None, page=None)` | Read output with pagination |
+| `ls(filter=None)` | List sessions with optional filter |
+| `interrupt(target=None)` | Send interrupt signal |
+| `send_keys(keys, target=None)` | Send raw key sequences |
+| `run(group)` | Run service configuration |
+| `track(target=None, duration=10)` | Monitor pane state |
+
+## 🛠️ Service Configuration
 
 Define multi-service environments in `termtap.toml`:
 
@@ -114,26 +130,50 @@ ready_pattern = "Local:.*localhost"
 depends_on = ["backend"]
 ```
 
-## Handler System
+Run with: `run("demo")`
 
-Process-specific handlers provide intelligent output management:
-- **Capture Methods** - Stream for commands, full buffer for reads
-- **Smart Filtering** - SSH aggressive filtering, Python minimal filtering
-- **Automatic Caching** - Handler caches full output, returns display subset
-- **Process Detection** - Handlers selected based on running process
+## 📁 Examples
 
-## Architecture
+See `examples/` directory for:
+- Basic usage patterns
+- Service orchestration setups
+- MCP integration examples
 
-Built on ReplKit2 for dual REPL/MCP functionality:
+## 🏗️ Architecture
 
-**Core Modules:**
-- `pane/` - Pane abstraction with lazy properties and execution
-- `process/handlers/` - Process-specific capture and filtering
-- `tmux/` - Pure tmux operations and stream management
-- `commands/` - REPL/MCP command implementations
+Built on [ReplKit2](https://github.com/angelsen/replkit2) for dual REPL/MCP functionality.
 
 **Key Design:**
-- Process detection uses pstree algorithm for accurate child tracking
-- Handlers centralize all output capture, filtering, and caching logic
-- Commands orchestrate while handlers execute
-- 0-based pagination with Python-style negative indexing
+- **Pane-Centric** - Everything operates through `Pane` objects
+- **Process-Native** - Uses `/proc` and tmux state directly
+- **Handler System** - Process-specific capture and filtering
+- **0-Based Pagination** - Navigate cached output efficiently
+
+## 📚 Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) - System design
+- [Handlers](src/termtap/process/handlers/) - Process-specific handlers
+- [Commands](src/termtap/commands/) - Command implementations
+
+## 🛠️ Development
+
+```bash
+# Clone repository
+git clone https://github.com/angelsen/tap-tools
+cd tap-tools
+
+# Install for development
+uv sync --package termtap
+
+# Run development version
+uv run --package termtap termtap
+
+# Run tests and checks
+make check-termtap  # Check build
+make format         # Format code
+make lint          # Fix linting
+```
+
+## 📄 License
+
+MIT - see [LICENSE](../../LICENSE) for details.

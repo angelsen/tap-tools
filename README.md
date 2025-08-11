@@ -1,33 +1,68 @@
 # tap-tools
 
-A suite of tools for tapping into terminals, web pages, and logs for LLM-assisted debugging and automation.
+Terminal tools for LLM-assisted debugging and automation.
 
-## Tools
+## 🔧 Tools
 
-- **termtap** - Tap into terminal sessions with smart detection for TUIs, REPLs, and debuggers
-- **webtap** - Tap into web pages and mark elements for LLM understanding and automation
-- **logtap** - Tap into log streams from multiple sources with unified event correlation
+### Available Now
+- **[termtap](packages/termtap)** - Process-native tmux session manager with MCP support
 
-## Architecture
+### Coming Soon
+- **webtap** - Web page inspector for debugging sessions
+- **logtap** - Log stream analyzer and monitor
 
-This is a UV workspace monorepo where each tool:
-- Can be developed and versioned independently
-- Shares common dependencies through the workspace
-- Can be installed separately or as a suite
-- Exposes functionality via MCP (Model Context Protocol) servers
-
-## Development
+## 📋 Prerequisites
 
 ```bash
-# Install all tools for development
-uv sync
-
-# Run individual tools
-uv run --package termtap serve
-uv run --package webtap serve
-uv run --package logtap serve
+brew install tmux gum           # macOS
+sudo pacman -S tmux gum          # Arch
 ```
 
-## Author
+## 📦 Quick Start
+
+```bash
+# Install termtap
+uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+
+# Add to Claude
+claude mcp add termtap termtap --mcp
+
+# Run REPL
+termtap
+```
+
+## 🛠️ Development
+
+This is a UV workspace monorepo. Each tool can be developed and released independently.
+
+```bash
+# Clone repository
+git clone https://github.com/angelsen/tap-tools
+cd tap-tools
+
+# Install dependencies
+make sync
+
+# Development commands
+make               # Show all commands
+make dev-termtap   # Run termtap REPL
+make format        # Format code
+make lint          # Fix linting issues
+make check         # Type check
+
+# Release commands
+make check-termtap    # Test build
+make release-termtap  # Create release
+```
+
+## 📚 Documentation
+
+- [termtap README](packages/termtap/README.md) - Full termtap documentation
+
+## 📄 License
+
+MIT - see [LICENSE](LICENSE) for details.
+
+## 👤 Author
 
 Fredrik Angelsen

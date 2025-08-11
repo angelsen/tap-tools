@@ -1,12 +1,13 @@
 [project]
 name = "logtap"
 version = "0.1.0"
-description = "Add your description here"
+description = "Log file analyzer and monitor for debugging sessions"
 readme = "README.md"
 authors = [
     { name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }
 ]
 requires-python = ">=3.12"
+classifiers = ["Private :: Do Not Upload"]
 dependencies = []
 
 [project.scripts]
