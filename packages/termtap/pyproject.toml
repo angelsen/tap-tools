@@ -1,6 +1,6 @@
 [project]
 name = "termtap"
-version = "0.3.2"
+version = "0.3.3"
 description = "Process-native tmux session manager with MCP support"
 readme = "README.md"
 license = { text = "MIT" }
@@ -8,11 +8,13 @@ authors = [{ name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }]
 requires-python = ">=3.12"
 keywords = ["tmux", "terminal", "mcp", "session-manager"]
 classifiers = [
+    "Private :: Do Not Upload",
     "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
     "replkit2[all]>=0.7.2",
+    "tmux-popup",
 ]
 
 [project.optional-dependencies]
@@ -33,3 +35,4 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
+tmux-popup = { workspace = true }

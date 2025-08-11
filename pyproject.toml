@@ -8,7 +8,12 @@ dependencies = []
 authors = [{ name = "Fredrik Angelsen" }]
 
 [tool.uv.workspace]
-members = ["packages/termtap", "packages/webtap", "packages/logtap"]
+members = [
+    "packages/termtap",
+    "packages/webtap",
+    "packages/logtap",
+    "packages/tmux-popup",
+]
 
 [tool.ruff]
 line-length = 120

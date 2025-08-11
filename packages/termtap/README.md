@@ -36,8 +36,11 @@ sudo dnf install tmux
 ## 📦 Installation
 
 ```bash
-# Install via uv tool (recommended)
+# Install via uv (recommended)
 uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+
+# Or with pip
+pip install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
 
 # Update to latest
 uv tool upgrade termtap
@@ -53,7 +56,7 @@ uv tool uninstall termtap
 uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
 
 # 2. Add to Claude
-claude mcp add termtap termtap --mcp
+claude mcp add termtap -- termtap --mcp
 
 # 3. Run REPL
 termtap
@@ -63,7 +66,7 @@ termtap
 
 ```bash
 # Quick setup with Claude CLI
-claude mcp add termtap termtap --mcp
+claude mcp add termtap -- termtap --mcp
 ```
 
 Or manually configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
@@ -83,7 +86,7 @@ Or manually configure Claude Desktop (`~/Library/Application Support/Claude/clau
 ### Interactive REPL
 ```bash
 termtap                     # Start REPL
-termtap --mcp              # Start as MCP server
+termtap --mcp               # Start as MCP server
 ```
 
 ### Commands
@@ -91,8 +94,8 @@ termtap --mcp              # Start as MCP server
 >>> ls()                    # List all sessions with processes
 >>> execute("python3")      # Start Python REPL in tmux
 >>> read()                  # Read output with caching
->>> interrupt()            # Send Ctrl+C to current pane
->>> run("demo")            # Run service group from config
+>>> interrupt()             # Send Ctrl+C to current pane
+>>> run("demo")             # Run service group from config
 ```
 
 ### Command Reference
@@ -171,7 +174,7 @@ uv run --package termtap termtap
 # Run tests and checks
 make check-termtap  # Check build
 make format         # Format code
-make lint          # Fix linting
+make lint           # Fix linting
 ```
 
 ## 📄 License

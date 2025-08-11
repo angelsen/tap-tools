@@ -121,8 +121,8 @@ class _SSHHandler(ProcessHandler):
             command: Command to be sent.
         """
         from ...utils import truncate_command
-        from ...popup import Popup
-        from ...popup.gum import GumStyle, GumInput
+        from tmux_popup import Popup
+        from tmux_popup.gum import GumStyle, GumInput
 
         popup = Popup(width="65", title=pane.title or "SSH Session")
         edited = popup.add(
@@ -143,8 +143,8 @@ class _SSHHandler(ProcessHandler):
             command: Command that was sent.
         """
         from ...utils import truncate_command
-        from ...popup import Popup
-        from ...popup.gum import GumStyle
+        from tmux_popup import Popup
+        from tmux_popup.gum import GumStyle
 
         time.sleep(0.5)
 

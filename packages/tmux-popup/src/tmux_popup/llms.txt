@@ -4,8 +4,8 @@
 
 Build tmux popups by composing Command objects:
 ```python
-from termtap.popup import Popup
-from termtap.popup.gum import GumStyle, GumInput
+from tmux_popup import Popup
+from tmux_popup.gum import GumStyle, GumInput
 
 popup = Popup(width="65", title="Session")
 result = popup.add(

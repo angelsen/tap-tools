@@ -1,0 +1,12 @@
+# Raw recordings (too large for git)
+recordings/raw/*.mp4
+recordings/raw/*.mov
+recordings/raw/*.avi
+recordings/raw/*.mkv
+
+# Keep directory structure
+!recordings/raw/.gitkeep
+!recordings/processed/.gitkeep
+
+# WebM files are small enough to track (typically 10-30KB)
+# Use git add to include processed WebM files

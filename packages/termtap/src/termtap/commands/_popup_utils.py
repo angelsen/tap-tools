@@ -5,8 +5,8 @@ Internal utilities for pane selection in termtap commands.
 
 from typing import List, Optional
 
-from ..popup import Popup
-from ..popup.gum import GumStyle, GumFilter, GumInput
+from tmux_popup import Popup
+from tmux_popup.gum import GumStyle, GumFilter, GumInput
 
 
 def _format_pane_for_selection(pane_info: dict) -> str:
