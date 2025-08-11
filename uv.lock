@@ -1093,7 +1093,7 @@ dev = [
 
 [[package]]
 name = "termtap"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "packages/termtap" }
 dependencies = [
     { name = "replkit2", extra = ["all"] },

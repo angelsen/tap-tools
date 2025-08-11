@@ -79,6 +79,7 @@ def send_command(
     wait: bool = True,
     timeout: Optional[float] = None,
     ready_pattern: Optional[str] = None,
+    grace_period: float = 0.5,
     state=None,
 ) -> dict[str, Any]:
     """Execute command in pane with handler lifecycle.
@@ -92,6 +93,7 @@ def send_command(
         wait: Whether to wait for completion. Defaults to True.
         timeout: Maximum wait time in seconds. None means no timeout.
         ready_pattern: Optional regex pattern to match for readiness.
+        grace_period: Seconds to wait after completion before capturing output. Defaults to 0.5.
         state: Application state for caching (optional).
 
     Returns:
@@ -178,7 +180,7 @@ def send_command(
 
             time.sleep(0.1)
 
-    time.sleep(0.02)
+    time.sleep(grace_period)
 
     elapsed = time.time() - start_time
     status = _determine_status(elapsed, timeout)
