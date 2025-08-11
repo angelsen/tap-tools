@@ -3,7 +3,7 @@
 Composable tmux popup system with gum UI components.
 
 <p align="center">
-  <img src="https://github.com/angelsen/tap-tools/blob/main/assets/recordings/processed/tmux-popup-demo.gif" width="640" alt="tmux-popup demo">
+  <img src="https://raw.githubusercontent.com/angelsen/tap-tools/main/assets/recordings/processed/tmux-popup-demo.gif" width="640" alt="tmux-popup demo">
   <br>
   <em>Interactive popup components in action</em>
 </p>
