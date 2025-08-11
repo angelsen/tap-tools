@@ -7,7 +7,6 @@ Terminal tools for LLM-assisted debugging and automation.
 ### Published
 - **[tmux-popup](packages/tmux-popup)** - Composable tmux popup system with gum UI components
   ```bash
-  # Coming to PyPI soon
   uv add tmux-popup        # Recommended
   pip install tmux-popup   # Alternative
   ```

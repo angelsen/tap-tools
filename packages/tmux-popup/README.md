@@ -37,7 +37,7 @@ sudo apt install tmux
 ## 📦 Installation
 
 ```bash
-# Install from PyPI (coming soon)
+# Install from PyPI
 uv add tmux-popup                  # Recommended
 pip install tmux-popup             # Alternative
 

@@ -37,6 +37,7 @@ help:
 	@echo "  release-<pkg>   Tag release"
 	@echo "  publish-<pkg>   Publish to PyPI"
 	@echo "  full-release-<pkg> Complete workflow"
+	@echo "  clean-<pkg>     Clean build artifacts"
 	@echo ""
 	@echo "Assets:"
 	@echo "  gif SRC=path    Convert MP4 to optimized GIF"
@@ -132,17 +133,17 @@ build-%:
 		exit 1; \
 	fi
 	@echo "→ Building $* package..."
-	@uv build --package $* --no-sources
-	@echo "✓ Built in dist/"
+	@uv build --package $* --no-sources --out-dir packages/$*/dist
+	@echo "✓ Built in packages/$*/dist/"
 
 .PHONY: test-build-%
 test-build-%:
-	@if [ ! -d "dist" ]; then \
+	@if [ ! -d "packages/$*/dist" ]; then \
 		echo "✗ No build found. Run 'make build-$*' first"; \
 		exit 1; \
 	fi
 	@echo "→ Testing $* build..."
-	@WHEEL=$$(ls dist/$*-*.whl 2>/dev/null | head -1); \
+	@WHEEL=$$(ls packages/$*/dist/*.whl 2>/dev/null | head -1); \
 	if [ -z "$$WHEEL" ]; then \
 		echo "✗ No wheel found for $*"; \
 		exit 1; \
@@ -175,7 +176,7 @@ release-%:
 	@VERSION=$$(grep '^version' packages/$*/pyproject.toml | cut -d'"' -f2); \
 	echo "→ Releasing $* v$$VERSION..."; \
 	git tag -a $*-v$$VERSION -m "Release $* v$$VERSION"; \
-	@if echo "$(TOOLS)" | grep -qw "$*"; then \
+	if echo "$(TOOLS)" | grep -qw "$*"; then \
 		echo "  Installing tool locally..."; \
 		uv tool install packages/$* --force; \
 		echo "✓ Installed $* as tool"; \
@@ -194,6 +195,10 @@ publish-%:
 		echo "✗ Package $* not found"; \
 		exit 1; \
 	fi
+	@if [ ! -d "packages/$*/dist" ]; then \
+		echo "✗ No build found. Run 'make build-$*' first"; \
+		exit 1; \
+	fi
 	@echo "→ Publishing $* to PyPI..."
 	@cd packages/$* && uv publish --token "$$(pass pypi/uv-publish)"
 	@echo "✓ Published to PyPI"
@@ -208,6 +213,12 @@ full-release-%: preflight-% build-% test-build-%
 	@echo "  1. make release-$*     # Create git tag"
 	@echo "  2. make publish-$*     # Publish to PyPI"
 	@echo "  3. git push origin && git push origin --tags"
+
+# Clean build artifacts
+.PHONY: clean-%
+clean-%:
+	@rm -rf packages/$*/dist
+	@echo "✓ Cleaned $* build artifacts"
 
 # Assets
 .PHONY: gif
