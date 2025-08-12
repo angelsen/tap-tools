@@ -1,7 +1,5 @@
 """Internal SSH handler with connection detection and command confirmation.
 
-Specialized handler for SSH client processes with interactive features.
-
 # to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-07-30

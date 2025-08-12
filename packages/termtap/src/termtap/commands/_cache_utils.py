@@ -1,14 +1,10 @@
-"""Cache utilities for termtap commands.
-
-Shared utilities for cache operations including pagination, frontmatter building,
-and output formatting. Used by both execute and read commands for consistent behavior.
-"""
+"""Internal cache utilities for termtap commands."""
 
 from typing import Optional, Tuple, List, Any
 from math import ceil
 
 
-def paginate_content(content: str, page: int, lines_per_page: int = 50) -> Tuple[str, int]:
+def _paginate_content(content: str, page: int, lines_per_page: int = 50) -> Tuple[str, int]:
     """Paginate content with reverse ordering (page 0 = newest).
 
     Args:
@@ -29,7 +25,7 @@ def paginate_content(content: str, page: int, lines_per_page: int = 50) -> Tuple
     return page_content, total_pages
 
 
-def build_frontmatter(
+def _build_frontmatter(
     target: Any,
     lines_shown: int,
     total_lines: int,
@@ -71,7 +67,7 @@ def build_frontmatter(
     return frontmatter
 
 
-def format_pane_output(
+def _format_pane_output(
     outputs: List[Tuple[str, str]],
     page: Optional[int] = None,
     lines_per_page: int = 50,
@@ -107,10 +103,25 @@ def format_pane_output(
                 actual_page = content_pages + page
                 if actual_page < 0:
                     actual_page = 0
+            elif page > 0:
+                # Pages > 0 are 1-based
+                actual_page = page - 1
 
-            page_content, _ = paginate_content(content, actual_page, lines_per_page)
+            page_content, total_pages = _paginate_content(content, actual_page, lines_per_page)
+
+            # Add read more hint if there are more pages
+            if actual_page + 1 < total_pages:
+                display_page = page if page > 0 else 1
+                next_page = display_page + 1
+                hint = f'... read more with readMcpResource("termtap://read/{swp}/{next_page}", "termtap")\n'
+                page_content = hint + page_content if page_content else hint
         else:
+            # Fresh read - still check if truncated
             page_content = "\n".join(lines[-lines_per_page:]) if lines else ""
+            total_pages = ceil(len(lines) / lines_per_page) if lines else 1
+            if total_pages > 1:
+                hint = f'... read more with readMcpResource("termtap://read/{swp}/2", "termtap")\n'
+                page_content = hint + page_content if page_content else hint
 
         shown_lines += len(page_content.splitlines())
 
@@ -128,13 +139,16 @@ def format_pane_output(
     panes = [swp for swp, _ in outputs]
     target = panes[0] if len(panes) == 1 else panes
 
+    # Always show 1-based pages to users
+    display_page = page if page and page > 0 else 1
+
     return {
         "elements": elements,
-        "frontmatter": build_frontmatter(
+        "frontmatter": _build_frontmatter(
             target=target,
             lines_shown=shown_lines,
             total_lines=total_lines,
-            page=page if page is not None else 0,
+            page=display_page,
             cached=cached,
             cache_time=cache_time,
             lines_per_page=lines_per_page,
@@ -143,7 +157,7 @@ def format_pane_output(
     }
 
 
-def truncate_command(command: str, max_length: int = 50) -> str:
+def _truncate_command(command: str, max_length: int = 50) -> str:
     """Truncate long commands for display in frontmatter.
 
     Always uses first line of command for consistency.

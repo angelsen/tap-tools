@@ -112,6 +112,29 @@ class ProcessHandler(ABC):
         """
         pass
 
+    def send_to_pane(self, pane: Pane, command: str) -> bool:
+        """Send command to pane using appropriate method.
+
+        Override to customize how commands are sent (chunking, escaping, etc).
+        Default implementation chooses between send-keys and paste-buffer.
+
+        Args:
+            pane: Target pane.
+            command: Command to send.
+
+        Returns:
+            True if sent successfully, False otherwise.
+        """
+        from ...tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
+
+        try:
+            if "\n" in command:
+                return send_via_paste_buffer(pane.pane_id, command)
+            else:
+                return tmux_send_keys(pane.pane_id, command)
+        except Exception:
+            return False
+
     def capture_output(self, pane: Pane, cmd_id: str | None = None, state=None, display_lines: int = 50) -> str:
         """Capture and process command output with handler-centric approach.
 

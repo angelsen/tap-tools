@@ -1,7 +1,4 @@
-"""Popup utilities for termtap commands.
-
-Internal utilities for pane selection in termtap commands.
-"""
+"""Internal popup utilities for termtap commands."""
 
 from typing import List, Optional
 

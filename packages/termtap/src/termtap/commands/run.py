@@ -22,7 +22,7 @@ from ..tmux.pane import create_panes_with_layout
 
 
 @dataclass
-class ServiceBuilder:
+class _ServiceBuilder:
     """Builder for validated service configuration."""
 
     name: str
@@ -95,7 +95,7 @@ class ServiceBuilder:
         return " && ".join(parts) if len(parts) > 1 else self.command
 
 
-def _parse_service_config(service_name: str, service_data: dict, group_name: str, pane_index: int) -> ServiceBuilder:
+def _parse_service_config(service_name: str, service_data: dict, group_name: str, pane_index: int) -> _ServiceBuilder:
     """Parse service configuration into builder.
 
     Args:
@@ -104,7 +104,7 @@ def _parse_service_config(service_name: str, service_data: dict, group_name: str
         group_name: Name of the group this service belongs to
         pane_index: Pane index for this service
     """
-    return ServiceBuilder(
+    return _ServiceBuilder(
         name=service_name,
         group=group_name,
         pane_index=service_data.get("pane", pane_index),
@@ -117,7 +117,7 @@ def _parse_service_config(service_name: str, service_data: dict, group_name: str
     )
 
 
-def _load_and_validate_services(group: str) -> tuple[list[ServiceBuilder], Path, str]:
+def _load_and_validate_services(group: str) -> tuple[list[_ServiceBuilder], Path, str]:
     """Load and validate services for a group.
 
     Args:
@@ -135,7 +135,7 @@ def _load_and_validate_services(group: str) -> tuple[list[ServiceBuilder], Path,
 
     services = []
     for i, service_config in enumerate(init_group.services):
-        builder = ServiceBuilder(
+        builder = _ServiceBuilder(
             name=service_config.name,
             group=service_config.group,
             pane_index=service_config.pane,
@@ -160,7 +160,7 @@ def _load_and_validate_services(group: str) -> tuple[list[ServiceBuilder], Path,
     return services, config_dir, init_group.layout
 
 
-def _sort_by_dependencies(services: list[ServiceBuilder]) -> list[ServiceBuilder]:
+def _sort_by_dependencies(services: list[_ServiceBuilder]) -> list[_ServiceBuilder]:
     """Sort services by dependencies (topological sort).
 
     Args:

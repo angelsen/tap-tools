@@ -22,9 +22,9 @@ from ..tmux import resolve_targets_to_panes
                 "description": "Read output from tmux pane with optional pagination",
                 "usage": [
                     "termtap://read - Interactive pane selection",
-                    "termtap://read/session1 - Read from specific pane",
-                    "termtap://read/session1/0 - Page 0 (most recent output)",
-                    "termtap://read/session1/1 - Page 1 (older output)",
+                    "termtap://read/session1 - Read from specific pane (fresh read)",
+                    "termtap://read/session1/1 - Page 1 (most recent cached)",
+                    "termtap://read/session1/2 - Page 2 (older output)",
                     "termtap://read/session1/-1 - Last page (oldest output)",
                 ],
                 "discovery": "Use termtap://ls to find available pane targets",
@@ -42,12 +42,12 @@ def read(
     Args:
         state: Application state with read_cache.
         target: List of target panes. None for interactive selection.
-        page: None for fresh read, 0 for most recent cached, 1+ for older pages, -1 for oldest.
+        page: Page number for pagination. None for fresh read, 1+ for pages (1-based), -1 for oldest.
 
     Returns:
         Markdown formatted result with pane output(s).
     """
-    from ._cache_utils import format_pane_output
+    from ._cache_utils import _format_pane_output
 
     if target is None:
         from ._popup_utils import _select_multiple_panes
@@ -102,7 +102,7 @@ def read(
         if outputs and panes_to_read[0][1] in state.read_cache:
             cache_time = state.read_cache[panes_to_read[0][1]].timestamp
 
-        return format_pane_output(
+        return _format_pane_output(
             outputs, page=page, lines_per_page=DEFAULT_LINES_PER_PAGE, cached=True, cache_time=cache_time
         )
 
@@ -122,7 +122,7 @@ def read(
 
         outputs.append((swp, full_content))
 
-    return format_pane_output(
+    return _format_pane_output(
         outputs,
         page=None,
         lines_per_page=DEFAULT_LINES_PER_PAGE,

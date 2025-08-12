@@ -72,7 +72,7 @@ def execute(
                 "frontmatter": {"error": str(e), "status": "error"},
             }
 
-    from ._cache_utils import build_frontmatter, truncate_command
+    from ._cache_utils import _build_frontmatter, _truncate_command
 
     pane = Pane(pane_id)
     result = send_command(pane, command, wait=wait, timeout=timeout, state=state)
@@ -104,13 +104,13 @@ def execute(
 
     return {
         "elements": elements,
-        "frontmatter": build_frontmatter(
+        "frontmatter": _build_frontmatter(
             target=session_window_pane,
             lines_shown=lines_shown,
             total_lines=total_lines,
             cached=bool(cache_time),
             cache_time=cache_time,
-            command=truncate_command(result["command"]),
+            command=_truncate_command(result["command"]),
             status=result["status"],
             elapsed=round(result["elapsed"], 2),
             truncated=truncated,

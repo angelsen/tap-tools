@@ -120,15 +120,9 @@ def send_command(
     cmd_id = f"cmd_{int(time.time() * 1000)}"
     cmd_id = stream.mark_command(cmd_id, command)
 
-    # Send command to tmux
-    from ..tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
-
+    # Let handler control how to send
     try:
-        if "\n" in command:
-            success = send_via_paste_buffer(pane.pane_id, command)
-        else:
-            success = tmux_send_keys(pane.pane_id, command)
-
+        success = handler.send_to_pane(pane, command)
         if not success:
             return _build_result(pane, command, "failed", start_time, error="Failed to send command to pane")
     except Exception as e:

@@ -1,7 +1,5 @@
 """Internal Claude CLI handler using content detection.
 
-Specialized handler for Anthropic Claude CLI processes.
-
 # to_agent: Required per handlers/README.md
 TESTING LOG:
 Date: 2025-01-30
