@@ -837,7 +837,7 @@ wheels = [
 
 [[package]]
 name = "replkit2"
-version = "0.7.5"
+version = "0.7.6"
 source = { editable = "../replkit2" }
 
 [package.optional-dependencies]
@@ -1115,7 +1115,7 @@ provides-extras = ["examples"]
 
 [[package]]
 name = "tmux-popup"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/tmux-popup" }
 
 [package.optional-dependencies]

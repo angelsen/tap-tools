@@ -1,6 +1,6 @@
 [project]
 name = "tmux-popup"
-version = "0.1.1"
+version = "0.1.2"
 description = "Composable tmux popup system with gum UI components"
 readme = "README.md"
 license = { text = "MIT" }
