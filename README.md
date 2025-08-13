@@ -4,15 +4,17 @@ Terminal tools for LLM-assisted debugging and automation.
 
 ## 🔧 Tools
 
-### Published
+### Published on PyPI
 - **[tmux-popup](packages/tmux-popup)** - Composable tmux popup system with gum UI components
   ```bash
-  uv add tmux-popup        # Recommended
-  pip install tmux-popup   # Alternative
+  uv add tmux-popup  # As library
   ```
 
-### Available Now
-- **[termtap](packages/termtap)** - Process-native tmux session manager with MCP support (Private)
+- **[termtap](packages/termtap)** - Process-native tmux session manager with MCP support
+  ```bash
+  uv tool install termtap  # As CLI tool
+  pipx install termtap     # Alternative
+  ```
 
 ### Coming Soon
 - **webtap** - Web page inspector for debugging sessions (Private)
@@ -29,7 +31,7 @@ sudo pacman -S tmux gum          # Arch
 
 ```bash
 # Install termtap
-uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+uv tool install termtap
 
 # Add to Claude
 claude mcp add termtap -- termtap --mcp

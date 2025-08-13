@@ -36,11 +36,11 @@ sudo dnf install tmux
 ## 📦 Installation
 
 ```bash
-# Install via uv (recommended)
-uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+# Install via uv tool (recommended)
+uv tool install termtap
 
-# Or with pip
-pip install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+# Or with pipx
+pipx install termtap
 
 # Update to latest
 uv tool upgrade termtap

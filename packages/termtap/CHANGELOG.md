@@ -8,12 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-<!-- Example: - New API endpoint for user authentication -->
-<!-- Example: - Support for Python 3.12 -->
+- Published to PyPI for public availability
+- Support for standard tool installation via `uv tool install` and `pipx`
 
 ### Changed
-<!-- Example: - Improved error messages for validation failures -->
-<!-- Example: - Updated dependencies to latest versions -->
+- Removed private classifier to enable PyPI publishing
+- Updated installation documentation for PyPI distribution
 
 ### Fixed
 <!-- Example: - Memory leak in worker process -->
