@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.4.1] - 2025-08-14
+
+### Added
 - Published to PyPI for public availability
 - Support for standard tool installation via `uv tool install` and `pipx`
 
