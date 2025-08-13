@@ -8,22 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-<!-- Example: - New API endpoint for user authentication -->
-<!-- Example: - Support for Python 3.12 -->
+- Changelog tracking with relkit support
 
 ### Changed
-<!-- Example: - Improved error messages for validation failures -->
-<!-- Example: - Updated dependencies to latest versions -->
 
 ### Fixed
-<!-- Example: - Memory leak in worker process -->
-<!-- Example: - Incorrect handling of UTF-8 file names -->
 
 ### Removed
-<!-- Example: - Deprecated legacy API endpoints -->
-<!-- Example: - Support for Python 3.7 -->
 
-<!-- 
-When you run 'relkit bump', the [Unreleased] section will automatically 
-become the new version section. Make sure to add your changes above!
--->
+## [0.1.1] - 2025-08-11
+
+### Initial Release
+- Composable tmux popup system with gum UI components
+- Support for various gum components (choose, input, confirm, etc.)
+- Flexible positioning and sizing options
+- Published to PyPI as public package
