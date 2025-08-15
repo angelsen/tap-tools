@@ -1121,7 +1121,7 @@ provides-extras = ["examples"]
 
 [[package]]
 name = "tmux-popup"
-version = "0.1.2"
+version = "0.2.0"
 source = { editable = "packages/tmux-popup" }
 
 [package.optional-dependencies]
