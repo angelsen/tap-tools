@@ -10,8 +10,7 @@ PUBLIC API:
   - Row: Horizontal layout container for organizing elements
   - Column: Vertical layout container for organizing elements
   - Text: Plain text content element
-  - Markdown: Formatted markdown content with syntax highlighting
-  - Code: Code content with syntax highlighting
+  - Markdown: Formatted markdown content
   - Choose: Interactive selection from a list of options
   - Filter: Interactive fuzzy search and filtering
   - Input: Single-line text input
@@ -39,7 +38,7 @@ from .canvas import Canvas
 from .layout import Row, Column
 
 # Content elements for Canvas
-from .content import Text, Markdown, Code
+from .content import Text, Markdown
 
 # Interactive elements
 from .interactive import (
@@ -74,7 +73,6 @@ __all__ = [
     # Content
     "Text",
     "Markdown",
-    "Code",
     # Interactive
     "Choose",
     "Filter",
