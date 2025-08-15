@@ -1,0 +1,92 @@
+# tmux-popup Quick Reference
+
+Python wrapper for tmux popups with gum UI components.
+
+## Core Pattern
+
+```python
+from tmux_popup import Popup, Canvas, Text, Input, Choose
+
+# Display only
+popup = Popup(width="60%", height="30%")
+canvas = Canvas(border="rounded", padding="1")
+canvas.add(Text("Hello World"))
+popup.add(canvas).show()
+
+# Input only
+popup = Popup()
+result = popup.add(Input(prompt="Name: ")).show()
+
+# Display + Input
+popup = Popup()
+canvas = Canvas()
+canvas.add(Text("Choose an option:"))
+popup.add(canvas)
+result = popup.add(Choose(options=["Yes", "No"])).show()
+```
+
+## Content (Canvas children)
+
+- `Text(text)` - Plain text
+- `Markdown(text, theme="pink")` - Formatted markdown with code blocks
+
+## Layout (Canvas children)
+
+- `Row(col1, col2, ...)` - Horizontal layout
+- `Column(width="50%", border="normal", padding="1")` - Styled container
+
+## Interactive (Popup children)
+
+- `Input(prompt="", placeholder="", header="")` - Text input
+- `Choose(options=list_or_dict)` - Single selection
+- `Filter(options=list_or_dict, fuzzy=True, no_limit=True)` - Multi-select with search
+- `Confirm(prompt="", affirmative="Yes", negative="No")` - Yes/no dialog
+- `Write(width=60, height=10, placeholder="")` - Multi-line editor
+- `Table(data=list_of_dicts, border="rounded")` - Table display/selection
+- `FilePicker(".", file=True, all=True)` - File browser
+
+## Special Features
+
+**Dict options** - Shows labels, returns values:
+```python
+options = {"Display Name": "value1", "Other": "value2"}
+result = popup.add(Choose(options=options)).show()  # Returns "value1" or "value2"
+```
+
+**Multi-select** - Returns list:
+```python
+result = popup.add(Filter(options=["A", "B", "C"], no_limit=True)).show()  # Returns ["A", "C"]
+```
+
+**Debug mode** - See generated script:
+```python
+popup = Popup(debug=True)
+```
+
+## Parameters
+
+- **Dimensions**: width/height as int or "50%"
+- **Borders**: "none", "hidden", "normal", "rounded", "thick", "double"  
+- **Spacing**: "1" (all), "1 2" (v h), "1 2 3 4" (t r b l)
+- **Align**: "left", "center", "right"
+
+All unrecognized kwargs pass through to gum. Check `gum <command> --help` for available flags.
+
+## Debugging
+
+When parameters don't work as expected:
+
+1. **Check gum directly**: `gum <command> --help` (e.g., `gum input --help`)
+2. **Use debug mode**: `Popup(debug=True)` shows the generated shell script
+3. **Common issues**:
+   - Some flags like `header` on `gum table` make it non-interactive
+   - Path for FilePicker is positional: `FilePicker(".")` not `FilePicker(path=".")`
+   - Table needs data as first arg: `Table(data=list_of_dicts)`
+   - Options for Choose/Filter: `Choose(options=list_or_dict)`
+
+## Constraints
+
+- One Canvas max per Popup
+- One Interactive max per Popup  
+- Canvas cannot nest other Canvas
+- Space propagates: margin/border/padding reduce available width for children

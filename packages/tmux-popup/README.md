@@ -4,188 +4,215 @@ Composable tmux popup system with gum UI components.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/angelsen/tap-tools/main/assets/recordings/processed/tmux-popup-demo.gif" width="640" alt="tmux-popup demo">
-  <br>
-  <em>Interactive popup components in action</em>
 </p>
 
-## ✨ Features
+## Features
 
-- 🎨 **Rich Components** - Styled text, inputs, selections, confirmations
-- 🔧 **Composable API** - Chain commands for complex interactions
-- 📦 **Zero Dependencies** - Pure Python, only needs tmux and gum
-- 🎯 **Type-Safe** - Full type hints and result parsing
-- 🚀 **Lightweight** - Simple, focused library
+🎨 **Rich Display** - Canvas with Markdown and flexible layouts  
+🔧 **Hybrid Approach** - Python data handling + full gum passthrough  
+📦 **Zero Dependencies** - Pure Python, only needs tmux and gum  
+🎯 **Type-Safe** - Full type hints with proper base classes  
+🔍 **Fuzzy Search** - Multi-select filtering with dict support
 
-## 📋 Prerequisites
-
-Required system tools:
-- **tmux** - Terminal multiplexer for popups
-- **gum** - Provides the UI components
+## Installation
 
 ```bash
-# macOS
-brew install tmux gum
+# Prerequisites
+sudo pacman -S tmux gum       # Arch
+brew install tmux gum         # macOS
 
-# Arch Linux
-sudo pacman -S tmux gum
-
-# Ubuntu/Debian
-sudo apt install tmux
-# For gum: https://github.com/charmbracelet/gum#installation
+# Install package
+uv add tmux-popup             # Recommended
+pip install tmux-popup        # Alternative
 ```
 
-## 📦 Installation
-
-```bash
-# Install from PyPI
-uv add tmux-popup                  # Recommended
-pip install tmux-popup             # Alternative
-
-# Install from source
-uv add git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/tmux-popup
-# Or with pip:
-pip install git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/tmux-popup
-```
-
-## 🚀 Quick Start
+## Quick Start
 
 ```python
-from tmux_popup import Popup
-from tmux_popup.gum import GumStyle, GumInput, GumChoose
+from tmux_popup import Popup, Canvas, Text, Input, Choose
 
-# Create a simple popup
-popup = Popup(width="65", title="My App")
-result = popup.add(
-    GumStyle("Welcome!", header=True),
-    GumInput(placeholder="Enter your name...")
-).show()
+# Display text
+popup = Popup(width="60%", height="30%")
+canvas = Canvas(border="rounded", padding="1")
+canvas.add(Text("Welcome to tmux-popup!"))
+popup.add(canvas).show()
 
-print(f"Hello, {result}!")
-```
+# Get input
+name = Popup().add(Input(prompt="Name: ")).show()
 
-## 🎮 Usage
-
-### Basic Input
-```python
-popup = Popup(width="50")
-name = popup.add(
-    GumStyle("User Setup", header=True),
-    "Please enter your details:",
-    GumInput(placeholder="Name...", value="")
-).show()
-```
-
-### Confirmations
-```python
+# Display then choose
 popup = Popup()
-confirmed = popup.add(
-    GumStyle("⚠️ Warning", warning=True),
-    "This will delete all data.",
-    GumConfirm("Are you sure?", default=False)
-).show()
-
-if confirmed:
-    # Proceed with deletion
-    pass
+popup.add(Canvas().add(Text("Continue?")))
+result = popup.add(Choose(options=["Yes", "No"])).show()
 ```
 
-### Selections
-```python
-# Single choice
-choice = popup.add(
-    GumStyle("Select Action", header=True),
-    GumChoose([
-        ("new", "📝 New File"),
-        ("open", "📂 Open File"),
-        ("save", "💾 Save File"),
-        ("quit", "❌ Quit")
-    ])
-).show()
+## Core Concepts
 
-# Multiple selection with fuzzy search
-items = ["Python", "JavaScript", "Go", "Rust", "TypeScript"]
-selected = popup.add(
-    GumStyle("Select Languages", info=True),
-    GumFilter(items, limit=0, fuzzy=True)
-).show()  # Returns list of selected items
+### Three Patterns
+
+```python
+# 1. Display only
+Popup().add(Canvas().add(content)).show()
+
+# 2. Input only  
+Popup().add(interactive_element).show()
+
+# 3. Display + Input
+popup = Popup()
+popup.add(Canvas().add(content))
+result = popup.add(interactive_element).show()
 ```
 
-### Tables
+### Content & Layout
+
 ```python
+from tmux_popup import Popup, Canvas, Markdown, Text, Row, Column
+
+# Rich content with Markdown
+canvas = Canvas(border="rounded", padding="1")
+canvas.add(Markdown("""# Title
+
+**Bold**, *italic*, `code`
+
+\```python
+def hello():
+    print("Hi!")
+\```
+"""))
+
+# Two-column layout
+left = Column(width="50%", border="normal", padding="1")
+left.add(Markdown("## Left"))
+
+right = Column(width="50%", border="normal", padding="1")  
+right.add(Text("Right content"))
+
+canvas.add(Row(left, right))
+popup.add(canvas).show()
+```
+
+### Interactive Elements
+
+```python
+from tmux_popup import Input, Choose, Filter, Confirm, Table
+
+# Text input
+email = Popup().add(
+    Input(prompt="Email: ", placeholder="user@example.com")
+).show()
+
+# Single choice (dict shows labels, returns values)
+actions = {
+    "📝 New File": "new",
+    "📂 Open": "open",
+    "❌ Quit": "quit"
+}
+result = Popup().add(Choose(options=actions)).show()  # Returns: "new", "open", or "quit"
+
+# Multi-select with fuzzy search
+packages = ["numpy", "pandas", "fastapi", "django"]
+selected = Popup().add(
+    Filter(options=packages, no_limit=True, fuzzy=True)
+).show()  # Returns: ["numpy", "pandas"]
+
+# Confirmation
+if Popup().add(Confirm(prompt="Delete all?")).show():
+    print("Deleting...")
+
+# Table selection
 data = [
-    ["Active", "Server 1", "192.168.1.10"],
-    ["Idle", "Server 2", "192.168.1.11"],
-    ["Active", "Server 3", "192.168.1.12"],
+    {"name": "Alice", "role": "Admin"},
+    {"name": "Bob", "role": "User"}
 ]
+row = Popup().add(Table(data=data)).show()  # Returns selected row dict
+```
 
-selected_ip = popup.add(
-    GumStyle("Select Server", header=True),
-    GumTable(
-        data,
-        headers=["Status", "Name", "IP"],
-        return_column=2  # Return IP column
-    )
+## Advanced Features
+
+### Complete Example
+
+```python
+from tmux_popup import Popup, Canvas, Row, Column, Markdown, Text, Filter
+
+# Build interface
+popup = Popup(width="80%", height="60%")
+canvas = Canvas(border="rounded", padding="1")
+
+# Two columns
+left = Column(width="50%", padding="1")
+left.add(Markdown("## Instructions\n\n• Type to filter\n• Space to select"))
+
+right = Column(width="50%", padding="1")
+right.add(Markdown("## Example\n\n    packages = ['numpy', 'pandas']"))
+
+canvas.add(Row(left, right))
+popup.add(canvas)
+
+# Add interactive filter
+packages = {"NumPy": "numpy", "Pandas": "pandas"}
+selected = popup.add(
+    Filter(options=packages, no_limit=True, fuzzy=True)
 ).show()
 ```
 
-## 📚 Components
+### Gum Passthrough
 
-### Core
-- `Popup` - Main popup runner with tmux display-popup
-- `Command` - Base class for all UI commands
-
-### Input Components
-- `GumInput` - Single line text input
-- `GumWrite` - Multi-line text editor
-- `GumConfirm` - Yes/no confirmation
-
-### Selection Components
-- `GumChoose` - Single choice from list
-- `GumFilter` - Fuzzy search with multi-select
-- `GumFile` - File picker
-- `GumTable` - Table with row selection
-
-### Display Components
-- `GumStyle` - Styled text with presets (header, info, warning, error)
-- `GumFormat` - Markdown/template formatting
-- `GumPager` - Scrollable text viewer
-- `GumLog` - Formatted log display
-
-### Utility Components
-- `GumJoin` - Layout multiple elements
-- `GumSpin` - Loading spinner for async operations
-
-## 🏗️ Architecture
-
-The library follows a simple pattern:
-1. **Commands** render themselves to shell script
-2. **Popup** combines commands and executes via tmux
-3. **Results** are parsed and returned to Python
+All gum flags work via kwargs:
 
 ```python
-# Commands know how to render
-cmd = GumInput(value="default")
-script_lines = cmd.render()  # Returns list of shell commands
-
-# Popup handles execution
-popup = Popup()
-result = popup.add(cmd).show()  # Executes and returns parsed result
+Choose(
+    options=["A", "B", "C"],
+    cursor_foreground="212",   # gum styling
+    height=10,                 # gum display option
+    select_if_one=True,        # gum behavior
+    header="Select:"           # gum text
+)
 ```
 
-## 🛠️ Development
+### Debug Mode
+
+```python
+# See generated shell script
+Popup(debug=True).add(Canvas().add("Test")).show()
+```
+
+## Components Reference
+
+**Core**
+- `Popup` - Main container (width, height, border, debug)
+- `Canvas` - Content area (border, padding, margin, align)
+
+**Content** 
+- `Text` - Plain text
+- `Markdown` - Formatted markdown with code blocks
+
+**Layout**
+- `Row` - Horizontal container
+- `Column` - Vertical container (width, border, padding)
+
+**Interactive**
+- `Input` - Single-line input (prompt, placeholder, header)
+- `Write` - Multi-line editor (width, height)
+- `Confirm` - Yes/no dialog (prompt, affirmative, negative)
+- `Choose` - Single/multi selection (options, limit, header)
+- `Filter` - Fuzzy search (options, no_limit, fuzzy)
+- `Table` - Tabular selection (data, border)
+- `FilePicker` - File browser (path, file, all)
+- `Pager` - Scrollable viewer (content)
+- `Spin` - Loading spinner (command, title)
+- `Format` - Text formatter (content, format_type)
+
+**Types**
+- `TimeoutResult`, `CancelledResult` - Special return values
+
+## Development
 
 ```bash
-# Clone repository
 git clone https://github.com/angelsen/tap-tools
-cd tap-tools
-
-# Install for development (recommended)
+cd tap-tools/packages/tmux-popup
 uv sync
-uv run --package tmux-popup python examples/demo.py
 
-# Or with pip:
-cd packages/tmux-popup
-pip install -e .
+# Run examples
 python examples/demo.py
 ```
 
