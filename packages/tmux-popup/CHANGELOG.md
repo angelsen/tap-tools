@@ -8,12 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Canvas component for rich content display
+- Row and Column layout components
+- Markdown content with code block support
+- Text content component
+- Comprehensive examples (display.py, input.py, combined.py)
+- Core Concepts documentation section
+- Debug mode for viewing generated scripts
+- Full gum passthrough support via kwargs
+- Type hints with base classes
+- llms.txt quick reference
 
 ### Changed
+- Complete API redesign with Popup → Canvas/Interactive → show() pattern
+- Simplified to use Markdown for all formatted content including code
+- Reorganized examples into three clear categories
+- Streamlined README from 392 to 248 lines
+- Better separation of display vs interactive components
 
 ### Fixed
+- Layout calculations for borders and spacing
+- Shell quoting in generated scripts
 
 ### Removed
+- Code class (use Markdown code blocks instead)
+- Old demo.py and flask_demo.py examples
+- Complex gum module structure
 
 ## [0.1.2] - 2025-08-13
 
