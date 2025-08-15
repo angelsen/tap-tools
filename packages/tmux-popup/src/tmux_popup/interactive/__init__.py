@@ -25,7 +25,7 @@ from .format import Format
 
 __all__ = [
     "Choose",
-    "Filter", 
+    "Filter",
     "Input",
     "Write",
     "Confirm",

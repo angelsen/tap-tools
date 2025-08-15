@@ -19,31 +19,31 @@ Align = Literal["left", "center", "right"]
 
 class TimeoutResult:
     """Returned when an interactive operation times out.
-    
+
     This is a sentinel value that evaluates to False in boolean context.
     """
-    
+
     def __repr__(self) -> str:
         return "TimeoutResult()"
-    
+
     def __bool__(self) -> bool:
         return False
-    
+
     def __str__(self) -> str:
         return "Operation timed out"
 
 
 class CancelledResult:
     """Returned when user cancels an interactive operation (e.g., Ctrl+C).
-    
+
     This is a sentinel value that evaluates to False in boolean context.
     """
-    
+
     def __repr__(self) -> str:
         return "CancelledResult()"
-    
+
     def __bool__(self) -> bool:
         return False
-    
+
     def __str__(self) -> str:
         return "Operation cancelled by user"

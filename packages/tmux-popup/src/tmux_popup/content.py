@@ -2,7 +2,7 @@
 
 PUBLIC API:
   - Text: Plain text element with optional styling
-  - Markdown: Formatted markdown content with syntax highlighting  
+  - Markdown: Formatted markdown content with syntax highlighting
   - Code: Code content with language-specific syntax highlighting
 """
 
@@ -12,10 +12,11 @@ from .core.base import Element
 from .core.types import Dimension, BorderStyle, Align
 from .core.utils import calculate_content_dimensions
 
+
 @dataclass
 class Markdown(Element):
     """Markdown content that formats inline in the canvas."""
-    
+
     content: str
     theme: str = "pink"
     # Styling properties for simple mode
@@ -24,23 +25,23 @@ class Markdown(Element):
     align: Align = "left"
     padding: Optional[str] = None
     margin: Optional[str] = None
-    
+
     def render(self, builder) -> str:
         """Render markdown by capturing formatted output."""
         # Capture markdown output in a variable - colors preserved with --no-strip-ansi
         var_name = f"MARKDOWN_{builder.result_counter}"
         builder.result_counter += 1
-        builder.commands.append(f'''{var_name}=$(cat << 'EOF' | gum format --type markdown --theme {self.theme}
+        builder.commands.append(f"""{var_name}=$(cat << 'EOF' | gum format --type markdown --theme {self.theme}
 {self.content}
 EOF
-)''')
+)""")
         return var_name
-    
+
     def render_with_style(self, builder, available_width=None) -> str:
         """Render with styling for simple canvas mode."""
         # Get the formatted content
         content_var = self.render(builder)
-        
+
         # Apply styling if any properties are set
         if self.width or self.border != "hidden" or self.padding or self.margin:
             # Calculate width from percentage if needed
@@ -52,16 +53,12 @@ EOF
                     total_width = str(self.width)
             else:
                 total_width = available_width  # Use what parent provides
-            
+
             # Calculate content dimensions with margin/border adjustments
             content_width, _ = calculate_content_dimensions(
-                total_width=total_width,
-                total_height=None,
-                border=self.border,
-                margin=self.margin,
-                padding=self.padding
+                total_width=total_width, total_height=None, border=self.border, margin=self.margin, padding=self.padding
             )
-            
+
             # Style it
             styled_var = f"STYLED_{builder.result_counter}"
             builder.result_counter += 1
@@ -72,15 +69,16 @@ EOF
                 align=self.align,
                 padding=self.padding,
                 margin=self.margin,
-                result_name=styled_var
+                result_name=styled_var,
             )
-        
+
         return content_var
+
 
 @dataclass
 class Code(Element):
     """Code content with syntax highlighting."""
-    
+
     code: str
     language: Optional[str] = None
     # Styling properties for simple mode
@@ -89,23 +87,23 @@ class Code(Element):
     align: Align = "left"
     padding: Optional[str] = None
     margin: Optional[str] = None
-    
+
     def render(self, builder) -> str:
         """Render code with syntax highlighting."""
         # Capture code output in a variable - colors preserved with --no-strip-ansi
         var_name = f"CODE_{builder.result_counter}"
         builder.result_counter += 1
         lang_flag = f"--language {self.language}" if self.language else ""
-        builder.commands.append(f'''{var_name}=$(cat << 'EOF' | gum format --type code {lang_flag}
+        builder.commands.append(f"""{var_name}=$(cat << 'EOF' | gum format --type code {lang_flag}
 {self.code}
 EOF
-)''')
+)""")
         return var_name
-    
+
     def render_with_style(self, builder, available_width=None) -> str:
         """Render with styling for simple canvas mode."""
         content_var = self.render(builder)
-        
+
         if self.width or self.border != "hidden" or self.padding or self.margin:
             # Calculate width from percentage if needed
             if self.width:
@@ -116,16 +114,12 @@ EOF
                     total_width = str(self.width)
             else:
                 total_width = available_width
-            
+
             # Calculate content dimensions with adjustments
             content_width, _ = calculate_content_dimensions(
-                total_width=total_width,
-                total_height=None,
-                border=self.border,
-                margin=self.margin,
-                padding=self.padding
+                total_width=total_width, total_height=None, border=self.border, margin=self.margin, padding=self.padding
             )
-            
+
             styled_var = f"STYLED_{builder.result_counter}"
             builder.result_counter += 1
             return builder.add_style(
@@ -135,15 +129,16 @@ EOF
                 align=self.align,
                 padding=self.padding,
                 margin=self.margin,
-                result_name=styled_var
+                result_name=styled_var,
             )
-        
+
         return content_var
+
 
 @dataclass
 class Text(Element):
     """Plain text element."""
-    
+
     text: str
     # Styling properties for simple mode
     width: Optional[Dimension] = None
@@ -151,15 +146,15 @@ class Text(Element):
     align: Align = "left"
     padding: Optional[str] = None
     margin: Optional[str] = None
-    
+
     def render(self, builder) -> str:
         """Render plain text."""
         return builder.add_literal(self.text)
-    
+
     def render_with_style(self, builder, available_width=None) -> str:
         """Render with styling for simple canvas mode."""
         content_var = self.render(builder)
-        
+
         if self.width or self.border != "hidden" or self.padding or self.margin:
             # Calculate width from percentage if needed
             if self.width:
@@ -170,16 +165,12 @@ class Text(Element):
                     total_width = str(self.width)
             else:
                 total_width = available_width
-            
+
             # Calculate content dimensions with adjustments
             content_width, _ = calculate_content_dimensions(
-                total_width=total_width,
-                total_height=None,
-                border=self.border,
-                margin=self.margin,
-                padding=self.padding
+                total_width=total_width, total_height=None, border=self.border, margin=self.margin, padding=self.padding
             )
-            
+
             styled_var = f"STYLED_{builder.result_counter}"
             builder.result_counter += 1
             return builder.add_style(
@@ -189,7 +180,7 @@ class Text(Element):
                 align=self.align,
                 padding=self.padding,
                 margin=self.margin,
-                result_name=styled_var
+                result_name=styled_var,
             )
-        
+
         return content_var

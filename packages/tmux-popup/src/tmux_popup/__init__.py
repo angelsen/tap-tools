@@ -8,7 +8,7 @@ PUBLIC API:
   - Popup: Main container for displaying elements in tmux popups
   - Canvas: Container for content elements with layout management
   - Row: Horizontal layout container for organizing elements
-  - Column: Vertical layout container for organizing elements  
+  - Column: Vertical layout container for organizing elements
   - Text: Plain text content element
   - Markdown: Formatted markdown content with syntax highlighting
   - Code: Code content with syntax highlighting
@@ -68,16 +68,13 @@ __all__ = [
     # Core
     "Popup",
     "Canvas",
-    
     # Layout
     "Row",
     "Column",
-    
     # Content
     "Text",
     "Markdown",
     "Code",
-    
     # Interactive
     "Choose",
     "Filter",
@@ -89,7 +86,6 @@ __all__ = [
     "Pager",
     "Spin",
     "Format",
-    
     # Types
     "TimeoutResult",
     "CancelledResult",
