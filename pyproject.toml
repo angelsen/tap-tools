@@ -13,18 +13,23 @@ members = [
     "packages/webtap",
     "packages/logtap",
     "packages/tmux-popup",
+    "packages/clispec",
 ]
 
 [tool.ruff]
 line-length = 120
-include = ["packages/**/src/**/*.py", "packages/**/tests/**/*.py"]
+include = [
+    "packages/**/src/**/*.py",
+    "packages/**/tests/**/*.py",
+    "packages/**/examples/**/*.py",
+]
 exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"
 pythonVersion = "3.12"
 pythonPlatform = "Linux"
-include = ["packages/**/src/**/*.py"]
+include = ["packages/**/src/**/*.py", "packages/**/examples/**/*.py"]
 exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
 
 [dependency-groups]

@@ -9,10 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
-# Debug-bridge artifacts
-bugs/
-tasks/
-
 # Local development files
 .context-search.json
 CLAUDE.md
@@ -20,3 +16,6 @@ DEPLOYMENT.md
 
 # External resources
 _resources/
+
+# Work in progress packages
+packages/clispec/
