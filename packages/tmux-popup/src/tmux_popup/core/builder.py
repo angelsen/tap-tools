@@ -5,7 +5,7 @@ PUBLIC API:
 """
 
 import shlex
-from typing import List, Dict, Optional
+from typing import List, Optional
 
 class ShellBuilder:
     """Clean shell script builder with explicit variable names."""
@@ -62,7 +62,8 @@ class ShellBuilder:
         """Store literal text in a variable."""
         name = var_name or f"TEXT_{self.result_counter}"
         self.result_counter += 1
-        self.commands.append(f'{name}={shlex.quote(text)}')
+        escaped_text = text.replace("'", "'\\''")
+        self.commands.append(f"{name}='{escaped_text}'")
         return name
     
     def add_join(self, items: List[str], vertical: bool = True, result_name: Optional[str] = None) -> str:
@@ -127,17 +128,17 @@ class ShellBuilder:
                 self.commands.extend([
                     f"if echo \"${{{data_var}}}\" | {cmd_str}; then",
                     f"    {result_var}='true'",
-                    f"else",
+                    "else",
                     f"    {result_var}='false'",
-                    f"fi"
+                    "fi"
                 ])
             else:
                 self.commands.extend([
                     f"if {cmd_str}; then",
                     f"    {result_var}='true'",
-                    f"else",
+                    "else",
                     f"    {result_var}='false'",
-                    f"fi"
+                    "fi"
                 ])
             
             self.result_var = result_var

@@ -7,7 +7,7 @@ PUBLIC API:
 import subprocess
 import tempfile
 import os
-from typing import Optional, Union, Any
+from typing import Optional, Any
 from dataclasses import dataclass
 
 from .core.base import Element, Interactive
@@ -97,24 +97,7 @@ class Popup:
         
         # Debug output
         if self.debug:
-            print("=== Generated Script ===")
             print(script)
-            print("========================")
-            
-            # Show help for each unique gum command used
-            if commands_used:
-                print("\n=== Gum Command Help ===")
-                for cmd in sorted(commands_used):
-                    help_result = subprocess.run(
-                        ["gum", cmd, "--help"],
-                        capture_output=True,
-                        text=True
-                    )
-                    if help_result.returncode == 0:
-                        print(help_result.stdout)
-                    else:
-                        print(f"Error getting help for 'gum {cmd}': {help_result.stderr}")
-                print("========================\n")
         
         # Write script to temp file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:

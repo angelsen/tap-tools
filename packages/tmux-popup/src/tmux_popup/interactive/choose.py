@@ -5,7 +5,7 @@ PUBLIC API:
 """
 
 from dataclasses import dataclass, field
-from typing import Union, List, Dict, Optional, Any, cast
+from typing import Union, List, Dict, Any, cast
 from ..core.base import Interactive
 
 

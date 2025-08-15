@@ -5,7 +5,7 @@ PUBLIC API:
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Tuple, Any, List
+from typing import Dict, Tuple, Any, List
 from ..core.base import Interactive
 
 @dataclass

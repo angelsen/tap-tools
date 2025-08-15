@@ -5,7 +5,7 @@ PUBLIC API:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Union
+from typing import Optional, List
 from .core.base import Element
 from .core.types import Dimension, BorderStyle, Align
 from .core.utils import calculate_content_dimensions
@@ -64,27 +64,29 @@ class Canvas(Element):
         else:
             canvas_total_height = None
         
-        # Render content - two modes: simple and grid
+        # Render content
         content_results = []
         from .layout import Row, Column
+        from .core.utils import get_horizontal_spacing
         
-        # Calculate available width for content using our utility
-        # This accounts for both border AND margin if canvas has them
-        # But for content placement, we only need to account for border
-        # (margin affects canvas position, not content within canvas)
-        has_real_border = self.border not in ["none", "hidden"]
+        # Calculate available space for content
+        # Account for border and margin (both reduce the canvas size)
+        content_width, _ = calculate_content_dimensions(
+            total_width=canvas_total_width,
+            total_height=canvas_total_height,
+            border=self.border,
+            margin=self.margin,  # Margin reduces canvas size
+            padding=None  # Handle padding separately
+        )
         
-        if has_real_border:
-            # Canvas has real border, subtract 2 from width for content
-            if canvas_total_width.startswith("$"):
-                # Runtime variable
-                content_width = f"$(({canvas_total_width} - 2))"
-            else:
-                # Fixed value
-                content_width = str(int(canvas_total_width) - 2) if canvas_total_width.isdigit() else canvas_total_width
-        else:
-            # No border space needed
-            content_width = canvas_total_width
+        # Also subtract padding from content space
+        if self.padding and content_width:
+            padding_h = get_horizontal_spacing(self.padding)
+            if padding_h > 0:
+                if content_width.startswith("$"):
+                    content_width = f"$(({content_width} - {padding_h}))"
+                else:
+                    content_width = str(int(content_width) - padding_h) if content_width.isdigit() else f"$(({content_width} - {padding_h}))"
         
         for i, element in enumerate(self.content):
             if isinstance(element, str):
@@ -120,11 +122,11 @@ class Canvas(Element):
             joined = content_results[0]
         
         # Apply canvas-level styling if needed
-        # Rule: Apply style if we have real border, padding, margin, explicit size, or non-left alignment
+        has_real_border = self.border not in ["none", "hidden"]
         needs_styling = (
             has_real_border or 
             self.padding or 
-            self.margin or  # Margin also triggers styling
+            self.margin or
             self.width or 
             self.height or 
             self.align != "left"
