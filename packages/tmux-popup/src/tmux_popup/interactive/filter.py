@@ -15,13 +15,16 @@ class Filter(Interactive):
 
     Filter provides an interactive fuzzy finder for selecting items.
     Unlike choose, filter shows a text input for filtering the options.
+
+    Attributes:
+        options: List of strings or dict of label->value pairs.
+        gum_args: Additional gum command line flags.
     """
 
     _gum_command = "filter"
     _needs_tty = True
     _capture_output = True
 
-    # Core data that affects Python I/O
     options: Union[List[str], Dict[str, str]] = field(default_factory=list)
 
     def __init__(self, options: Union[List[str], Dict[str, str], None] = None, **gum_args: Any):
@@ -40,7 +43,7 @@ class Filter(Interactive):
             placeholder: Placeholder text (default "Filter...")
             prompt: Prompt to display (default "> ")
             header: Header text
-            height: Input height
+            height: Input height (default 10 to prevent full-screen takeover)
             width: Input width
             reverse: Display from bottom of screen
             strict: Only return if anything matched
@@ -48,8 +51,11 @@ class Filter(Interactive):
             output_delimiter: Delimiter for multiple results (default "\\n")
         """
         self.options = options or []
+        # Set default height to prevent full-screen takeover
+        # Only set if not explicitly provided
+        if "height" not in gum_args:
+            gum_args["height"] = 10
         self.gum_args = gum_args
-        # Initialize base class storage
         self._parse_hints = {}
 
     def _prepare_data(self) -> tuple[list[str], dict[str, Any]]:

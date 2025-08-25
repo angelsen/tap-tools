@@ -15,6 +15,10 @@ class Confirm(Interactive):
 
     Returns True for yes/affirmative, False for no/negative.
     Uses exit codes: 0 for yes, 1 for no.
+
+    Attributes:
+        prompt: Question to ask the user.
+        gum_args: Additional gum command line flags.
     """
 
     _gum_command = "confirm"
@@ -22,7 +26,6 @@ class Confirm(Interactive):
     _capture_output = False  # Uses exit code instead of stdout
     _use_exit_code = True
 
-    # Core data
     prompt: Optional[str] = None
 
     def __init__(self, prompt: Optional[str] = None, **gum_args: Any):
@@ -41,7 +44,6 @@ class Confirm(Interactive):
         """
         self.prompt = prompt
         self.gum_args = gum_args
-        # Initialize base class storage
         self._parse_hints = {}
 
     def _prepare_data(self) -> tuple[list[str], dict[str, Any]]:

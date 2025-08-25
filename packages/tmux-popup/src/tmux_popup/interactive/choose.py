@@ -15,13 +15,16 @@ class Choose(Interactive):
 
     Supports both simple list mode and dict mode (label:value pairs).
     All gum styling and behavior flags are passed through via gum_args.
+
+    Attributes:
+        options: List of strings or dict of label->value pairs.
+        gum_args: Additional gum command line flags.
     """
 
     _gum_command = "choose"
     _needs_tty = True
     _capture_output = True
 
-    # Core data that affects Python I/O
     options: Union[List[str], Dict[str, str]] = field(default_factory=list)
 
     def __init__(self, options: Union[List[str], Dict[str, str], None] = None, **gum_args: Any):
@@ -44,7 +47,6 @@ class Choose(Interactive):
         """
         self.options = options or []
         self.gum_args = gum_args
-        # Initialize base class storage
         self._parse_hints = {}
 
     def _prepare_data(self) -> tuple[list[str], dict[str, Any]]:

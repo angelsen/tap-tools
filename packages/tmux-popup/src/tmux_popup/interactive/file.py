@@ -11,7 +11,14 @@ from ..core.base import Interactive
 
 @dataclass
 class FilePicker(Interactive):
-    """File picker - all passthrough except path."""
+    """Interactive file and directory selection interface.
+
+    All passthrough except path handling.
+
+    Attributes:
+        path: Starting directory path.
+        gum_args: Additional gum command line flags.
+    """
 
     _gum_command = "file"
     _needs_tty = True
@@ -20,7 +27,12 @@ class FilePicker(Interactive):
     path: str = "."
 
     def __init__(self, path=".", **gum_args):
-        """Initialize FilePicker with path and passthrough."""
+        """Initialize FilePicker with starting path and gum arguments.
+
+        Args:
+            path: Starting directory path.
+            **gum_args: All gum flags for file picker configuration.
+        """
         self.path = path
         self.gum_args = gum_args
 

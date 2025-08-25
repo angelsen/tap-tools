@@ -11,7 +11,15 @@ from ..core.base import Interactive
 
 @dataclass
 class Format(Interactive):
-    """Format content using gum format."""
+    """Text formatting with support for markdown, templates, and code highlighting.
+
+    Formats content using gum format with various output types.
+
+    Attributes:
+        content: Content to format.
+        format_type: Format type (markdown, template, code, emoji).
+        gum_args: Additional gum command line flags.
+    """
 
     _gum_command = "format"
     _needs_tty = False  # Can use pipes
@@ -21,7 +29,13 @@ class Format(Interactive):
     format_type: str = "markdown"  # markdown, template, code, emoji
 
     def __init__(self, content, format_type="markdown", **gum_args):
-        """Initialize Format with content and type."""
+        """Initialize Format with content and formatting type.
+
+        Args:
+            content: Content to format.
+            format_type: Format type (markdown, template, code, emoji).
+            **gum_args: All gum flags for formatting configuration.
+        """
         self.content = content
         self.format_type = format_type
         self.gum_args = gum_args

@@ -11,7 +11,14 @@ from ..core.base import Interactive
 
 @dataclass
 class Spin(Interactive):
-    """Spin shows a spinner while running a command."""
+    """Interactive spinner that shows progress while executing background commands.
+
+    Shows a spinner animation while running a command in the background.
+
+    Attributes:
+        command: Command to execute as list of arguments.
+        gum_args: Additional gum command line flags.
+    """
 
     _gum_command = "spin"
     _needs_tty = False  # Can use pipes
@@ -20,7 +27,12 @@ class Spin(Interactive):
     command: List[str] = field(default_factory=list)
 
     def __init__(self, command, **gum_args):
-        """Initialize Spin with command and passthrough."""
+        """Initialize Spin with command and gum arguments.
+
+        Args:
+            command: Command to execute (string or list of arguments).
+            **gum_args: All gum flags for spinner configuration.
+        """
         if isinstance(command, str):
             # Convert string command to list
             import shlex

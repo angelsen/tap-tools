@@ -18,6 +18,11 @@ class Table(Interactive):
     - Select mode (print=False): Interactive row selection
 
     Supports both list of lists and list of dicts as input.
+
+    Attributes:
+        data: List of rows (lists) or list of dicts.
+        headers: Column headers.
+        gum_args: Additional gum command line flags.
     """
 
     _gum_command = "table"
@@ -25,7 +30,6 @@ class Table(Interactive):
     _needs_tty = False
     _capture_output = True
 
-    # Core data
     data: Union[List[List[str]], List[Dict[str, str]]] = field(default_factory=list)
     headers: Optional[List[str]] = None
 
@@ -61,7 +65,6 @@ class Table(Interactive):
         self._needs_tty = not is_print_mode
         self._capture_output = not is_print_mode
 
-        # Initialize base class storage
         self._parse_hints = {}
 
     def _prepare_data(self) -> tuple[list[str], dict[str, Any]]:
