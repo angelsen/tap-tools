@@ -2,15 +2,16 @@
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
-Date: 2025-08-07
-System: Linux 6.12.39-1-lts
-Process: python v3.12.11, python3, python3.11 (via uv), ipython v9.4.0, termtap v1.0
+Date: 2025-08-07, Updated: 2025-08-25
+System: Linux 6.12.39-1-lts, 6.12.43-1-lts
+Process: python v3.12.11, python3, python3.11 (via uv), ipython v9.4.0, termtap v1.0, playwright
 Tracking: ~/.termtap/tracking/20250807_212502_printTesting_system_Python
          ~/.termtap/tracking/20250807_212924_import_time_timesleep5
          ~/.termtap/tracking/20250807_212324_python
          ~/.termtap/tracking/20250730_000831_python3
          ~/.termtap/tracking/20250730_001146_uv_run_python
          ~/.termtap/tracking/20250807_234622_if_True______print
+         ~/.termtap/tracking/20250825_174255_page___browser_conte (Playwright)
 
 Observed wait_channels:
 - do_select: Python REPL waiting for input (ready)
@@ -27,6 +28,8 @@ Notes:
 - Both python3 and system python show same wait_channel patterns
 - uv run python executes python3.11, system python is 3.12.11
 - termtap is a Python REPL application running under uv
+- IMPORTANT: Check wait_channel BEFORE has_children to support async operations
+- Playwright keeps node subprocess running but Python shows do_select when ready
 """
 
 from . import ProcessHandler
@@ -55,25 +58,28 @@ class _PythonHandler(ProcessHandler):
         if not pane.process:
             return True, "at shell prompt"
 
-        if pane.process.has_children:
-            return False, "has subprocess"
-
+        # Check wait_channel FIRST - most accurate indicator
         # Ready states
         if pane.process.wait_channel == "do_select":
-            return True, "termtap/Python REPL waiting"
+            return True, "Python waiting for input"
 
         if pane.process.wait_channel == "do_sys_poll":
-            return True, "REPL polling for input"
+            return True, "Python polling for input"
 
         if pane.process.wait_channel == "do_epoll_wait":
             return True, "IPython waiting for input"
 
-        # Working states
+        # Working states - Python is busy
         if pane.process.wait_channel == "do_wait":
             return False, "waiting for subprocess"
 
         if pane.process.wait_channel == "hrtimer_nanosleep":
             return False, "executing sleep/timing operation"
+
+        # Only check children as fallback for unknown wait_channels
+        if pane.process.has_children:
+            return False, "has subprocess"
+
         return None, f"unrecognized wait_channel: {pane.process.wait_channel}"
 
     def send_to_pane(self, pane: Pane, command: str) -> bool:
