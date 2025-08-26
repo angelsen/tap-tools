@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "replkit2[all]>=0.7.2",
-    "tmux-popup==0.1.2",
+    "tmux-popup>=0.2.1",
 ]
 
 [project.optional-dependencies]

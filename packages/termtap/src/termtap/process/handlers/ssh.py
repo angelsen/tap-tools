@@ -119,16 +119,19 @@ class _SSHHandler(ProcessHandler):
             command: Command to be sent.
         """
         from ...utils import truncate_command
-        from tmux_popup import Popup
-        from tmux_popup.gum import GumStyle, GumInput
+        from tmux_popup import Popup, Canvas, Markdown, Input
 
-        popup = Popup(width="65", title=pane.title or "SSH Session")
+        popup = Popup(width="65")
+        canvas = Canvas()
+        canvas.add(Markdown(f"""# Remote Command Execution
+
+**Command:** {truncate_command(command)}
+
+Edit the command or press Enter to execute as-is"""))
+        popup.add(canvas)
+        
         edited = popup.add(
-            GumStyle("Remote Command Execution", header=True),
-            GumStyle(f"Command: {truncate_command(command)}", info=True),
-            "",
-            "Edit the command or press Enter to execute as-is",
-            GumInput(placeholder="Press Enter to execute or ESC to cancel", value=command),
+            Input(placeholder="Press Enter to execute or ESC to cancel", value=command)
         ).show()
 
         return edited if edited else None
@@ -141,21 +144,22 @@ class _SSHHandler(ProcessHandler):
             command: Command that was sent.
         """
         from ...utils import truncate_command
-        from tmux_popup import Popup
-        from tmux_popup.gum import GumStyle
+        from tmux_popup import Popup, Canvas, Markdown, Input
 
         time.sleep(0.5)
 
-        popup = Popup(width="65", title=pane.title or "SSH Session")
-        popup.add(
-            GumStyle("Waiting for Command Completion", header=True),
-            GumStyle(f"Command: {truncate_command(command)}", info=True),
-            "",
-            "The command has been sent to the remote host.",
-            "Press Enter when the command has completed.",
-            "",
-            "read -r",
-        ).show()
+        popup = Popup(width="65")
+        canvas = Canvas()
+        canvas.add(Markdown(f"""# Waiting for Command Completion
+
+**Command:** {truncate_command(command)}
+
+The command has been sent to the remote host.
+Press Enter when the command has completed."""))
+        popup.add(canvas)
+        
+        # Use Input with empty prompt to wait for Enter key
+        popup.add(Input(prompt="", placeholder="Press Enter to continue...")).show()
 
     def _apply_filters(self, raw_output: str) -> str:
         """Apply aggressive filtering for SSH output.

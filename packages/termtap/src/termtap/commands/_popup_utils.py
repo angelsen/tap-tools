@@ -2,8 +2,7 @@
 
 from typing import List, Optional
 
-from tmux_popup import Popup
-from tmux_popup.gum import GumStyle, GumFilter, GumInput
+from tmux_popup import Popup, Canvas, Markdown, Filter, Input
 
 
 def _format_pane_for_selection(pane_info: dict) -> str:
@@ -15,8 +14,8 @@ def _format_pane_for_selection(pane_info: dict) -> str:
     Returns:
         Formatted string for display.
     """
-    pane_id = pane_info.get("Pane", "").ljust(25)
-    shell = (pane_info.get("Shell") or "None").ljust(8)
+    pane_id = pane_info.get("Pane", "").ljust(20)
+    shell = (pane_info.get("Shell") or "None").ljust(10)
     process = (pane_info.get("Process") or "None").ljust(15)
     state = pane_info.get("State", "unknown")
 
@@ -39,13 +38,19 @@ def _select_single_pane(
     if not panes:
         return None
 
-    options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
-    popup = Popup(title=title, width="65")
+    # Create dict options: {display: pane_id}
+    options = {_format_pane_for_selection(pane_info): pane_info.get("Pane", "") for pane_info in panes}
+    
+    popup = Popup(width="65")
+    canvas = Canvas()
+    canvas.add(Markdown(f"""# {action}
+
+Select the target pane for command execution:"""))
+    popup.add(canvas)
+    
+    # Single selection returns string directly
     selected = popup.add(
-        GumStyle(action, header=True),
-        "Select the target pane for command execution:",
-        "",
-        GumFilter(options=options, placeholder="Type to search panes...", fuzzy=True, limit=1),
+        Filter(options=options, placeholder="Type to search panes...", fuzzy=True, no_limit=False)
     ).show()
 
     return selected if selected else None
@@ -67,14 +72,20 @@ def _select_multiple_panes(
     if not panes:
         return []
 
-    options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
-    popup = Popup(title=title, width="65")
+    # Create dict options: {display: pane_id}
+    options = {_format_pane_for_selection(pane_info): pane_info.get("Pane", "") for pane_info in panes}
+    
+    popup = Popup(width="65")
+    canvas = Canvas()
+    canvas.add(Markdown(f"""# {action}
+
+Select panes to read from:
+Use Tab to select multiple, Enter to confirm"""))
+    popup.add(canvas)
+    
+    # Multi-selection returns list directly
     selected = popup.add(
-        GumStyle(action, header=True),
-        "Select panes to read from:",
-        "Use space/tab to select multiple, Enter to confirm",
-        "",
-        GumFilter(options=options, placeholder="Type to search, space to select multiple...", fuzzy=True, limit=0),
+        Filter(options=options, placeholder="Type to search, Tab to select multiple...", fuzzy=True, no_limit=True)
     ).show()
 
     return selected if isinstance(selected, list) else []
@@ -95,13 +106,19 @@ def _select_or_create_pane(
         Tuple of (pane_id, session_window_pane) or None if cancelled.
     """
     if panes:
-        options = [(pane_info.get("Pane", ""), _format_pane_for_selection(pane_info)) for pane_info in panes]
-        popup = Popup(title=title, width="65")
+        # Create dict options: {display: pane_id}
+        options = {_format_pane_for_selection(pane_info): pane_info.get("Pane", "") for pane_info in panes}
+        
+        popup = Popup(width="65")
+        canvas = Canvas()
+        canvas.add(Markdown(f"""# {action}
+
+Select the target pane for command execution:"""))
+        popup.add(canvas)
+        
+        # Single selection returns string directly
         selected = popup.add(
-            GumStyle(action, header=True),
-            "Select the target pane for command execution:",
-            "",
-            GumFilter(options=options, placeholder="Type to search panes...", fuzzy=True, limit=1),
+            Filter(options=options, placeholder="Type to search panes...", fuzzy=True, no_limit=False)
         ).show()
 
         if selected:
@@ -117,12 +134,15 @@ def _select_or_create_pane(
         from ..tmux import resolve_or_create_target
 
         generated_name = _generate_session_name()
-        popup = Popup(title="Create Session", width="50")
+        popup = Popup(width="65")
+        canvas = Canvas()
+        canvas.add(Markdown("""# Create New Session
+
+No pane selected. Enter name for new session:"""))
+        popup.add(canvas)
+        
         session_name = popup.add(
-            GumStyle("Create New Session", header=True),
-            "No pane selected. Enter name for new session:",
-            "",
-            GumInput(value=generated_name, placeholder="Session name...", prompt="Name: "),
+            Input(value=generated_name, placeholder="Session name...", prompt="Name: ")
         ).show()
 
         if session_name:
