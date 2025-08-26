@@ -43,7 +43,7 @@ class _PythonHandler(ProcessHandler):
     indentation processing and wait channel detection.
     """
 
-    _handles = ["python", "python3", "python3.11", "python3.12", "python3.13", "ipython", "termtap"]
+    _handles = ["python", "python3", "python3.11", "python3.12", "python3.13", "ipython", "termtap", "webtap"]
 
     def can_handle(self, pane: Pane) -> bool:
         """Check if this handler manages Python processes."""
@@ -95,13 +95,34 @@ class _PythonHandler(ProcessHandler):
         Returns:
             True if sent successfully.
         """
-        # Single line - use default (send_keys)
-        if "\n" not in command:
-            return super().send_to_pane(pane, command)
-
-        # Multiline - chunk and send with delays
+        import time
         from ...tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
 
+        # Determine grace period based on subprocess presence
+        grace_period = 0.5  # Default
+        if pane.process and pane.process.children:
+            for child in pane.process.children:
+                if child.name == "node":
+                    # Async browser operations need more settle time
+                    grace_period = 1.5
+                    break
+
+        # Single line - handle directly without chunking
+        if "\n" not in command:
+            # Single-line compound statements need extra newline
+            if self._is_compound_statement(command):
+                command = command + "\n"
+
+            # Send the command (with extra newline if needed) plus Enter
+            success = tmux_send_keys(pane.pane_id, command, enter=True)
+
+            # Grace period for single-line commands
+            if success:
+                time.sleep(grace_period)
+
+            return success
+
+        # Multiline - chunk and send with delays
         chunks = self._split_into_chunks(command)
 
         for i, chunk in enumerate(chunks):
@@ -129,10 +150,13 @@ class _PythonHandler(ProcessHandler):
                     # Indented block needs extra Enter to execute
                     tmux_send_keys(pane.pane_id, "", enter=True)  # Send blank line
             else:
-                # Single line - just use send_keys
+                # Single line chunk - just use send_keys
                 success = tmux_send_keys(pane.pane_id, chunk, enter=True)
                 if not success:
                     return False
+
+        # Grace period after all chunks are sent
+        time.sleep(grace_period)
 
         return True
 
@@ -156,7 +180,50 @@ class _PythonHandler(ProcessHandler):
             if timeout is not None and time.time() - start > timeout:
                 return False
 
-            time.sleep(0.1)
+            time.sleep(0.2)
+
+    def _is_compound_statement(self, command: str) -> bool:
+        """Check if single-line command is a compound statement.
+
+        Compound statements in Python REPL need an extra Enter to execute
+        when written on a single line with a colon.
+
+        Args:
+            command: Single-line command to check.
+
+        Returns:
+            True if this needs to be treated as multi-line.
+        """
+        stripped = command.strip()
+
+        # Must have a colon to be a compound statement
+        if ":" not in stripped:
+            return False
+
+        # Check for compound statement keywords
+        # These need extra Enter when followed by ":"
+        compound_starts = [
+            "if ",
+            "elif ",
+            "else:",
+            "for ",
+            "while ",
+            "def ",
+            "class ",
+            "with ",
+            "try:",
+            "except ",
+            "finally:",
+            "async def ",
+            "async for ",
+            "async with ",
+        ]
+
+        for start in compound_starts:
+            if stripped.startswith(start):
+                return True
+
+        return False
 
     def _split_into_chunks(self, command: str) -> list[str]:
         """Split command into logical chunks for separate execution.
