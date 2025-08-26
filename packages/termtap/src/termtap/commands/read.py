@@ -61,7 +61,7 @@ def read(
             }
 
         selected_pane_ids = _select_multiple_panes(
-            available_panes, title="Read Output", action="Select Panes to Read From (space to select, enter to confirm)"
+            available_panes, title="Read Output", action="Select Panes to Read From (Tab to select, Enter to confirm)"
         )
 
         if not selected_pane_ids:
