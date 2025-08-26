@@ -62,7 +62,7 @@ class Filter(Interactive):
         """Convert Python data to gum format.
 
         Note: gum filter doesn't support label-delimiter like choose does,
-        so we format dict entries as "label: value" for display.
+        so for dict mode we only display labels and map back to values.
         """
         args: list[str] = []
 
@@ -73,10 +73,9 @@ class Filter(Interactive):
             # Type narrowing - we know options is a dict here
             dict_options = cast(Dict[str, str], self.options)
 
-            # Dict mode: format as "label: value" for display
-            # We'll parse it back later
-            formatted_options = [f"{label}: {value}" for label, value in dict_options.items()]
-            args.extend(formatted_options)
+            # Dict mode: only show labels for display
+            # We'll map back to values when parsing results
+            args.extend(dict_options.keys())
 
             self._parse_hints = {"is_dict": True, "value_map": dict_options, "multiple": self._is_multiple()}
         else:
@@ -113,22 +112,16 @@ class Filter(Interactive):
         lines = raw.strip().split(output_delimiter)
 
         if hints["is_dict"]:
-            # Extract values from "label: value" format
+            # Map labels back to values
             results = []
             value_map = hints["value_map"]
 
             for line in lines:
-                # Try to parse as "label: value"
-                if ": " in line:
-                    label = line.split(": ", 1)[0]
-                    # Look up the original value
-                    if label in value_map:
-                        results.append(value_map[label])
-                    else:
-                        # Fallback if label not found
-                        results.append(line)
+                # Line is the label, look up the corresponding value
+                if line in value_map:
+                    results.append(value_map[line])
                 else:
-                    # No delimiter found, return as-is
+                    # Fallback if label not found (shouldn't happen)
                     results.append(line)
         else:
             # List mode: return the filtered strings as-is
