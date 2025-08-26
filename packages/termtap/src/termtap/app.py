@@ -61,7 +61,7 @@ app = App(
 
 # Command imports trigger @app.command decorator registration
 from .commands import execute  # noqa: E402, F401
-from .commands import read  # noqa: E402, F401
+from .commands import pane  # noqa: E402, F401
 from .commands import ls  # noqa: E402, F401
 from .commands import interrupt  # noqa: E402, F401
 from .commands import send_keys  # noqa: E402, F401

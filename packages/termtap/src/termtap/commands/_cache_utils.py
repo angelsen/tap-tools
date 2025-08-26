@@ -113,14 +113,14 @@ def _format_pane_output(
             if actual_page + 1 < total_pages:
                 display_page = page if page > 0 else 1
                 next_page = display_page + 1
-                hint = f'... read more with readMcpResource("termtap://read/{swp}/{next_page}", "termtap")\n'
+                hint = f'... read more with readMcpResource("termtap://pane/{swp}/{next_page}", "termtap")\n'
                 page_content = hint + page_content if page_content else hint
         else:
             # Fresh read - still check if truncated
             page_content = "\n".join(lines[-lines_per_page:]) if lines else ""
             total_pages = ceil(len(lines) / lines_per_page) if lines else 1
             if total_pages > 1:
-                hint = f'... read more with readMcpResource("termtap://read/{swp}/2", "termtap")\n'
+                hint = f'... read more with readMcpResource("termtap://pane/{swp}/2", "termtap")\n'
                 page_content = hint + page_content if page_content else hint
 
         shown_lines += len(page_content.splitlines())

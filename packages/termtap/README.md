@@ -93,7 +93,7 @@ termtap --mcp               # Start as MCP server
 ```python
 >>> ls()                    # List all sessions with processes
 >>> execute("python3")      # Start Python REPL in tmux
->>> read()                  # Read output with caching
+>>> pane()                  # Read output with caching and interaction hints
 >>> interrupt()             # Send Ctrl+C to current pane
 >>> run("demo")             # Run service group from config
 ```
@@ -103,7 +103,7 @@ termtap --mcp               # Start as MCP server
 | Command | Description |
 |---------|------------|
 | `execute(command, target=None)` | Run command in tmux pane |
-| `read(target=None, page=None)` | Read output with pagination |
+| `pane(target=None, page=None)` | Read output with pagination and interaction hints |
 | `ls(filter=None)` | List sessions with optional filter |
 | `interrupt(target=None)` | Send interrupt signal |
 | `send_keys(keys, target=None)` | Send raw key sequences |

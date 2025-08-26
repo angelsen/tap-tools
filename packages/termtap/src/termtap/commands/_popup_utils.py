@@ -40,14 +40,16 @@ def _select_single_pane(
 
     # Create dict options: {display: pane_id}
     options = {_format_pane_for_selection(pane_info): pane_info.get("Pane", "") for pane_info in panes}
-    
+
     popup = Popup(width="65")
     canvas = Canvas()
-    canvas.add(Markdown(f"""# {action}
+    canvas.add(
+        Markdown(f"""# {action}
 
-Select the target pane for command execution:"""))
+Select the target pane for command execution:""")
+    )
     popup.add(canvas)
-    
+
     # Single selection returns string directly
     selected = popup.add(
         Filter(options=options, placeholder="Type to search panes...", fuzzy=True, no_limit=False)
@@ -74,15 +76,17 @@ def _select_multiple_panes(
 
     # Create dict options: {display: pane_id}
     options = {_format_pane_for_selection(pane_info): pane_info.get("Pane", "") for pane_info in panes}
-    
+
     popup = Popup(width="65")
     canvas = Canvas()
-    canvas.add(Markdown(f"""# {action}
+    canvas.add(
+        Markdown(f"""# {action}
 
 Select panes to read from:
-Use Tab to select multiple, Enter to confirm"""))
+Use Tab to select multiple, Enter to confirm""")
+    )
     popup.add(canvas)
-    
+
     # Multi-selection returns list directly
     selected = popup.add(
         Filter(options=options, placeholder="Type to search, Tab to select multiple...", fuzzy=True, no_limit=True)
@@ -108,14 +112,16 @@ def _select_or_create_pane(
     if panes:
         # Create dict options: {display: pane_id}
         options = {_format_pane_for_selection(pane_info): pane_info.get("Pane", "") for pane_info in panes}
-        
+
         popup = Popup(width="65")
         canvas = Canvas()
-        canvas.add(Markdown(f"""# {action}
+        canvas.add(
+            Markdown(f"""# {action}
 
-Select the target pane for command execution:"""))
+Select the target pane for command execution:""")
+        )
         popup.add(canvas)
-        
+
         # Single selection returns string directly
         selected = popup.add(
             Filter(options=options, placeholder="Type to search panes...", fuzzy=True, no_limit=False)
@@ -136,14 +142,14 @@ Select the target pane for command execution:"""))
         generated_name = _generate_session_name()
         popup = Popup(width="65")
         canvas = Canvas()
-        canvas.add(Markdown("""# Create New Session
+        canvas.add(
+            Markdown("""# Create New Session
 
-No pane selected. Enter name for new session:"""))
+No pane selected. Enter name for new session:""")
+        )
         popup.add(canvas)
-        
-        session_name = popup.add(
-            Input(value=generated_name, placeholder="Session name...", prompt="Name: ")
-        ).show()
+
+        session_name = popup.add(Input(value=generated_name, placeholder="Session name...", prompt="Name: ")).show()
 
         if session_name:
             try:

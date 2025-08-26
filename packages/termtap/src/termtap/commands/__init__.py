@@ -7,7 +7,7 @@ PUBLIC API:
   - execute: Execute command in tmux pane
   - interrupt: Send interrupt signal to pane
   - ls: List all tmux panes with process info
-  - read: Read output from tmux pane
+  - pane: Read and interact with tmux pane
   - run: Run development environment from configuration
   - run_list: List available run configurations
   - kill: Stop running environment
@@ -18,7 +18,7 @@ PUBLIC API:
 from .execute import execute
 from .interrupt import interrupt
 from .ls import ls
-from .read import read
+from .pane import pane
 from .run import run, run_list, kill
 from .send_keys import send_keys
 from .track import track
@@ -27,7 +27,7 @@ __all__ = [
     "execute",
     "interrupt",
     "ls",
-    "read",
+    "pane",
     "run",
     "run_list",
     "kill",

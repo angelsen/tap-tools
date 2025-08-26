@@ -1,13 +1,32 @@
-"""Read output from tmux panes.
+"""Interact with tmux panes.
 
 PUBLIC API:
-  - read: Read output from target pane with caching and pagination
+  - pane: Read and interact with target pane with caching and pagination
 """
 
 from typing import Any
 
 from ..app import app, DEFAULT_LINES_PER_PAGE
 from ..tmux import resolve_targets_to_panes
+
+
+def _build_interaction_hints(target: str) -> dict[str, str]:
+    """Build interaction hint text for a pane.
+
+    Args:
+        target: The session:window.pane identifier.
+
+    Returns:
+        Dict with type and content for the hint element.
+    """
+    return {
+        "type": "text",
+        "content": f"""To interact with this pane:
+- Execute: `mcp__termtap__execute(command="...", target="{target}")`
+- Send: `mcp__termtap__send(message="...", target="{target}")`
+- Interrupt: `mcp__termtap__interrupt(target="{target}")`
+- Send keys: `mcp__termtap__send_keys(keys="...", target="{target}")`""",
+    }
 
 
 @app.command(
@@ -21,18 +40,18 @@ from ..tmux import resolve_targets_to_panes
             "response": {
                 "description": "Read output from tmux pane with optional pagination",
                 "usage": [
-                    "termtap://read - Interactive pane selection",
-                    "termtap://read/session1 - Read from specific pane (fresh read)",
-                    "termtap://read/session1/1 - Page 1 (most recent cached)",
-                    "termtap://read/session1/2 - Page 2 (older output)",
-                    "termtap://read/session1/-1 - Last page (oldest output)",
+                    "termtap://pane - Interactive pane selection",
+                    "termtap://pane/session1 - Read from specific pane (fresh read)",
+                    "termtap://pane/session1/1 - Page 1 (most recent cached)",
+                    "termtap://pane/session1/2 - Page 2 (older output)",
+                    "termtap://pane/session1/-1 - Last page (oldest output)",
                 ],
                 "discovery": "Use termtap://ls to find available pane targets",
             }
         },
     },
 )
-def read(
+def pane(
     state,
     target: list = None,  # type: ignore[assignment]
     page: int = None,  # type: ignore[assignment]
@@ -61,7 +80,7 @@ def read(
             }
 
         selected_pane_ids = _select_multiple_panes(
-            available_panes, title="Read Output", action="Select Panes to Read From (Tab to select, Enter to confirm)"
+            available_panes, title="Pane Output", action="Select Panes (Tab to select, Enter to confirm)"
         )
 
         if not selected_pane_ids:
@@ -96,7 +115,7 @@ def read(
                 cache = state.read_cache[swp]
                 outputs.append((swp, cache.content))
             else:
-                outputs.append((swp, "[No cached content - run read() first]"))
+                outputs.append((swp, "[No cached content - run pane() first]"))
 
         cache_time = 0.0
         if outputs and panes_to_read[0][1] in state.read_cache:
@@ -122,9 +141,35 @@ def read(
 
         outputs.append((swp, full_content))
 
-    return _format_pane_output(
+    # Format the output, then add interaction hints
+    result = _format_pane_output(
         outputs,
         page=None,
         lines_per_page=DEFAULT_LINES_PER_PAGE,
         cached=False,
     )
+
+    # Add interaction hints for each pane
+    if outputs and "elements" in result:
+        # Build enhanced elements with hints for each pane
+        enhanced_elements = []
+        i = 0
+
+        for pane_id, swp in panes_to_read:
+            # For multiple panes, there's a heading
+            if len(panes_to_read) > 1:
+                # Add the heading
+                enhanced_elements.append(result["elements"][i])
+                i += 1
+
+            # Add interaction hints for this pane
+            enhanced_elements.append(_build_interaction_hints(swp))
+            enhanced_elements.append({"type": "text", "content": ""})
+
+            # Add the code block with output
+            enhanced_elements.append(result["elements"][i])
+            i += 1
+
+        result["elements"] = enhanced_elements
+
+    return result

@@ -10,8 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+- **BREAKING**: Renamed `read` command to `pane` for better semantic clarity
+- **BREAKING**: Updated to tmux-popup v0.2.1 API (requires tmux-popup >= 0.2.1)
+- Migrated popup components from GumStyle/GumFilter/GumInput to Canvas/Markdown/Filter/Input
+- Improved pane selection formatting with better column spacing
+- Standardized all popups to width="65" for consistency
+- Added interaction hints to `pane` command output showing available MCP commands for each pane
 
 ### Fixed
+- Python handler now properly handles single-line compound statements (e.g., `for i in range(3): print(i)`)
+- Python handler subprocess detection improved for async operations with Playwright
+- Multi-select popup instructions corrected (Tab to select, not space)
 
 ### Removed
 

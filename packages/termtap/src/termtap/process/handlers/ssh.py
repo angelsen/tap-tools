@@ -123,16 +123,16 @@ class _SSHHandler(ProcessHandler):
 
         popup = Popup(width="65")
         canvas = Canvas()
-        canvas.add(Markdown(f"""# Remote Command Execution
+        canvas.add(
+            Markdown(f"""# Remote Command Execution
 
 **Command:** {truncate_command(command)}
 
-Edit the command or press Enter to execute as-is"""))
+Edit the command or press Enter to execute as-is""")
+        )
         popup.add(canvas)
-        
-        edited = popup.add(
-            Input(placeholder="Press Enter to execute or ESC to cancel", value=command)
-        ).show()
+
+        edited = popup.add(Input(placeholder="Press Enter to execute or ESC to cancel", value=command)).show()
 
         return edited if edited else None
 
@@ -150,14 +150,16 @@ Edit the command or press Enter to execute as-is"""))
 
         popup = Popup(width="65")
         canvas = Canvas()
-        canvas.add(Markdown(f"""# Waiting for Command Completion
+        canvas.add(
+            Markdown(f"""# Waiting for Command Completion
 
 **Command:** {truncate_command(command)}
 
 The command has been sent to the remote host.
-Press Enter when the command has completed."""))
+Press Enter when the command has completed.""")
+        )
         popup.add(canvas)
-        
+
         # Use Input with empty prompt to wait for Enter key
         popup.add(Input(prompt="", placeholder="Press Enter to continue...")).show()
 
