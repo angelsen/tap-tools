@@ -6,10 +6,10 @@ WebSocketApp handles the WebSocket, we handle CDP protocol.
 import json
 import logging
 import threading
-from collections import defaultdict, deque
 from concurrent.futures import Future, TimeoutError
 from typing import Any
 
+import duckdb
 import requests
 import websocket
 
@@ -45,9 +45,14 @@ class CDPSession:
         self._pending: dict[int, Future] = {}
         self._lock = threading.Lock()
 
-        # Store CDP events AS-IS
-        self.network_events = defaultdict(list)  # requestId -> [events]
-        self.console_events = deque(maxlen=500)  # chronological
+        # DuckDB storage - store events AS-IS
+        self.db = duckdb.connect(':memory:')
+        self.db.execute("CREATE TABLE events (event JSON)")
+        
+        # Live field path lookup for fast discovery
+        # Maps lowercase field names to their full paths with original case
+        # e.g. {"url": {"params.response.url", "params.frame.documentURL"}}
+        self.field_paths: dict[str, set[str]] = {}
 
     def list_pages(self) -> list[dict]:
         """List available Chrome pages."""
@@ -175,7 +180,7 @@ class CDPSession:
         self.connected.set()
 
     def _on_message(self, ws, message):
-        """Handle CDP message - store events AS-IS, resolve futures."""
+        """Handle CDP message - store in DuckDB as-is, resolve futures."""
         try:
             data = json.loads(message)
 
@@ -191,19 +196,10 @@ class CDPSession:
                     else:
                         future.set_result(data.get("result", {}))
 
-            # CDP event - store AS-IS
+            # CDP event - store AS-IS in DuckDB and update field lookup
             elif "method" in data:
-                method = data["method"]
-
-                # Network events - group by requestId
-                if method.startswith("Network."):
-                    request_id = data.get("params", {}).get("requestId")
-                    if request_id:
-                        self.network_events[request_id].append(data)
-
-                # Console/Log events - chronological
-                elif method in ["Runtime.consoleAPICalled", "Log.entryAdded"]:
-                    self.console_events.append(data)
+                self.db.execute("INSERT INTO events VALUES (?)", [json.dumps(data)])
+                self._update_field_lookup(data)
 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
@@ -223,7 +219,87 @@ class CDPSession:
                 future.set_exception(RuntimeError("Connection closed"))
             self._pending.clear()
 
+    def _extract_paths(self, obj, parent_key=''):
+        """Extract all paths from nested dict (only paths, not values)."""
+        paths = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                new_key = f"{parent_key}.{k}" if parent_key else k
+                paths.append(new_key)
+                if isinstance(v, dict):
+                    paths.extend(self._extract_paths(v, new_key))
+        return paths
+    
+    def _update_field_lookup(self, data):
+        """Update field lookup with paths from new event."""
+        event_type = data.get("method", "unknown")
+        paths = self._extract_paths(data)
+        
+        for path in paths:
+            # Store with event type prefix using colon separator
+            full_path = f"{event_type}:{path}"
+            
+            # Index by each part of the path for flexible searching
+            parts = path.split('.')
+            for part in parts:
+                key = part.lower()
+                if key not in self.field_paths:
+                    self.field_paths[key] = set()
+                self.field_paths[key].add(full_path)  # Store with event type and original case
+    
+    def discover_field_paths(self, search_key: str) -> list[str]:
+        """Discover all paths containing the search key (case-insensitive).
+        
+        Args:
+            search_key: Field name to search for (e.g., "url", "status")
+            
+        Returns:
+            List of full paths where this field appears
+        """
+        search_key = search_key.lower()
+        paths = set()
+        
+        # Find all field names that contain our search key
+        for field_name, field_paths in self.field_paths.items():
+            if search_key in field_name:
+                paths.update(field_paths)
+        
+        return sorted(list(paths))  # Sort for consistent results
+    
     def clear_events(self) -> None:
-        """Clear all stored events."""
-        self.network_events.clear()
-        self.console_events.clear()
+        """Clear all stored events and field lookup."""
+        self.db.execute("DELETE FROM events")
+        self.field_paths.clear()
+    
+    def query(self, sql: str, params: list | None = None) -> list:
+        """Query events using DuckDB SQL.
+        
+        The events are stored in the 'events' table with a single JSON column named 'event'.
+        
+        Examples:
+            query("SELECT * FROM events WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'")
+            query("SELECT json_extract_string(event, '$.params.request.url') as url FROM events")
+            query("SELECT json_extract_string(event, '$.method') as method, COUNT(*) as count FROM events GROUP BY method")
+        """
+        result = self.db.execute(sql, params or [])
+        return result.fetchall() if result else []
+    
+    def fetch_body(self, request_id: str) -> dict | None:
+        """Fetch response body for a request (requires explicit CDP call).
+        
+        Args:
+            request_id: Network request ID
+            
+        Returns:
+            Dict with 'body' and 'base64Encoded' keys, or None if failed
+        """
+        try:
+            return self.execute("Network.getResponseBody", {"requestId": request_id})
+        except Exception as e:
+            logger.debug(f"Failed to fetch body for {request_id}: {e}")
+            return None
+    
+    @property
+    def is_connected(self) -> bool:
+        """Check if connected to Chrome."""
+        return self.connected.is_set()

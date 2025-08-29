@@ -79,18 +79,18 @@ Query these when needed, not preemptively.
                     └────────┬────────┘
                              │ Raw Events
                     ┌────────▼────────┐
-                    │  Event Storage  │
-                    │  (Group by ID)  │
+                    │  DuckDB Storage │
+                    │  (events table) │
                     └────────┬────────┘
-                             │
+                             │ SQL Queries
                 ┌────────────┼────────────┐
                 │            │            │
-        ┌───────▼──────┐ ┌──▼───┐ ┌──────▼──────┐
-        │   Commands   │ │Tables│ │Detail Views │
-        │network()     │ │      │ │             │
+        ┌───────▼──────┐ ┌───▼───┐ ┌──────▼──────┐
+        │   Commands   │ │ Tables│ │Detail Views │
+        │network()     │ │       │ │             │
         │console()     │ │Minimal│ │Full CDP Data│
         │storage()     │ │Summary│ │+ On-Demand  │
-        └──────────────┘ └──────┘ └─────────────┘
+        └──────────────┘ └───────┘ └─────────────┘
 ```
 
 ## Data Flow Examples
@@ -98,40 +98,36 @@ Query these when needed, not preemptively.
 ### Network Request Lifecycle
 
 ```python
-# 1. Request sent - store as-is
-network_events["123.456"].append({
+# 1. Request sent - store as-is in DuckDB
+db.execute("INSERT INTO events VALUES (?)", [json.dumps({
     "method": "Network.requestWillBeSent",
     "params": {...}  # Full CDP data
-})
+})])
 
-# 2. Response received - append to same ID
-network_events["123.456"].append({
+# 2. Response received - store as-is
+db.execute("INSERT INTO events VALUES (?)", [json.dumps({
     "method": "Network.responseReceived", 
     "params": {...}  # Full CDP data
-})
+})])
 
-# 3. Loading finished - append
-network_events["123.456"].append({
-    "method": "Network.loadingFinished",
-    "params": {"encodedDataLength": 1234}
-})
+# 3. Query for table view - SQL on JSON
+db.execute("""
+    SELECT 
+        json_extract_string(event, '$.params.requestId') as id,
+        json_extract_string(event, '$.params.response.status') as status,
+        json_extract_string(event, '$.params.response.url') as url
+    FROM events 
+    WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'
+""")
 
-# 4. Table view - build minimal summary
-summary = NetworkSummary(
-    id="123.456",
-    method="GET",  # Extracted from requestWillBeSent
-    status=200,    # Extracted from responseReceived
-    url="...",     # Extracted from requestWillBeSent
-    type="json",   # Extracted from responseReceived
-    size=1234      # Extracted from loadingFinished
-)
+# 4. Detail view - get all events for request
+db.execute("""
+    SELECT event FROM events 
+    WHERE json_extract_string(event, '$.params.requestId') = ?
+""", [request_id])
 
-# 5. Detail view - return everything
-{
-    "summary": summary,
-    "events": network_events["123.456"],  # All CDP events
-    "body": fetch_body("123.456") if requested  # On-demand
-}
+# 5. Body fetch - on-demand CDP call
+cdp.execute("Network.getResponseBody", {"requestId": "123.456"})
 ```
 
 ### Console Message

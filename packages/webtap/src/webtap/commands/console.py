@@ -1,82 +1,85 @@
 """Console monitoring commands."""
 
 from webtap.app import app
-from webtap.cdp.helpers import build_console_row
+from webtap.commands._utils import truncate_string
 
 
-@app.command(display="table", headers=["Time", "Level", "Message", "Source"])
-def console(state, id: str | None = None, limit: int = 20):
-    """Show console messages.
 
-    Args:
-        id: Message ID for detail view (returns raw)
-        limit: Max number of messages to show in table
 
-    Returns:
-        Table of messages or raw detail for single message
+@app.command(display="table", headers=["Level", "Source", "Message", "Time"])
+def console(state, limit: int = 50):
     """
-    if not state.cdp.connected.is_set():
+    Show console messages in table format.
+    
+    Args:
+        limit: Max results (default: 50)
+    
+    Examples:
+        console()           # Recent console messages
+        console(limit=100)  # Show more messages
+    
+    Returns:
+        Table of console messages
+    """
+    if not state.cdp or not state.cdp.is_connected:
         return []
-
-    # Build rows from all console events
-    rows = []
-    for event in state.cdp.console_events:
-        row = build_console_row(event)
-        rows.append(row)
-
-    # Single item detail - return raw
-    if id:
-        for row in rows:
-            if row["id"] == id or row["id"].startswith(id):  # Allow partial ID match
-                # Return the full CDP event
-                console.__display__ = None  # pyright: ignore[reportFunctionMemberAccess]
-                return row["_event"]
-
-        console.__display__ = None  # pyright: ignore[reportFunctionMemberAccess]
-        return {"error": f"Console message {id} not found"}
-
-    # Table view - newest first (console_events is a deque, newest at end)
-    rows.reverse()
-
+    
+    # Table view - extract specific fields (handling both event types)
+    sql = f"""
+    SELECT 
+        COALESCE(
+            json_extract_string(event, '$.params.type'),
+            json_extract_string(event, '$.params.entry.level')
+        ) as Level,
+        COALESCE(
+            json_extract_string(event, '$.params.source'),
+            json_extract_string(event, '$.params.entry.source'),
+            'console'
+        ) as Source,
+        COALESCE(
+            json_extract_string(event, '$.params.args[0].value'),
+            json_extract_string(event, '$.params.entry.text')
+        ) as Message,
+        COALESCE(
+            json_extract_string(event, '$.params.timestamp'),
+            json_extract_string(event, '$.params.entry.timestamp')
+        ) as Time
+    FROM events 
+    WHERE json_extract_string(event, '$.method') IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
+    ORDER BY rowid DESC LIMIT {limit}
+    """
+    
+    results = state.cdp.query(sql)
+    
     # Format for table display
-    table_rows = []
-    for row in rows[:limit]:
-        # Format timestamp for display
-        try:
-            timestamp = float(row["id"]) if row["id"].replace(".", "").isdigit() else 0
-            time_str = f"{timestamp:.2f}" if timestamp else "-"
-        except (ValueError, AttributeError):
-            time_str = "-"
+    rows = []
+    for row in results:
+        level, source, message, timestamp = row
+        rows.append({
+            "Level": (level or "log").upper(),
+            "Source": source or "console",
+            "Message": truncate_string(message, 80),
+            "Time": timestamp[:19] if timestamp else "-"  # Just date and time
+        })
+    
+    return rows
 
-        table_rows.append(
-            {
-                "Time": time_str,
-                "Level": row["level"].upper(),
-                "Message": row["message"][:80] + "..." if len(row["message"]) > 80 else row["message"],
-                "Source": row["source"],
-            }
-        )
 
-    return table_rows
 
 
 @app.command()
 def clear_console(state):
-    """Clear console events.
-
+    """Clear console events from browser.
+    
     Returns:
-        Clear status
+        Clear status message
     """
-    if not state.cdp.connected.is_set():
+    if not state.cdp or not state.cdp.is_connected:
         return "Not connected"
-
-    count = len(state.cdp.console_events)
-    state.cdp.console_events.clear()
-
-    # Also clear browser console
+    
+    # Clear browser console
     try:
         state.cdp.execute("Runtime.discardConsoleEntries")
-    except Exception:
-        pass  # Not critical if this fails
-
-    return f"Cleared {count} console messages"
+        return "Console cleared"
+    except Exception as e:
+        return f"Failed to clear console: {e}"

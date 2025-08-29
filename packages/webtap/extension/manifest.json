@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "WebTap DevTools",
+  "version": "0.1.1",
+  "description": "Chrome DevTools Protocol debugger via WebTap",
+  "permissions": ["activeTab", "tabs"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WebTap - Click to track current page"
+  },
+  "host_permissions": ["http://localhost:8765/*"]
+}

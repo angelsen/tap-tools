@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      body {
+        width: 350px;
+        padding: 10px;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+      }
+      select {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      button {
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      button:hover {
+        background: #f0f0f0;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .button-row {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 8px;
+      }
+      .button-row button {
+        flex: 1;
+      }
+      #status {
+        padding: 8px;
+        font-size: 12px;
+        background: #f5f5f5;
+        border-radius: 4px;
+        margin-bottom: 8px;
+      }
+      .error {
+        color: #d00;
+      }
+      .connected {
+        color: #080;
+        font-weight: bold;
+      }
+      .divider {
+        border-top: 1px solid #ddd;
+        margin: 10px 0;
+      }
+      .fetch-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 5px 0;
+      }
+      .fetch-status {
+        font-size: 12px;
+      }
+      .toggle {
+        background: #e0e0e0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 4px 12px;
+        cursor: pointer;
+      }
+      .toggle.on {
+        background: #4caf50;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>WebTap DevTools</h3>
+    
+    <select id="pageList" size="6">
+      <option disabled>Loading pages...</option>
+    </select>
+    
+    <div class="button-row">
+      <button id="connect">Connect</button>
+      <button id="disconnect">Disconnect</button>
+      <button id="refresh">Refresh</button>
+    </div>
+    
+    <div id="status">Not connected</div>
+    
+    <div class="divider"></div>
+    
+    <div class="fetch-row">
+      <span class="fetch-status">Intercept: <span id="fetchStatus">OFF</span></span>
+      <button id="fetchToggle" class="toggle">Toggle</button>
+    </div>
+    
+    <div class="button-row" style="margin-top: 8px;">
+      <button id="clear" style="width: 100%;">Clear Events</button>
+    </div>
+    
+    <script src="popup.js"></script>
+  </body>
+</html>

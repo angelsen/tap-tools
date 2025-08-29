@@ -1,0 +1,180 @@
+# WebTap Browser Debugging Guide
+
+WebTap is a Chrome DevTools Protocol (CDP) client for browser debugging via REPL.
+
+## Quick Start
+
+```python
+# Connect to Chrome (must be running with --remote-debugging-port=9222)
+pages()                    # List available tabs
+connect(1)                 # Connect to tab at index 1
+network()                  # View recent network requests
+console()                  # View console messages
+disconnect()               # Disconnect from Chrome
+```
+
+## Core Concepts
+
+### Dynamic Field Discovery
+WebTap automatically discovers and indexes all CDP event fields as they arrive. No schema needed!
+
+```python
+# Search any field - discovers paths automatically
+requests({"url": "*api*"})           # Find all API calls
+requests({"status": 200})            # Find successful requests
+requests({"method": "POST"})         # Find POST requests
+```
+
+### Query Syntax
+
+```python
+# Basic queries
+requests({"field": "value"})         # Exact match
+requests({"field": "*wildcard*"})    # Wildcard search
+requests({"field": "*"})             # Extract field only (no filter)
+
+# Multiple fields (AND)
+requests({"url": "*finn*", "status": 200})
+
+# Inspect details
+requests({"url": "*api*"})           # Get list with IDs
+inspect(request="r1")                 # Inspect specific request
+```
+
+## Common Workflows
+
+### Analyze Website Requests
+
+```python
+# Connect and explore
+pages()
+connect(0)
+
+# View all requests
+network()                             # Table view, excludes static assets
+network(exclude_static=False)        # Include images/CSS/fonts
+
+# Search specific requests
+requests({"url": "*api*", "method": "POST"})
+requests({"headers": "*", "url": "*finn.no*"})  # See all headers
+
+# Inspect details
+inspect(request="r5")                # View specific field
+```
+
+### Debug JavaScript Errors
+
+```python
+console()                             # Recent console messages
+console(limit=100)                    # More messages
+
+# Execute JavaScript
+eval("document.title")                # Get page title
+eval("localStorage.length")           # Check localStorage
+exec("console.log('test')")          # Execute without return
+```
+
+### Monitor Network Traffic
+
+```python
+# Find failed requests
+requests({"status": 404})
+requests({"status": 500})
+
+# Track specific domains
+requests({"url": "*youtube.com*"})
+
+# Analyze headers
+requests({"url": "*api*", "headers": "*"})
+inspect(request="r1")                # See full headers object
+```
+
+### Page Navigation
+
+```python
+navigate("https://example.com")      # Go to URL
+reload()                              # Refresh page
+back()                                # Go back
+forward()                             # Go forward
+history()                             # View history
+```
+
+## Advanced Features
+
+### Field Discovery
+The system builds a live lookup of all field paths from CDP events:
+
+```python
+# When CDP sends: {"params": {"response": {"url": "...", "status": 200}}}
+# System discovers: params, response, url, status, params.response, params.response.url, params.response.status
+
+# Search for "url" finds ALL url fields:
+requests({"url": "*"})
+# Returns: params.response.url, params.request.url, params.frame.documentURL, etc.
+```
+
+### Case-Insensitive Search
+```python
+requests({"URL": "*"})                # Finds url, URL, documentURL
+requests({"contenttype": "*"})        # Finds contentType, ContentType
+```
+
+### Response Bodies
+```python
+# Bodies aren't in event stream, fetch on-demand
+requests({"url": "*api*"})
+# Note: body fetching not yet implemented, use Network tab in DevTools
+```
+
+## Tips
+
+1. **Chrome must be running with debugging port**:
+   ```bash
+   google-chrome --remote-debugging-port=9222
+   ```
+
+2. **Field names are fuzzy matched** - "url" finds all URL-related fields
+
+3. **Wildcards supported** - Use `*` for any characters, `?` for single character
+
+4. **All queries are case-insensitive** for field names
+
+5. **Extraction is default** - Query results show only the fields you search for
+
+6. **Static assets excluded by default** in `network()` but included in `requests()`
+
+## Examples
+
+### Reverse Engineering API Calls
+```python
+# Watch what happens during login
+navigate("https://example.com/login")
+requests({"url": "*login*", "method": "POST"})
+inspect(request="r1")                # See headers, payload
+
+# Find API endpoints
+requests({"url": "*api*", "status": 200})
+```
+
+### Debug Performance Issues
+```python
+# Find slow requests
+requests({"timing": "*"})            # See timing data
+
+# Check cache headers
+requests({"url": "*", "headers": "*cache*"})
+```
+
+### Security Analysis
+```python
+# Check security headers
+requests({"headers": "*security*"})
+requests({"headers": "*x-frame*"})
+
+# Find external requests
+requests({"url": "*"})               # See all domains
+```
+
+## Architecture
+
+WebTap stores CDP events as-is in DuckDB, maintains a live field lookup for instant discovery, and queries data on-demand. No transformations, no schema, just pure CDP data with smart indexing.
