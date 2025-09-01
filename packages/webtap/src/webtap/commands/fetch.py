@@ -41,35 +41,29 @@ def fetch(state, enable: bool | None = None, disable: bool = False, response: bo
         result = fetch_service.disable()
         if "error" in result:
             return error_response("custom", custom_message=result["error"])
-        return build_info_response(
-            title=f"Fetch {sym('disabled')}", 
-            fields={"Status": "Interception disabled"}
-        )
+        return build_info_response(title=f"Fetch {sym('disabled')}", fields={"Status": "Interception disabled"})
 
     # Handle enable
     if enable is True:
         # Check connection first
         if error := check_connection(state):
             return error
-            
+
         result = fetch_service.enable(state.cdp, response_stage=response)
         if "error" in result:
             return error_response("custom", custom_message=result["error"])
         return build_info_response(
-            title=f"Fetch {sym('enabled')}", 
+            title=f"Fetch {sym('enabled')}",
             fields={
                 "Stages": result.get("stages", "Request stage only"),
-                "Status": f"{sym('paused')} Requests will pause"
-            }
+                "Status": f"{sym('paused')} Requests will pause",
+            },
         )
     elif enable is False:
         result = fetch_service.disable()
         if "error" in result:
             return error_response("custom", custom_message=result["error"])
-        return build_info_response(
-            title=f"Fetch {sym('disabled')}", 
-            fields={"Status": "Interception disabled"}
-        )
+        return build_info_response(title=f"Fetch {sym('disabled')}", fields={"Status": "Interception disabled"})
 
     # Show status
     status_symbol = sym("enabled") if fetch_service.enabled else sym("disabled")
@@ -77,7 +71,9 @@ def fetch(state, enable: bool | None = None, disable: bool = False, response: bo
         title=f"Fetch Status {status_symbol}",
         fields={
             "Status": "Enabled" if fetch_service.enabled else "Disabled",
-            "Paused": f"{sym('paused')} {fetch_service.paused_count} requests" if fetch_service.enabled else sym("none"),
+            "Paused": f"{sym('paused')} {fetch_service.paused_count} requests"
+            if fetch_service.enabled
+            else sym("none"),
         },
     )
 
@@ -166,10 +162,7 @@ def resume(state, request: int, wait: float = 0.5, **modifications) -> dict:
     if "error" in result:
         return error_response("custom", custom_message=result["error"])
 
-    fields = {
-        "Stage": result["stage"],
-        "Continued": f"{sym('success')} Row {result['continued']}"
-    }
+    fields = {"Stage": result["stage"], "Continued": f"{sym('success')} Row {result['continued']}"}
 
     # Report follow-up if detected
     if next_event := result.get("next_event"):
@@ -214,10 +207,7 @@ def fail(state, request: int, reason: str = "BlockedByClient") -> dict:
     if "error" in result:
         return error_response("custom", custom_message=result["error"])
 
-    fields = {
-        "Failed": f"{sym('error')} Row {result['failed']}", 
-        "Reason": result["reason"]
-    }
+    fields = {"Failed": f"{sym('error')} Row {result['failed']}", "Reason": result["reason"]}
     if result.get("remaining") is not None:
         fields["Remaining"] = f"{sym('paused')} {result['remaining']} requests"
 

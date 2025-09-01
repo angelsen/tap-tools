@@ -250,6 +250,9 @@ class _FetchService:
         Returns:
             Dict with next event info or None if nothing found
         """
+        if not self.cdp:
+            return None
+
         start = time.time()
 
         while time.time() - start < timeout:

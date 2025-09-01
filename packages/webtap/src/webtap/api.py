@@ -121,10 +121,10 @@ async def get_paused_requests() -> Dict[str, Any]:
 
     paused_list = fetch_service.get_paused_list()
     return {
-        "enabled": True, 
-        "requests": paused_list, 
+        "enabled": True,
+        "requests": paused_list,
         "count": len(paused_list),
-        "response_stage": fetch_service.enable_response_stage
+        "response_stage": fetch_service.enable_response_stage,
     }
 
 
