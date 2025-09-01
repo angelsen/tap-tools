@@ -1,4 +1,8 @@
-"""Response body inspection command."""
+"""HTTP response body inspection and analysis commands.
+
+PUBLIC API:
+  - body: Fetch and optionally process response body with Python expressions
+"""
 
 import json
 from webtap.app import app

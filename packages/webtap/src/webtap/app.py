@@ -3,6 +3,10 @@
 Provides dual REPL/MCP functionality for Chrome DevTools Protocol interaction.
 Built on ReplKit2 framework with CDP-native design for browser debugging and
 automation leveraging Chrome's native debugging protocol.
+
+PUBLIC API:
+  - WebTapState: Application state class with CDP session and service
+  - app: Main ReplKit2 App instance (imported by commands and __init__)
 """
 
 from dataclasses import dataclass, field
@@ -29,7 +33,7 @@ class WebTapState:
     service: WebTapService = field(init=False)
 
     def __post_init__(self):
-        """Initialize service with self reference."""
+        """Initialize service with self reference after dataclass init."""
         self.service = WebTapService(self)
 
 

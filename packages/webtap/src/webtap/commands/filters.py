@@ -1,4 +1,8 @@
-"""Filter management commands for network requests."""
+"""Network request filtering and categorization management commands.
+
+PUBLIC API:
+  - filters: Manage network request filters with pattern matching and persistence
+"""
 
 from typing import Dict, Any
 

@@ -1,24 +1,58 @@
-"""Markdown extensions and utilities for WebTap commands."""
+"""Markdown extensions and utilities for WebTap commands.
+
+This internal module provides specialized markdown elements for displaying structured data
+in WebTap commands, including tables and alerts with proper formatting.
+"""
 
 from replkit2.textkit import MarkdownElement
 from webtap.commands._symbols import sym
 
 
 class Table(MarkdownElement):
-    """Markdown table element for structured data display."""
+    """Markdown table element for structured data display.
+
+    Creates properly formatted markdown tables with configurable alignment
+    and automatic column width calculation based on content.
+
+    Attributes:
+        headers: List of column header names.
+        rows: List of dictionaries representing table data.
+        align: Text alignment for columns (left, right, center).
+        element_type: Element type identifier for replkit2.
+    """
 
     element_type = "table"
 
     def __init__(self, headers: list[str], rows: list[dict], align: str = "left"):
+        """Initialize table with headers, data, and alignment.
+
+        Args:
+            headers: List of column header names.
+            rows: List of dictionaries with data for each row.
+            align: Column alignment. Defaults to "left".
+        """
         self.headers = headers
         self.rows = rows
         self.align = align
 
     @classmethod
     def from_dict(cls, data: dict) -> "Table":
+        """Create Table instance from dictionary data.
+
+        Args:
+            data: Dictionary containing headers, rows, and optional align.
+
+        Returns:
+            Table instance with specified configuration.
+        """
         return cls(headers=data.get("headers", []), rows=data.get("rows", []), align=data.get("align", "left"))
 
     def render(self) -> str:
+        """Render table as markdown text with proper formatting.
+
+        Returns:
+            Markdown-formatted table string with aligned columns.
+        """
         if not self.headers:
             return ""
 
@@ -74,19 +108,46 @@ class Table(MarkdownElement):
 
 
 class Alert(MarkdownElement):
-    """Alert/warning element for important messages."""
+    """Alert/warning element for important messages.
+
+    Creates styled alert messages with appropriate icons and formatting
+    for different severity levels.
+
+    Attributes:
+        message: Alert message text.
+        level: Alert severity level (warning, error, info, success).
+        element_type: Element type identifier for replkit2.
+    """
 
     element_type = "alert"
 
     def __init__(self, message: str, level: str = "warning"):
+        """Initialize alert with message and severity level.
+
+        Args:
+            message: Alert message text to display.
+            level: Severity level. Defaults to "warning".
+        """
         self.message = message
-        self.level = level  # warning, error, info, success
+        self.level = level
 
     @classmethod
     def from_dict(cls, data: dict) -> "Alert":
+        """Create Alert instance from dictionary data.
+
+        Args:
+            data: Dictionary containing message and optional level.
+
+        Returns:
+            Alert instance with specified configuration.
+        """
         return cls(message=data.get("message", ""), level=data.get("level", "warning"))
 
     def render(self) -> str:
-        # Use symbol registry for consistent ASCII symbols
+        """Render alert as markdown text with appropriate icon.
+
+        Returns:
+            Markdown-formatted alert string with icon and bold message.
+        """
         icon = sym(self.level)
         return f"{icon} **{self.message}**"

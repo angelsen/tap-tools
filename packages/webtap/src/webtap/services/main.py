@@ -1,32 +1,42 @@
-"""WebTap service layer for shared state and operations.
+"""Main service orchestrator for WebTap business logic.
 
-Provides a clean interface for both REPL commands and API endpoints.
+PUBLIC API:
+  - WebTapService: Main service orchestrating all domain services
 """
 
 from typing import Any
 
 from webtap.filters import FilterManager
-from webtap.services.fetch import FetchService
-from webtap.services.network import NetworkService
-from webtap.services.console import ConsoleService
-from webtap.services.body import BodyService
+from webtap.services.fetch import _FetchService
+from webtap.services.network import _NetworkService
+from webtap.services.console import _ConsoleService
+from webtap.services.body import _BodyService
 
 
-# Required CDP domains for WebTap functionality
 REQUIRED_DOMAINS = [
-    "Page",  # Navigation, lifecycle, history
-    "Network",  # Request/response monitoring
-    "Runtime",  # Console API, JavaScript execution
-    "Log",  # Browser logs (errors, warnings)
-    "DOMStorage",  # localStorage/sessionStorage events
+    "Page",
+    "Network", 
+    "Runtime",
+    "Log",
+    "DOMStorage",
 ]
 
 
 class WebTapService:
-    """Service layer managing WebTap state and operations.
+    """Main service orchestrating all WebTap domain services.
 
-    This service is shared between REPL commands and API endpoints,
-    providing a single source of truth for state management.
+    Coordinates CDP session management, domain services, and filter management.
+    Shared between REPL commands and API endpoints for consistent state.
+
+    Attributes:
+        state: WebTap application state instance.
+        cdp: CDP session for browser communication.
+        enabled_domains: Set of currently enabled CDP domains.
+        filters: Filter manager for event filtering.
+        fetch: Fetch interception service.
+        network: Network monitoring service.
+        console: Console message service.
+        body: Response body fetching service.
     """
 
     def __init__(self, state):
@@ -38,29 +48,22 @@ class WebTapService:
         self.state = state
         self.cdp = state.cdp
 
-        # Extension/API state
         self.enabled_domains: set[str] = set()
-
-        # Filter management
         self.filters = FilterManager()
 
-        # Service layers for different CDP domains
-        self.fetch = FetchService()
-        self.network = NetworkService()
-        self.console = ConsoleService()
-        self.body = BodyService()
+        self.fetch = _FetchService()
+        self.network = _NetworkService()
+        self.console = _ConsoleService()
+        self.body = _BodyService()
 
-        # Wire up services to CDP session
         self.fetch.cdp = self.cdp
         self.network.cdp = self.cdp
         self.console.cdp = self.cdp
         self.body.cdp = self.cdp
 
-        # Wire up inter-service dependencies
         self.fetch.body_service = self.body
 
-        # Legacy wiring for CDP event handler (still needed for now)
-        # TODO: Move event handling to service layer
+        # Legacy wiring for CDP event handler
         self.cdp.fetch_service = self.fetch
 
     @property
@@ -80,43 +83,30 @@ class WebTapService:
         Args:
             page_index: Index of page to connect to (for REPL)
             page_id: ID of page to connect to (for extension)
-
-        Returns:
-            Dict with connection result or error
         """
         try:
-            # Step 1: Connect
             self.cdp.connect(page_index=page_index, page_id=page_id)
 
-            # Step 2: Enable required domains
             failures = self.enable_domains(REQUIRED_DOMAINS)
 
             if failures:
                 self.cdp.disconnect()
                 return {"error": f"Failed to enable domains: {failures}"}
 
-            # Step 3: Auto-load filters if available
             self.filters.load()
 
-            # Success
             page_info = self.cdp.page_info or {}
             return {"connected": True, "title": page_info.get("title", "Untitled"), "url": page_info.get("url", "")}
         except Exception as e:
             return {"error": str(e)}
 
     def disconnect(self) -> dict[str, Any]:
-        """Disconnect from Chrome.
-
-        Returns:
-            Dict with disconnection status
-        """
+        """Disconnect from Chrome."""
         was_connected = self.cdp.is_connected
 
-        # Disable fetch if enabled
         if self.fetch.enabled:
             self.fetch.disable()
 
-        # Clear body cache
         self.body.clear_cache()
 
         self.cdp.disconnect()
@@ -129,9 +119,6 @@ class WebTapService:
 
         Args:
             domains: List of domain names to enable
-
-        Returns:
-            Dict of domain -> error message for failures
         """
         failures = {}
         for domain in domains:
@@ -143,11 +130,7 @@ class WebTapService:
         return failures
 
     def get_status(self) -> dict[str, Any]:
-        """Get current connection and state status.
-
-        Returns:
-            Dict with comprehensive status information
-        """
+        """Get current connection and state status."""
         if not self.cdp.is_connected:
             return {
                 "connected": False,
@@ -176,23 +159,14 @@ class WebTapService:
         }
 
     def clear_events(self) -> dict[str, Any]:
-        """Clear all stored CDP events.
-
-        Returns:
-            Dict with clear status
-        """
+        """Clear all stored CDP events."""
         self.cdp.clear_events()
         return {"cleared": True, "events": 0}
 
     def list_pages(self) -> dict[str, Any]:
-        """List available Chrome pages.
-
-        Returns:
-            Dict with pages list or error
-        """
+        """List available Chrome pages."""
         try:
             pages = self.cdp.list_pages()
-            # Include connected status for each page
             connected_id = self.cdp.page_info.get("id") if self.cdp.page_info else None
             for page in pages:
                 page["is_connected"] = page.get("id") == connected_id

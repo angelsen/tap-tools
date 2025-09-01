@@ -1,7 +1,4 @@
-"""Console monitoring service for browser messages.
-
-Provides clean interface for querying console events from DuckDB.
-"""
+"""Console monitoring service for browser messages."""
 
 import logging
 from typing import TYPE_CHECKING
@@ -12,12 +9,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ConsoleService:
+class _ConsoleService:
     """Service for console event queries and monitoring."""
 
     def __init__(self):
         """Initialize console service."""
-        self.cdp: CDPSession | None = None  # Set by WebTapService
+        self.cdp: CDPSession | None = None
 
     @property
     def message_count(self) -> int:
@@ -50,9 +47,6 @@ class ConsoleService:
         Args:
             limit: Maximum results
             level: Optional filter by level (error, warning, log, info)
-
-        Returns:
-            List of tuples with (rowid, level, source, message, timestamp)
         """
         if not self.cdp:
             return []
@@ -98,9 +92,6 @@ class ConsoleService:
 
         Args:
             limit: Maximum results
-
-        Returns:
-            List of error message tuples
         """
         return self.get_recent_messages(limit=limit, level="error")
 
@@ -109,18 +100,11 @@ class ConsoleService:
 
         Args:
             limit: Maximum results
-
-        Returns:
-            List of warning message tuples
         """
         return self.get_recent_messages(limit=limit, level="warning")
 
     def clear_browser_console(self) -> bool:
-        """Clear console in the browser (CDP command).
-
-        Returns:
-            True if successful
-        """
+        """Clear console in the browser (CDP command)."""
         if not self.cdp:
             return False
 

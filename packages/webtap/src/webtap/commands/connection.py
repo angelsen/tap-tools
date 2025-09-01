@@ -1,4 +1,12 @@
-"""Connection management commands."""
+"""Chrome browser connection management commands.
+
+PUBLIC API:
+  - connect: Connect to Chrome page and enable all required domains
+  - disconnect: Disconnect from Chrome
+  - clear: Clear various data stores (events, console, cache)
+  - pages: List available Chrome pages
+  - status: Get connection status
+"""
 
 from webtap.app import app
 from webtap.commands._errors import check_connection, error_response

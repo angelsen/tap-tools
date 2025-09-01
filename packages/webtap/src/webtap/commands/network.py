@@ -1,4 +1,8 @@
-"""Network monitoring commands."""
+"""Network request monitoring and display commands.
+
+PUBLIC API:
+  - network: Show network requests in table format with filtering support
+"""
 
 from webtap.app import app
 from webtap.commands._errors import check_connection

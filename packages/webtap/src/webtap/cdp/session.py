@@ -1,6 +1,7 @@
-"""Minimal CDP Session - just connection and send/execute.
+"""CDP Session with native event storage.
 
-WebSocketApp handles the WebSocket, we handle CDP protocol.
+PUBLIC API:
+  - CDPSession: WebSocket-based CDP client with DuckDB event storage
 """
 
 import json
@@ -17,17 +18,24 @@ logger = logging.getLogger(__name__)
 
 
 class CDPSession:
-    """Minimal CDP client - just connect, send, execute.
+    """WebSocket-based CDP client with native event storage.
 
-    No convenience methods, no auto-enable, just the basics.
+    Stores CDP events as-is in DuckDB for minimal overhead and maximum flexibility.
+    Provides field discovery and query capabilities for dynamic data exploration.
+
+    Attributes:
+        port: Chrome debugging port.
+        timeout: Default timeout for execute() calls.
+        db: DuckDB connection for event storage.
+        field_paths: Live field lookup for query building.
     """
 
     def __init__(self, port: int = 9222, timeout: float = 30):
-        """Initialize CDP session.
+        """Initialize CDP session with WebSocket and DuckDB storage.
 
         Args:
-            port: Chrome debugging port
-            timeout: Default timeout for execute()
+            port: Chrome debugging port. Defaults to 9222.
+            timeout: Default timeout for execute() calls. Defaults to 30.
         """
         self.port = port
         self.timeout = timeout
@@ -56,7 +64,11 @@ class CDPSession:
         self.field_paths: dict[str, set[str]] = {}
 
     def list_pages(self) -> list[dict]:
-        """List available Chrome pages."""
+        """List available Chrome pages via HTTP API.
+
+        Returns:
+            List of page dictionaries with webSocketDebuggerUrl.
+        """
         try:
             resp = requests.get(f"http://localhost:{self.port}/json", timeout=2)
             resp.raise_for_status()
@@ -67,11 +79,20 @@ class CDPSession:
             return []
 
     def connect(self, page_index: int | None = None, page_id: str | None = None) -> None:
-        """Connect to Chrome page. Just establishes connection, no auto-enable.
+        """Connect to Chrome page via WebSocket.
+
+        Establishes WebSocket connection and starts event collection.
+        Does not auto-enable CDP domains - use execute() for that.
 
         Args:
-            page_index: Index of page to connect to (for REPL convenience)
-            page_id: ID of page to connect to (stable across tab reordering)
+            page_index: Index of page to connect to. Defaults to 0.
+            page_id: Stable page ID across tab reordering.
+
+        Raises:
+            RuntimeError: If already connected or no pages available.
+            ValueError: If page_id not found.
+            IndexError: If page_index out of range.
+            TimeoutError: If connection fails within 5 seconds.
         """
         if self.ws_app:
             raise RuntimeError("Already connected")
@@ -120,7 +141,7 @@ class CDPSession:
             raise TimeoutError("Failed to connect to Chrome")
 
     def disconnect(self) -> None:
-        """Disconnect from Chrome."""
+        """Disconnect WebSocket and clean up resources."""
         if self.ws_app:
             self.ws_app.close()
             self.ws_app = None
@@ -135,14 +156,15 @@ class CDPSession:
     def send(self, method: str, params: dict | None = None) -> Future:
         """Send CDP command asynchronously.
 
-        Returns a Future. Call future.result(timeout) to get response.
-
         Args:
-            method: CDP method (e.g. "Page.navigate")
-            params: Optional parameters
+            method: CDP method like "Page.navigate" or "Network.enable".
+            params: Optional command parameters.
 
         Returns:
-            Future that will contain the 'result' field from CDP response
+            Future containing CDP response 'result' field.
+
+        Raises:
+            RuntimeError: If not connected to Chrome.
         """
         if not self.ws_app:
             raise RuntimeError("Not connected")
@@ -166,15 +188,17 @@ class CDPSession:
     def execute(self, method: str, params: dict | None = None, timeout: float | None = None) -> Any:
         """Send CDP command synchronously.
 
-        Blocks until response received or timeout.
-
         Args:
-            method: CDP method (e.g. "Page.navigate")
-            params: Optional parameters
-            timeout: Override default timeout
+            method: CDP method like "Page.navigate" or "Network.enable".
+            params: Optional command parameters.
+            timeout: Override default timeout.
 
         Returns:
-            The 'result' field from CDP response
+            CDP response 'result' field.
+
+        Raises:
+            TimeoutError: If command times out.
+            RuntimeError: If CDP returns error or not connected.
         """
         future = self.send(method, params)
 
@@ -190,12 +214,12 @@ class CDPSession:
             raise TimeoutError(f"Command {method} timed out")
 
     def _on_open(self, ws):
-        """WebSocket opened."""
+        """WebSocket connection established."""
         logger.info("WebSocket connected")
         self.connected.set()
 
     def _on_message(self, ws, message):
-        """Handle CDP message - store in DuckDB as-is, resolve futures."""
+        """Handle CDP messages - store events as-is, resolve command futures."""
         try:
             data = json.loads(message)
 
@@ -220,11 +244,11 @@ class CDPSession:
             logger.error(f"Error handling message: {e}")
 
     def _on_error(self, ws, error):
-        """WebSocket error."""
+        """Handle WebSocket errors."""
         logger.error(f"WebSocket error: {error}")
 
     def _on_close(self, ws, code, reason):
-        """WebSocket closed."""
+        """Handle WebSocket closure and cleanup."""
         logger.info(f"WebSocket closed: {code} {reason}")
         self.connected.clear()
 
@@ -235,7 +259,12 @@ class CDPSession:
             self._pending.clear()
 
     def _extract_paths(self, obj, parent_key=""):
-        """Extract all paths from nested dict (only paths, not values)."""
+        """Extract all JSON paths from nested dict structure.
+
+        Args:
+            obj: Dictionary to extract paths from.
+            parent_key: Current path prefix.
+        """
         paths = []
         if isinstance(obj, dict):
             for k, v in obj.items():
@@ -246,7 +275,11 @@ class CDPSession:
         return paths
 
     def _update_field_lookup(self, data):
-        """Update field lookup with paths from new event."""
+        """Update field_paths lookup with new event data.
+
+        Args:
+            data: CDP event dictionary.
+        """
         event_type = data.get("method", "unknown")
         paths = self._extract_paths(data)
 
@@ -263,13 +296,15 @@ class CDPSession:
                 self.field_paths[key].add(full_path)  # Store with event type and original case
 
     def discover_field_paths(self, search_key: str) -> list[str]:
-        """Discover all paths containing the search key (case-insensitive).
+        """Discover all JSON paths containing the search key.
+
+        Used by build_query for dynamic field discovery.
 
         Args:
-            search_key: Field name to search for (e.g., "url", "status")
+            search_key: Field name to search for like "url" or "status".
 
         Returns:
-            List of full paths where this field appears
+            Sorted list of full paths with event type prefixes.
         """
         search_key = search_key.lower()
         paths = set()
@@ -282,31 +317,38 @@ class CDPSession:
         return sorted(list(paths))  # Sort for consistent results
 
     def clear_events(self) -> None:
-        """Clear all stored events and field lookup."""
+        """Clear all stored events and reset field lookup."""
         self.db.execute("DELETE FROM events")
         self.field_paths.clear()
 
     def query(self, sql: str, params: list | None = None) -> list:
-        """Query events using DuckDB SQL.
+        """Query stored CDP events using DuckDB SQL.
 
-        The events are stored in the 'events' table with a single JSON column named 'event'.
+        Events are stored in 'events' table with single JSON 'event' column.
+        Use json_extract_string() for accessing nested fields.
+
+        Args:
+            sql: DuckDB SQL query string.
+            params: Optional query parameters.
+
+        Returns:
+            List of result rows.
 
         Examples:
             query("SELECT * FROM events WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'")
             query("SELECT json_extract_string(event, '$.params.request.url') as url FROM events")
-            query("SELECT json_extract_string(event, '$.method') as method, COUNT(*) as count FROM events GROUP BY method")
         """
         result = self.db.execute(sql, params or [])
         return result.fetchall() if result else []
 
     def fetch_body(self, request_id: str) -> dict | None:
-        """Fetch response body for a request (requires explicit CDP call).
+        """Fetch response body via Network.getResponseBody CDP call.
 
         Args:
-            request_id: Network request ID
+            request_id: Network request ID from CDP events.
 
         Returns:
-            Dict with 'body' and 'base64Encoded' keys, or None if failed
+            Dict with 'body' and 'base64Encoded' keys, or None if failed.
         """
         try:
             return self.execute("Network.getResponseBody", {"requestId": request_id})
@@ -316,5 +358,9 @@ class CDPSession:
 
     @property
     def is_connected(self) -> bool:
-        """Check if connected to Chrome."""
+        """Check if WebSocket connection is active.
+
+        Returns:
+            True if connected to Chrome page.
+        """
         return self.connected.is_set()

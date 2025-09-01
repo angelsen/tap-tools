@@ -1,6 +1,10 @@
 """FastAPI endpoints for WebTap browser extension.
 
 Provides REST API for Chrome extension to interact with WebTap.
+Runs in background thread alongside REPL for seamless integration.
+
+PUBLIC API:
+  - start_api_server: Start API server in background thread
 """
 
 import logging
@@ -18,10 +22,12 @@ logger = logging.getLogger(__name__)
 
 # Request models
 class ConnectRequest(BaseModel):
-    page_id: str  # Stable page ID
+    """Request model for connecting to a Chrome page."""
+    page_id: str
 
 
 class FetchRequest(BaseModel):
+    """Request model for enabling/disabling fetch interception."""
     enabled: bool
 
 
@@ -39,75 +45,74 @@ api.add_middleware(
 
 
 # Global reference to WebTap state (set by start_api_server)
-app_state = None
+__app_state = None
 
 
 @api.get("/pages")
 async def list_pages() -> Dict[str, Any]:
-    """List available Chrome pages."""
-    if not app_state:
+    """List available Chrome pages for extension selection."""
+    if not _app_state:
         return {"error": "WebTap not initialized", "pages": []}
 
-    return app_state.service.list_pages()
+    return _app_state.service.list_pages()
 
 
 @api.get("/status")
 async def get_status() -> Dict[str, Any]:
-    """Get current connection status."""
-    if not app_state:
+    """Get current connection status and event count."""
+    if not _app_state:
         return {"connected": False, "error": "WebTap not initialized", "events": 0}
 
-    return app_state.service.get_status()
+    return _app_state.service.get_status()
 
 
 @api.post("/connect")
 async def connect(request: ConnectRequest) -> Dict[str, Any]:
-    """Connect to a Chrome page by ID."""
-    if not app_state:
+    """Connect to a Chrome page by stable page ID."""
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    return app_state.service.connect_to_page(page_id=request.page_id)
+    return _app_state.service.connect_to_page(page_id=request.page_id)
 
 
 @api.post("/disconnect")
 async def disconnect() -> Dict[str, Any]:
-    """Disconnect from current page."""
-    if not app_state:
+    """Disconnect from currently connected page."""
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    return app_state.service.disconnect()
+    return _app_state.service.disconnect()
 
 
 @api.post("/clear")
 async def clear_events() -> Dict[str, Any]:
-    """Clear all stored events."""
-    if not app_state:
+    """Clear all stored events from DuckDB."""
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    return app_state.service.clear_events()
+    return _app_state.service.clear_events()
 
 
 @api.post("/fetch")
 async def set_fetch_interception(request: FetchRequest) -> Dict[str, Any]:
-    """Enable/disable fetch interception."""
-    if not app_state:
+    """Enable or disable fetch request interception."""
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    # Use the new fetch service
     if request.enabled:
-        result = app_state.service.fetch.enable(app_state.service.cdp)
+        result = _app_state.service.fetch.enable(_app_state.service.cdp)
     else:
-        result = app_state.service.fetch.disable()
+        result = _app_state.service.fetch.disable()
     return result
 
 
 @api.get("/fetch/paused")
 async def get_paused_requests() -> Dict[str, Any]:
-    """Get list of paused requests."""
-    if not app_state:
+    """Get list of currently paused fetch requests."""
+    if not _app_state:
         return {"error": "WebTap not initialized", "requests": []}
 
-    fetch_service = app_state.service.fetch
+    fetch_service = _app_state.service.fetch
     if not fetch_service.enabled:
         return {"enabled": False, "requests": []}
 
@@ -117,21 +122,21 @@ async def get_paused_requests() -> Dict[str, Any]:
 
 @api.get("/filters/status")
 async def get_filter_status() -> Dict[str, Any]:
-    """Get current filter configuration and status."""
-    if not app_state:
+    """Get current filter configuration and enabled categories."""
+    if not _app_state:
         return {"error": "WebTap not initialized", "filters": {}, "enabled": []}
 
-    fm = app_state.service.filters
+    fm = _app_state.service.filters
     return {"filters": fm.filters, "enabled": list(fm.enabled_categories), "path": str(fm.filter_path)}
 
 
 @api.post("/filters/toggle/{category}")
 async def toggle_filter_category(category: str) -> Dict[str, Any]:
-    """Toggle a specific filter category on/off."""
-    if not app_state:
+    """Toggle a specific filter category on or off."""
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    fm = app_state.service.filters
+    fm = _app_state.service.filters
 
     if category not in fm.filters:
         return {"error": f"Category '{category}' not found"}
@@ -143,7 +148,6 @@ async def toggle_filter_category(category: str) -> Dict[str, Any]:
         fm.enabled_categories.add(category)
         enabled = True
 
-    # Save the change
     fm.save()
 
     return {"category": category, "enabled": enabled, "total_enabled": len(fm.enabled_categories)}
@@ -151,12 +155,12 @@ async def toggle_filter_category(category: str) -> Dict[str, Any]:
 
 @api.post("/filters/enable-all")
 async def enable_all_filters() -> Dict[str, Any]:
-    """Enable all filter categories."""
-    if not app_state:
+    """Enable all available filter categories."""
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    fm = app_state.service.filters
-    fm.set_enabled_categories(None)  # None = all
+    fm = _app_state.service.filters
+    fm.set_enabled_categories(None)
     fm.save()
 
     return {"enabled": list(fm.enabled_categories), "total": len(fm.enabled_categories)}
@@ -165,11 +169,11 @@ async def enable_all_filters() -> Dict[str, Any]:
 @api.post("/filters/disable-all")
 async def disable_all_filters() -> Dict[str, Any]:
     """Disable all filter categories."""
-    if not app_state:
+    if not _app_state:
         return {"error": "WebTap not initialized"}
 
-    fm = app_state.service.filters
-    fm.set_enabled_categories([])  # Empty list = none
+    fm = _app_state.service.filters
+    fm.set_enabled_categories([])
     fm.save()
 
     return {"enabled": [], "total": 0}
@@ -179,29 +183,32 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765):
     """Start the API server in a background thread.
 
     Args:
-        state: WebTapState instance from the main app
-        host: Host to bind to
-        port: Port to bind to
+        state: WebTapState instance from the main app.
+        host: Host to bind to. Defaults to 127.0.0.1.
+        port: Port to bind to. Defaults to 8765.
+
+    Returns:
+        Thread instance running the server.
     """
-    global app_state
-    app_state = state
+    global _app_state
+    _app_state = state
 
-    def run_server():
-        """Run the server in a thread."""
-        try:
-            uvicorn.run(
-                api,
-                host=host,
-                port=port,
-                log_level="error",  # Quiet unless errors
-                access_log=False,  # No access logs
-            )
-        except Exception as e:
-            logger.error(f"API server failed: {e}")
-
-    # Start in daemon thread
-    thread = threading.Thread(target=run_server, daemon=True)
+    thread = threading.Thread(target=_run_server, args=(host, port), daemon=True)
     thread.start()
 
     logger.info(f"API server started on http://{host}:{port}")
     return thread
+
+
+def _run_server(host: str, port: int):
+    """Run the FastAPI server in a thread."""
+    try:
+        uvicorn.run(
+            api,
+            host=host,
+            port=port,
+            log_level="error",
+            access_log=False,
+        )
+    except Exception as e:
+        logger.error(f"API server failed: {e}")

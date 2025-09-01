@@ -1,4 +1,8 @@
-"""Console monitoring commands."""
+"""Browser console message monitoring and display commands.
+
+PUBLIC API:
+  - console: Show console messages in table format
+"""
 
 from webtap.app import app
 from webtap.commands._errors import check_connection

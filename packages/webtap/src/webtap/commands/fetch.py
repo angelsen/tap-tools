@@ -1,4 +1,11 @@
-"""Fetch interception commands for request/response debugging."""
+"""HTTP fetch request interception and debugging commands.
+
+PUBLIC API:
+  - fetch: Enable/disable fetch interception for request debugging
+  - requests: Show paused fetch requests
+  - resume: Resume paused fetch requests with optional modifications
+  - fail: Fail paused fetch requests with specified reason
+"""
 
 from webtap.app import app
 from webtap.commands._errors import check_connection, error_response

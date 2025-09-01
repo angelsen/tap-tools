@@ -1,4 +1,8 @@
-"""Data inspection command for CDP events by rowid."""
+"""CDP event data inspection and analysis commands.
+
+PUBLIC API:
+  - inspect: Inspect CDP event by rowid with Python expressions
+"""
 
 import json
 

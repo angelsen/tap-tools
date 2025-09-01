@@ -1,7 +1,11 @@
-"""General CDP event querying with dynamic field discovery."""
+"""CDP event querying with dynamic field discovery.
+
+PUBLIC API:
+  - events: Query any CDP events by field values with automatic discovery
+"""
 
 from webtap.app import app
-from webtap.cdp.query import build_query
+from webtap.cdp import build_query
 from webtap.commands._errors import check_connection
 from webtap.commands._utils import process_events_query_results, build_table_response
 

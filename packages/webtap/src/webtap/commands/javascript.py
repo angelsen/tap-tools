@@ -1,4 +1,8 @@
-"""JavaScript execution command."""
+"""JavaScript code execution in browser context.
+
+PUBLIC API:
+  - js: Execute JavaScript code in the browser with optional promise handling
+"""
 
 from webtap.app import app
 from webtap.commands._errors import check_connection, error_response

@@ -1,7 +1,4 @@
-"""Network monitoring service for request/response tracking.
-
-Provides clean interface for querying network events from DuckDB.
-"""
+"""Network monitoring service for request/response tracking."""
 
 import logging
 from typing import TYPE_CHECKING
@@ -12,12 +9,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NetworkService:
+class _NetworkService:
     """Service for network event queries and monitoring."""
 
     def __init__(self):
         """Initialize network service."""
-        self.cdp: CDPSession | None = None  # Set by WebTapService
+        self.cdp: CDPSession | None = None
 
     @property
     def request_count(self) -> int:
@@ -35,9 +32,6 @@ class NetworkService:
         Args:
             limit: Maximum results
             filter_sql: Optional filter SQL to append
-
-        Returns:
-            List of tuples with (rowid, request_id, method, status, url, type, size)
         """
         if not self.cdp:
             return []
@@ -74,9 +68,6 @@ class NetworkService:
 
         Args:
             limit: Maximum results
-
-        Returns:
-            List of failed request tuples
         """
         if not self.cdp:
             return []
@@ -101,9 +92,6 @@ class NetworkService:
 
         Args:
             request_id: CDP request ID
-
-        Returns:
-            List of all events for this request
         """
         if not self.cdp:
             return []

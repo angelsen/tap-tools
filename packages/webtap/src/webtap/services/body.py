@@ -1,8 +1,4 @@
-"""Body fetching service for response content.
-
-Provides lazy loading and caching of response bodies from CDP.
-Bodies are only fetched when explicitly requested via body() command.
-"""
+"""Body fetching service for response content."""
 
 import base64
 import json
@@ -15,7 +11,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BodyService:
+class _BodyService:
     """Manages response body fetching and caching."""
 
     def __init__(self):
@@ -26,18 +22,9 @@ class BodyService:
     def get_response_body(self, rowid: int, use_cache: bool = True) -> dict:
         """Fetch response body for a response.
 
-        Bodies are cached by requestId to avoid refetching for the same
-        response when running multiple expressions.
-
         Args:
             rowid: Row ID from events table (Network or Fetch response)
             use_cache: Whether to use cached body if available
-
-        Returns:
-            Dict with body data or error:
-            - body: The response body (string or base64)
-            - base64Encoded: Whether body is base64 encoded
-            - error: Error message if fetch failed
         """
         if not self.cdp:
             return {"error": "No CDP session"}
@@ -97,10 +84,7 @@ class BodyService:
             return {"error": str(e)}
 
     def clear_cache(self):
-        """Clear all cached bodies.
-
-        Should be called when fetch is disabled or disconnected.
-        """
+        """Clear all cached bodies."""
         count = len(self._body_cache)
         self._body_cache.clear()
         logger.info(f"Cleared {count} cached bodies")
@@ -112,9 +96,6 @@ class BodyService:
         Args:
             body_content: The body content (possibly base64)
             is_base64: Whether the content is base64 encoded
-
-        Returns:
-            Decoded content (string or bytes)
         """
         if not is_base64:
             return body_content

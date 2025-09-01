@@ -1,8 +1,4 @@
-"""Fetch interception service for request/response debugging.
-
-Dead simple: When enabled, all requests pause. User inspects, modifies, continues.
-All events stored in DuckDB - no caching or tracking needed.
-"""
+"""Fetch interception service for request/response debugging."""
 
 import json
 import logging
@@ -10,26 +6,25 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from webtap.cdp import CDPSession
-    from webtap.services.body import BodyService
+    from webtap.services.body import _BodyService
 
 logger = logging.getLogger(__name__)
 
 
-class FetchService:
+class _FetchService:
     """Manages fetch interception for debugging HTTP traffic."""
 
     def __init__(self):
         """Initialize fetch service."""
         self.enabled = False
-        self.cdp: CDPSession | None = None  # Set when enabled
-        self.body_service: BodyService | None = None  # Optional dependency for cache clearing
+        self.cdp: CDPSession | None = None
+        self.body_service: _BodyService | None = None
 
     @property
     def paused_count(self) -> int:
         """Count of currently paused requests (latest stage only per fetch_id)."""
         if not self.cdp:
             return 0
-        # Count unique fetch_ids (not total events)
         result = self.cdp.query("""
             SELECT COUNT(DISTINCT json_extract_string(event, '$.params.requestId'))
             FROM events 
@@ -45,7 +40,6 @@ class FetchService:
         """
         if not self.cdp:
             return []
-        # Only get the latest stage for each fetch_id
         results = self.cdp.query("""
             WITH latest_stage AS (
                 SELECT 
@@ -76,9 +70,6 @@ class FetchService:
 
         Args:
             cdp: CDP session for executing commands
-
-        Returns:
-            Status dict
         """
         if self.enabled:
             return {"enabled": True, "message": "Already enabled"}
@@ -86,7 +77,6 @@ class FetchService:
         self.cdp = cdp
 
         try:
-            # Enable Fetch domain - intercept everything
             cdp.execute(
                 "Fetch.enable",
                 {
@@ -107,11 +97,7 @@ class FetchService:
             return {"enabled": False, "error": str(e)}
 
     def disable(self) -> dict:
-        """Disable fetch interception and continue all paused requests.
-
-        Returns:
-            Status dict
-        """
+        """Disable fetch interception and continue all paused requests."""
         if not self.enabled:
             return {"enabled": False, "message": "Already disabled"}
 
@@ -160,11 +146,7 @@ class FetchService:
             return {"enabled": self.enabled, "error": str(e)}
 
     def get_paused_list(self) -> list[dict]:
-        """Get list of paused requests for display.
-
-        Returns:
-            List of request summaries (only latest stage per fetch_id)
-        """
+        """Get list of paused requests for display."""
         if not self.cdp:
             return []
 
@@ -216,9 +198,6 @@ class FetchService:
             rowid: Row ID from requests() table
             modifications: Direct CDP parameters to pass
             wait: Seconds to wait for follow-up requests (0 to disable)
-
-        Returns:
-            Status dict with any follow-up requests detected
         """
         if not self.enabled or not self.cdp:
             return {"error": "Fetch not enabled"}
@@ -306,9 +285,6 @@ class FetchService:
         Args:
             rowid: Row ID from requests() table
             reason: CDP error reason
-
-        Returns:
-            Status dict
         """
         if not self.enabled or not self.cdp:
             return {"error": "Fetch not enabled"}
@@ -342,11 +318,7 @@ class FetchService:
             return {"error": str(e)}
 
     def continue_all(self) -> dict:
-        """Continue all paused requests without modifications.
-
-        Returns:
-            Status dict
-        """
+        """Continue all paused requests without modifications."""
         if not self.enabled or not self.cdp:
             return {"error": "Fetch not enabled"}
 
@@ -368,9 +340,6 @@ class FetchService:
 
         Args:
             reason: CDP error reason
-
-        Returns:
-            Status dict
         """
         if not self.enabled or not self.cdp:
             return {"error": "Fetch not enabled"}

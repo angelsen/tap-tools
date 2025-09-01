@@ -1,4 +1,13 @@
-"""Browser navigation commands."""
+"""Browser page navigation and history commands.
+
+PUBLIC API:
+  - navigate: Navigate to URL
+  - reload: Reload current page
+  - back: Navigate back in history
+  - forward: Navigate forward in history
+  - page: Get current page information
+  - history: Show navigation history
+"""
 
 from webtap.app import app
 from webtap.commands._errors import check_connection, error_response
