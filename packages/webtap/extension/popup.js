@@ -122,11 +122,16 @@ document.getElementById("fetchToggle").onclick = async () => {
   
   // Toggle opposite of current server state
   const newState = !status.fetch_enabled;
-  const result = await api("/fetch", "POST", { enabled: newState });
+  const responseStage = document.getElementById("responseStage").checked;
+  const result = await api("/fetch", "POST", { 
+    enabled: newState,
+    response_stage: responseStage 
+  });
   
   if (!result.error) {
+    const stages = result.stages || (responseStage ? "Request and Response" : "Request only");
     document.getElementById("status").innerHTML = 
-      `<span class="connected">Intercept ${result.enabled ? 'enabled' : 'disabled'}</span>`;
+      `<span class="connected">Intercept ${result.enabled ? 'enabled' : 'disabled'} (${stages})</span>`;
     // Update display immediately
     setTimeout(updateStatus, 100);
   } else {
@@ -136,16 +141,22 @@ document.getElementById("fetchToggle").onclick = async () => {
 };
 
 // Update fetch status display based on server state
-function updateFetchStatus(fetchEnabled, pausedCount = 0) {
+function updateFetchStatus(fetchEnabled, pausedCount = 0, responseStage = false) {
   const statusSpan = document.getElementById("fetchStatus");
   const toggleBtn = document.getElementById("fetchToggle");
   const pausedInfo = document.getElementById("pausedInfo");
   const pausedCountSpan = document.getElementById("pausedCount");
+  const responseCheckbox = document.getElementById("responseStage");
   
   if (fetchEnabled) {
     statusSpan.textContent = "ON";
     statusSpan.style.color = "#080";
     toggleBtn.classList.add("on");
+    
+    // Update response stage checkbox if we know the state
+    if (responseStage !== undefined) {
+      responseCheckbox.checked = responseStage;
+    }
     
     // Show paused info if there are paused requests
     if (pausedCount > 0) {
@@ -248,8 +259,13 @@ async function updateStatus() {
       document.getElementById("status").innerHTML = 
         `<span class="connected">Connected</span> - Events: ${status.events}`;
       
-      // Update fetch status from server state
-      updateFetchStatus(status.fetch_enabled || false, status.paused_requests || 0);
+      // Get fetch details if enabled
+      if (status.fetch_enabled) {
+        const fetchDetails = await api("/fetch/paused");
+        updateFetchStatus(true, status.paused_requests || 0, fetchDetails.response_stage || false);
+      } else {
+        updateFetchStatus(false);
+      }
     } else {
       // Not connected
       document.getElementById("status").innerHTML = 'Not connected';

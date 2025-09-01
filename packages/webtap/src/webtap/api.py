@@ -31,6 +31,7 @@ class FetchRequest(BaseModel):
     """Request model for enabling/disabling fetch interception."""
 
     enabled: bool
+    response_stage: bool = False  # Optional: also pause at Response stage
 
 
 # Create FastAPI app
@@ -102,7 +103,7 @@ async def set_fetch_interception(request: FetchRequest) -> Dict[str, Any]:
         return {"error": "WebTap not initialized"}
 
     if request.enabled:
-        result = _app_state.service.fetch.enable(_app_state.service.cdp)
+        result = _app_state.service.fetch.enable(_app_state.service.cdp, response_stage=request.response_stage)
     else:
         result = _app_state.service.fetch.disable()
     return result
@@ -119,7 +120,12 @@ async def get_paused_requests() -> Dict[str, Any]:
         return {"enabled": False, "requests": []}
 
     paused_list = fetch_service.get_paused_list()
-    return {"enabled": True, "requests": paused_list, "count": len(paused_list)}
+    return {
+        "enabled": True, 
+        "requests": paused_list, 
+        "count": len(paused_list),
+        "response_stage": fetch_service.enable_response_stage
+    }
 
 
 @api.get("/filters/status")
