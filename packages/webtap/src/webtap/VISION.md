@@ -189,19 +189,40 @@ ConsoleSummary(
 ```
 webtap/
 ├── VISION.md           # This file
-├── __init__.py
-├── app.py              # REPL app with minimal state
+├── __init__.py         # Module initialization + API server startup
+├── app.py              # REPL app with WebTapState
+├── api.py              # FastAPI server for Chrome extension
+├── filters.py          # Filter management system
 ├── cdp/
 │   ├── __init__.py
-│   ├── session.py      # WebSocketApp + event storage
-│   ├── models.py       # Minimal summaries (NetworkSummary, ConsoleSummary)
-│   └── helpers.py      # Summary builders from CDP events
-└── commands/
+│   ├── session.py      # CDPSession with DuckDB storage
+│   ├── query.py        # Dynamic query builder
+│   └── schema/         # CDP protocol reference
+│       ├── README.md
+│       └── cdp_version.json
+├── services/           # Service layer (business logic)
+│   ├── __init__.py
+│   ├── main.py         # WebTapService orchestrator
+│   ├── network.py      # Network request handling
+│   ├── console.py      # Console message handling
+│   ├── fetch.py        # Request interception
+│   └── body.py         # Response body caching
+└── commands/           # Thin command wrappers
     ├── __init__.py
-    ├── basic.py        # connect, disconnect, pages
+    ├── _errors.py      # Unified error handling
+    ├── _markdown.py    # Markdown elements
+    ├── _symbols.py     # ASCII symbol registry
+    ├── _utils.py       # Shared utilities
+    ├── connection.py   # connect, disconnect, pages
+    ├── navigation.py   # navigate, reload, back, forward
     ├── network.py      # network() command
     ├── console.py      # console() command
-    └── storage.py      # cookies, localStorage
+    ├── events.py       # events() dynamic querying
+    ├── inspect.py      # inspect() event details
+    ├── javascript.py   # js() execution
+    ├── body.py         # body() response inspection
+    ├── fetch.py        # fetch(), requests(), resume()
+    └── filters.py      # filters() management
 ```
 
 ## Success Metrics

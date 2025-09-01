@@ -98,21 +98,27 @@ filters(save=True)                  # Persist to disk
 
 ### Data Inspection
 ```python
-# Inspect cached events with Python
-inspect(event="e1")                 # View event details
-inspect(event="e2", expr="data['headers']")  # Extract specific field
-inspect(expr="len(cache)")          # Run Python expressions
+# Inspect events by rowid
+inspect(49)                         # View event details by rowid
+inspect(50, expr="data['params']['response']['headers']")  # Extract field
 
-# Cache management
-cache_list()                        # List all cached items
-cache_list("request")               # List specific cache type
+# Response body inspection with Python expressions
+body(49)                            # Get response body
+body(49, expr="import json; json.loads(body)")  # Parse JSON
+body(49, expr="len(body)")         # Check size
+
+# Request interception
+fetch()                             # Enable request interception
+requests()                          # Show paused requests
+resume("123.456")                   # Continue paused request
+fail("123.456")                     # Fail paused request
 ```
 
 ### Console & JavaScript
 ```python
 console()                           # View console messages
 js("document.title")                # Evaluate JavaScript (returns value)
-js("console.log('Hello')", wait_return=False)  # Execute without return
+js("console.log('Hello')", wait_promise=False)  # Execute without waiting
 clear()                             # Clear events (default)
 clear(console=True)                 # Clear browser console
 clear(events=True, console=True, cache=True)  # Clear everything
@@ -127,11 +133,21 @@ Chrome Tab
     ↓ CDP Events (WebSocket)
 DuckDB Storage (events table)
     ↓ SQL Queries + Field Discovery
-Dynamic Commands
+Service Layer (WebTapService)
+    ├── NetworkService - Request filtering
+    ├── ConsoleService - Message handling
+    ├── FetchService - Request interception
+    └── BodyService - Response caching
+    ↓
+Commands (Thin Wrappers)
     ├── events() - Query any field
     ├── network() - Filtered requests  
     ├── console() - Messages
-    └── inspect() - Python analysis
+    ├── body() - Response bodies
+    └── js() - JavaScript execution
+    ↓
+API Server (FastAPI on :8765)
+    └── Chrome Extension Integration
 ```
 
 ### How It Works
@@ -187,14 +203,15 @@ Install the extension from `packages/webtap/extension/`:
 ### Find and Analyze API Calls
 ```python
 >>> events(url="*api*", method="POST")
-Event  Field                Value
------  -------------------  ----------------------------------------
-e1     params.request.url   https://api.github.com/graphql
-e1     params.request.method POST
-e1     params.response.status 200
+RowID  Method                      URL                              Status
+-----  --------------------------  -------------------------------  ------
+49     Network.requestWillBeSent   https://api.github.com/graphql  -
+50     Network.responseReceived    https://api.github.com/graphql  200
 
->>> inspect(event="e1", expr="import json; json.loads(data.get('postData', '{}'))")
-{'query': 'query { viewer { login } }', 'variables': {}}
+>>> body(50, expr="import json; json.loads(body)['data']")
+{'viewer': {'login': 'octocat', 'name': 'The Octocat'}}
+
+>>> inspect(49)  # View full request details
 ```
 
 ### Debug Failed Requests
@@ -247,7 +264,7 @@ WebTap includes aggressive default filters to reduce noise. Customize in `.webta
 
 - Chrome/Chromium with debugging enabled
 - Python 3.12+
-- Dependencies: websocket-client, duckdb, replkit2
+- Dependencies: websocket-client, duckdb, replkit2, fastapi, uvicorn, beautifulsoup4
 
 ## Development
 
@@ -256,11 +273,28 @@ WebTap includes aggressive default filters to reduce noise. Customize in `.webta
 cd packages/webtap
 uv run webtap
 
+# API server starts automatically on port 8765
+# Chrome extension connects to http://localhost:8765
+
 # Type checking and linting
 basedpyright packages/webtap/src/webtap
 ruff check --fix packages/webtap/src/webtap
 ruff format packages/webtap/src/webtap
 ```
+
+## API Server
+
+WebTap automatically starts a FastAPI server on port 8765 for Chrome extension integration:
+
+- `GET /status` - Connection status
+- `GET /pages` - List available Chrome tabs
+- `POST /connect` - Connect to a page
+- `POST /disconnect` - Disconnect from Chrome
+- `POST /clear` - Clear events/console/cache
+- `GET /fetch/paused` - Get paused requests
+- `POST /filters/toggle/{category}` - Toggle filter categories
+
+The API server runs in a background thread and doesn't block the REPL.
 
 ## License
 
