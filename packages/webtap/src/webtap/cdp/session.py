@@ -46,9 +46,10 @@ class CDPSession:
         self._lock = threading.Lock()
 
         # DuckDB storage - store events AS-IS
-        self.db = duckdb.connect(':memory:')
+        self.db = duckdb.connect(":memory:")
+
         self.db.execute("CREATE TABLE events (event JSON)")
-        
+
         # Live field path lookup for fast discovery
         # Maps lowercase field names to their full paths with original case
         # e.g. {"url": {"params.response.url", "params.frame.documentURL"}}
@@ -65,8 +66,13 @@ class CDPSession:
             logger.error(f"Failed to list pages: {e}")
             return []
 
-    def connect(self, page_index: int = 0) -> None:
-        """Connect to Chrome page. Just establishes connection, no auto-enable."""
+    def connect(self, page_index: int | None = None, page_id: str | None = None) -> None:
+        """Connect to Chrome page. Just establishes connection, no auto-enable.
+
+        Args:
+            page_index: Index of page to connect to (for REPL convenience)
+            page_id: ID of page to connect to (stable across tab reordering)
+        """
         if self.ws_app:
             raise RuntimeError("Already connected")
 
@@ -74,10 +80,19 @@ class CDPSession:
         if not pages:
             raise RuntimeError("No pages available")
 
-        if page_index >= len(pages):
-            raise IndexError(f"Page {page_index} out of range")
+        # Find the page by ID or index
+        if page_id:
+            page = next((p for p in pages if p.get("id") == page_id), None)
+            if not page:
+                raise ValueError(f"Page with ID {page_id} not found")
+        elif page_index is not None:
+            if page_index >= len(pages):
+                raise IndexError(f"Page {page_index} out of range")
+            page = pages[page_index]
+        else:
+            # Default to first page
+            page = pages[0]
 
-        page = pages[page_index]
         ws_url = page["webSocketDebuggerUrl"]
         self.page_info = page
 
@@ -219,7 +234,7 @@ class CDPSession:
                 future.set_exception(RuntimeError("Connection closed"))
             self._pending.clear()
 
-    def _extract_paths(self, obj, parent_key=''):
+    def _extract_paths(self, obj, parent_key=""):
         """Extract all paths from nested dict (only paths, not values)."""
         paths = []
         if isinstance(obj, dict):
@@ -229,53 +244,53 @@ class CDPSession:
                 if isinstance(v, dict):
                     paths.extend(self._extract_paths(v, new_key))
         return paths
-    
+
     def _update_field_lookup(self, data):
         """Update field lookup with paths from new event."""
         event_type = data.get("method", "unknown")
         paths = self._extract_paths(data)
-        
+
         for path in paths:
             # Store with event type prefix using colon separator
             full_path = f"{event_type}:{path}"
-            
+
             # Index by each part of the path for flexible searching
-            parts = path.split('.')
+            parts = path.split(".")
             for part in parts:
                 key = part.lower()
                 if key not in self.field_paths:
                     self.field_paths[key] = set()
                 self.field_paths[key].add(full_path)  # Store with event type and original case
-    
+
     def discover_field_paths(self, search_key: str) -> list[str]:
         """Discover all paths containing the search key (case-insensitive).
-        
+
         Args:
             search_key: Field name to search for (e.g., "url", "status")
-            
+
         Returns:
             List of full paths where this field appears
         """
         search_key = search_key.lower()
         paths = set()
-        
+
         # Find all field names that contain our search key
         for field_name, field_paths in self.field_paths.items():
             if search_key in field_name:
                 paths.update(field_paths)
-        
+
         return sorted(list(paths))  # Sort for consistent results
-    
+
     def clear_events(self) -> None:
         """Clear all stored events and field lookup."""
         self.db.execute("DELETE FROM events")
         self.field_paths.clear()
-    
+
     def query(self, sql: str, params: list | None = None) -> list:
         """Query events using DuckDB SQL.
-        
+
         The events are stored in the 'events' table with a single JSON column named 'event'.
-        
+
         Examples:
             query("SELECT * FROM events WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'")
             query("SELECT json_extract_string(event, '$.params.request.url') as url FROM events")
@@ -283,13 +298,13 @@ class CDPSession:
         """
         result = self.db.execute(sql, params or [])
         return result.fetchall() if result else []
-    
+
     def fetch_body(self, request_id: str) -> dict | None:
         """Fetch response body for a request (requires explicit CDP call).
-        
+
         Args:
             request_id: Network request ID
-            
+
         Returns:
             Dict with 'body' and 'base64Encoded' keys, or None if failed
         """
@@ -298,7 +313,7 @@ class CDPSession:
         except Exception as e:
             logger.debug(f"Failed to fetch body for {request_id}: {e}")
             return None
-    
+
     @property
     def is_connected(self) -> bool:
         """Check if connected to Chrome."""

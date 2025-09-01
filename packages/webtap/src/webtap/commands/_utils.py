@@ -1,32 +1,118 @@
-"""Utility functions for command formatting."""
+"""Utility functions for command formatting and expression evaluation."""
 
-from typing import List, Tuple, Dict
+import ast
+import json
+import sys
+from io import StringIO
+from typing import Any, List, Tuple, Dict
+from replkit2.textkit import markdown
+from webtap.commands._symbols import sym
+
+
+def evaluate_expression(expr: str, namespace: dict) -> Tuple[Any, str]:
+    """
+    Execute Python code and capture both stdout and the last expression result.
+
+    This mimics Jupyter's execution model:
+    - All statements are executed
+    - The last expression's value is returned
+    - stdout is captured
+
+    Args:
+        expr: Python code to execute
+        namespace: Dict of variables available to the code
+
+    Returns:
+        Tuple of (result, stdout_output)
+    """
+    # Capture stdout
+    old_stdout = sys.stdout
+    sys.stdout = captured_output = StringIO()
+    result = None
+
+    try:
+        # Parse the code to find if last node is an expression
+        tree = ast.parse(expr)
+        if tree.body:
+            # If last node is an Expression, evaluate it separately
+            if isinstance(tree.body[-1], ast.Expr):
+                # Execute all but the last node
+                if len(tree.body) > 1:
+                    exec_tree = ast.Module(body=tree.body[:-1], type_ignores=[])
+                    exec(compile(exec_tree, "<string>", "exec"), namespace)
+                # Evaluate the last expression
+                result = eval(compile(ast.Expression(body=tree.body[-1].value), "<string>", "eval"), namespace)
+            else:
+                # All statements, just exec everything
+                exec(compile(tree, "<string>", "exec"), namespace)
+
+    except SyntaxError:
+        # Fallback to simple exec if parsing fails
+        exec(expr, namespace)
+    finally:
+        # Always restore stdout
+        sys.stdout = old_stdout
+        output = captured_output.getvalue()
+
+    return result, output
+
+
+def format_expression_result(result: Any, output: str, max_length: int = 2000) -> str:
+    """
+    Format the result of an expression evaluation.
+
+    Args:
+        result: The evaluation result
+        output: Any stdout output captured
+        max_length: Maximum length before truncation
+
+    Returns:
+        Formatted string combining output and result
+    """
+    parts = []
+
+    if output:
+        parts.append(output.rstrip())
+
+    if result is not None:
+        if isinstance(result, (dict, list)):
+            formatted = json.dumps(result, indent=2)
+            if len(formatted) > max_length:
+                parts.append(formatted[:max_length] + f"\n... [truncated, {len(formatted)} chars total]")
+            else:
+                parts.append(formatted)
+        elif isinstance(result, str) and len(result) > max_length:
+            parts.append(result[:max_length] + f"\n... [truncated, {len(result)} chars total]")
+        else:
+            parts.append(str(result))
+
+    return "\n".join(parts) if parts else "(no output)"
 
 
 def truncate_string(text: str, max_length: int, mode: str = "end") -> str:
     """
     Truncate string with ellipsis.
-    
+
     Args:
         text: String to truncate
         max_length: Maximum length including ellipsis
         mode: "end", "middle", or "start"
-        
+
     Returns:
         Truncated string with ellipsis if needed
     """
     if not text:
-        return "-"
-    
+        return sym("empty")
+
     # Replace newlines and tabs with spaces for table display
-    text = text.replace('\n', ' ').replace('\t', ' ')
-    
+    text = text.replace("\n", " ").replace("\t", " ")
+
     if len(text) <= max_length:
         return text
-    
+
     if max_length < 5:  # Too short for meaningful truncation
         return text[:max_length]
-    
+
     if mode == "middle":
         # Keep start and end (useful for URLs, file paths)
         keep_start = (max_length - 3) // 2
@@ -34,97 +120,159 @@ def truncate_string(text: str, max_length: int, mode: str = "end") -> str:
         return f"{text[:keep_start]}...{text[-keep_end:]}" if keep_end > 0 else f"{text[:keep_start]}..."
     elif mode == "start":
         # Keep end (useful for file names)
-        return f"...{text[-(max_length-3):]}"
+        return f"...{text[-(max_length - 3) :]}"
     else:  # mode == "end" (default)
         # Keep start (useful for most text)
-        return f"{text[:max_length-3]}..."
+        return f"{text[: max_length - 3]}..."
 
 
 def format_size(size_bytes: str | int | None) -> str:
     """
     Format byte size as human-readable string.
-    
+
     Args:
         size_bytes: Size in bytes (string or int)
-        
+
     Returns:
         Formatted size string (e.g., "1.2K", "3.4M", "5.6G")
     """
     if not size_bytes:
-        return "-"
-    
+        return sym("empty")
+
     try:
         # Convert to int if string
         if isinstance(size_bytes, str):
             if not size_bytes.isdigit():
-                return "-"
+                return sym("empty")
             size_bytes = int(size_bytes)
-        
+
         # Format based on size
         if size_bytes < 1024:
             return f"{size_bytes}B"
         elif size_bytes < 1024 * 1024:
-            return f"{size_bytes/1024:.1f}K"
+            return f"{size_bytes / 1024:.1f}K"
         elif size_bytes < 1024 * 1024 * 1024:
-            return f"{size_bytes/(1024*1024):.1f}M"
+            return f"{size_bytes / (1024 * 1024):.1f}M"
         else:
-            return f"{size_bytes/(1024*1024*1024):.1f}G"
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f}G"
     except (ValueError, TypeError):
-        return "-"
+        return sym("empty")
 
 
 def format_id(id_string: str | None, length: int | None = None) -> str:
     """
     Format ID string.
-    
+
     Args:
         id_string: ID to format
         length: Optional target length (no truncation if None)
-        
+
     Returns:
         Formatted ID (no truncation by default)
     """
     if not id_string:
-        return "-"
-    
+        return sym("empty")
+
     # No truncation by default - show full ID
     if length is None:
         return id_string
-    
+
     if len(id_string) <= length:
         return id_string
-    
+
     # If length specified and ID is longer, truncate
     return f"{id_string[:length]}..."
 
 
-def process_query_results_for_table(results: List[Tuple], discovered: Dict[str, List[str]]) -> List[Tuple[str, str]]:
+def process_events_query_results(
+    results: List[Tuple], discovered_fields: Dict[str, List[str]], max_width: int = 80
+) -> List[Dict[str, str]]:
     """
-    Process query results into field-value pairs for table display.
-    
-    Takes the raw query results and discovered field mappings,
-    and returns a flat list of (field_path, value) tuples suitable
-    for caching and table display.
-    
+    Process query results into rowid-field-value rows for events display.
+
+    Takes query results where first column is rowid, followed by extracted field values,
+    and returns table rows with ID, Field, and Value columns.
+
     Args:
-        results: Query results - list of tuples with extracted values
-        discovered: Discovered fields mapping from build_query
-        
+        results: Query results - list of tuples (rowid, field1_value, field2_value, ...)
+        discovered_fields: Field mappings from build_query {"url": ["params.response.url", ...], ...}
+        max_width: Maximum width for value truncation
+
     Returns:
-        List of (field_path, value) tuples with non-null values
+        List of dicts with ID, Field, Value keys for table display
     """
-    field_value_pairs = []
-    
-    for row in results:
-        col_idx = 0
-        
-        # Iterate through discovered fields in order
-        for key, paths in discovered.items():
-            for path in paths:
-                if col_idx < len(row):
-                    value = row[col_idx]
-                    if value:  # Only include non-null values
-                        field_value_pairs.append((path, value))
-                col_idx += 1
-    
-    return field_value_pairs
+    rows = []
+
+    for result_row in results:
+        # First column is always rowid
+        rowid = result_row[0]
+        col_index = 1
+
+        # Process each discovered field
+        for field_name, field_paths in discovered_fields.items():
+            for field_path in field_paths:
+                if col_index < len(result_row):
+                    value = result_row[col_index]
+                    if value is not None:  # Only show non-null values
+                        # Keep the full path with event type for clarity
+                        rows.append(
+                            {
+                                "ID": str(rowid),
+                                "Field": field_path,  # Full path including event type
+                                "Value": truncate_string(str(value), max_width),
+                            }
+                        )
+                    col_index += 1
+
+    return rows
+
+
+def build_table_response(
+    title: str, headers: list[str], rows: list[dict], summary: str | None = None, warnings: list[str] | None = None
+) -> dict:
+    """Build consistent table response in markdown.
+
+    Args:
+        title: Table title
+        headers: Column headers
+        rows: Data rows as dicts
+        summary: Optional summary text
+        warnings: Optional warning messages
+
+    Returns:
+        Markdown dict with table
+    """
+    builder = markdown().heading(title, level=2)
+
+    # Add any warnings first
+    if warnings:
+        for warning in warnings:
+            builder.element("alert", message=warning, level="warning")
+
+    # Add table or empty message
+    if rows:
+        builder.element("table", headers=headers, rows=rows)
+    else:
+        builder.text("_No data available_")
+
+    # Add summary
+    if summary:
+        builder.text(f"_{summary}_")
+
+    return builder.build()
+
+
+def build_info_response(title: str, fields: dict, extra: str | None = None) -> dict:
+    """Build info display response (like page, status)."""
+    builder = markdown().heading(title, level=2)
+
+    # Add fields as formatted text
+    for key, value in fields.items():
+        if value is not None:
+            builder.text(f"**{key}:** {value}")
+
+    # Add any extra content
+    if extra:
+        builder.raw(extra)
+
+    return builder.build()

@@ -13,8 +13,7 @@ async function api(endpoint, method = "GET", body = null) {
   }
 }
 
-// Don't track state locally - always query from WebTap
-let pages = [];
+// No local state - always query from WebTap
 
 // Load available pages from WebTap
 async function loadPages() {
@@ -26,21 +25,8 @@ async function loadPages() {
     return;
   }
   
-  pages = result.pages || [];
+  const pages = result.pages || [];
   const select = document.getElementById("pageList");
-  
-  // Get current status to see which page is connected
-  const status = await api("/status");
-  let connectedIndex = -1;
-  
-  // Find connected page index
-  if (status.connected && status.url) {
-    pages.forEach((page, index) => {
-      if (page.url === status.url) {
-        connectedIndex = index;
-      }
-    });
-  }
   
   select.innerHTML = '';
   
@@ -49,10 +35,9 @@ async function loadPages() {
   } else {
     pages.forEach((page, index) => {
       const option = document.createElement('option');
-      option.value = index;
+      option.value = page.id;  // Use stable page ID
       
       // Format display: index number + title
-      // Service workers get [sw] indicator since title doesn't make it clear
       const title = page.title || 'Untitled';
       const shortTitle = title.length > 50 ? title.substring(0, 47) + '...' : title;
       
@@ -61,44 +46,41 @@ async function loadPages() {
         typeIndicator = ' [sw]';
       }
       
-      // Style connected page
-      if (index === connectedIndex) {
+      // Style connected page (server tells us which one)
+      if (page.is_connected) {
         option.style.fontWeight = 'bold';
         option.style.color = '#080';
+        option.selected = true;  // Select it
       }
       
       option.textContent = `${index}: ${shortTitle}${typeIndicator}`;
       select.appendChild(option);
     });
-    
-    // Select the connected page if any
-    if (connectedIndex >= 0) {
-      select.value = connectedIndex;
-    }
   }
 }
 
 // Connect to selected page
 document.getElementById("connect").onclick = async () => {
   const select = document.getElementById("pageList");
-  const selectedIndex = select.value;
+  const selectedPageId = select.value;
   
-  if (selectedIndex === '' || selectedIndex === null) {
+  if (!selectedPageId) {
     document.getElementById("status").innerHTML = 
       '<span class="error">Please select a page</span>';
     return;
   }
   
-  const result = await api("/connect", "POST", { page_index: parseInt(selectedIndex) });
+  const result = await api("/connect", "POST", { page_id: selectedPageId });
   
   if (result.error) {
     document.getElementById("status").innerHTML = 
       `<span class="error">Error: ${result.error}</span>`;
   } else {
     document.getElementById("status").innerHTML = 
-      `<span class="connected">Connected to page ${selectedIndex}</span>`;
+      `<span class="connected">Connected</span>`;
     // Immediately update to show fresh state
     setTimeout(updateStatus, 100);
+    setTimeout(loadPages, 100);  // Refresh page list to show connected state
   }
 };
 
@@ -157,21 +139,93 @@ document.getElementById("fetchToggle").onclick = async () => {
 function updateFetchStatus(fetchEnabled, pausedCount = 0) {
   const statusSpan = document.getElementById("fetchStatus");
   const toggleBtn = document.getElementById("fetchToggle");
+  const pausedInfo = document.getElementById("pausedInfo");
+  const pausedCountSpan = document.getElementById("pausedCount");
   
   if (fetchEnabled) {
-    if (pausedCount > 0) {
-      statusSpan.textContent = `ON (${pausedCount} paused)`;
-    } else {
-      statusSpan.textContent = "ON";
-    }
+    statusSpan.textContent = "ON";
     statusSpan.style.color = "#080";
     toggleBtn.classList.add("on");
+    
+    // Show paused info if there are paused requests
+    if (pausedCount > 0) {
+      pausedInfo.style.display = "block";
+      pausedCountSpan.textContent = pausedCount;
+    } else {
+      pausedInfo.style.display = "none";
+    }
   } else {
     statusSpan.textContent = "OFF";
     statusSpan.style.color = "#888";
     toggleBtn.classList.remove("on");
+    pausedInfo.style.display = "none";
   }
 }
+
+// Update filter display
+async function updateFilters() {
+  const result = await api("/filters/status");
+  
+  const filterList = document.getElementById("filterList");
+  const filterStats = document.getElementById("filterStats");
+  
+  if (result.error || !result.filters) {
+    filterList.innerHTML = '<span style="color: #888; font-size: 11px;">No filters loaded</span>';
+    filterStats.textContent = "0 patterns";
+    return;
+  }
+  
+  // Build checkbox list
+  filterList.innerHTML = '';
+  let totalPatterns = 0;
+  let enabledPatterns = 0;
+  
+  Object.keys(result.filters).forEach(category => {
+    const filter = result.filters[category];
+    const isEnabled = result.enabled.includes(category);
+    const patternCount = (filter.domains?.length || 0) + (filter.types?.length || 0);
+    
+    totalPatterns += patternCount;
+    if (isEnabled) enabledPatterns += patternCount;
+    
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = isEnabled;
+    checkbox.dataset.category = category;
+    
+    // Toggle category on change
+    checkbox.onchange = async () => {
+      await api(`/filters/toggle/${category}`, "POST");
+      // Update display after toggle
+      setTimeout(updateFilters, 100);
+    };
+    
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(category));
+    
+    const count = document.createElement('span');
+    count.className = 'filter-count';
+    count.textContent = `(${patternCount})`;
+    label.appendChild(count);
+    
+    filterList.appendChild(label);
+  });
+  
+  // Update stats
+  filterStats.textContent = `${enabledPatterns}/${totalPatterns} patterns active`;
+}
+
+// Enable/disable all filters
+document.getElementById("enableAllFilters").onclick = async () => {
+  await api("/filters/enable-all", "POST");
+  setTimeout(updateFilters, 100);
+};
+
+document.getElementById("disableAllFilters").onclick = async () => {
+  await api("/filters/disable-all", "POST");
+  setTimeout(updateFilters, 100);
+};
 
 // Update all status from server - single source of truth
 async function updateStatus() {
@@ -202,6 +256,9 @@ async function updateStatus() {
       updateFetchStatus(false);
     }
   }
+  
+  // Also update filters
+  await updateFilters();
 }
 
 // Initialize on load

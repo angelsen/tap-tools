@@ -1,91 +1,125 @@
 """Connection management commands."""
 
 from webtap.app import app
-
-
-# Required CDP domains for WebTap functionality
-REQUIRED_DOMAINS = [
-    "Page",  # Navigation, lifecycle, history
-    "Network",  # Request/response monitoring
-    "Runtime",  # Console API, JavaScript execution
-    "Log",  # Browser logs (errors, warnings)
-    "DOMStorage",  # localStorage/sessionStorage events
-]
+from webtap.commands._errors import check_connection, error_response
+from webtap.commands._utils import build_info_response, build_table_response
+from webtap.commands._symbols import sym
 
 
 @app.command(display="markdown")
-def connect(state, page: int) -> dict:
+def connect(state, page: int | None = None, page_id: str | None = None) -> dict:
     """Connect to Chrome page and enable all required domains.
 
     Args:
-        page: Page index to connect to
+        page: Page index to connect to (default: 0)
+        page_id: Page ID to connect to (for stable reconnection)
 
     Returns:
         Connection status in markdown
     """
-    # Connect to Chrome
-    state.cdp.connect(page)
+    result = state.service.connect_to_page(page_index=page, page_id=page_id)
 
-    # Enable ALL required domains - fail if any don't work
-    failures = []
+    if "error" in result:
+        return error_response("custom", custom_message=result["error"])
 
-    for domain in REQUIRED_DOMAINS:
-        try:
-            state.cdp.execute(f"{domain}.enable")
-        except Exception as e:
-            failures.append(f"{domain}: {e}")
-
-    # Note: Storage domain doesn't need explicit enable - getCookies works directly
-
-    if failures:
-        # Disconnect and report failure
-        state.cdp.disconnect()
-        raise RuntimeError("Failed to enable required domains:\n" + "\n".join(failures))
-
-    # Success - return markdown
-    page_info = state.cdp.page_info
-    title = page_info.get("title", "Untitled") if page_info else "Unknown"
-    url = page_info.get("url", "") if page_info else ""
-
-    return {
-        "elements": [
-            {"type": "heading", "content": f"Connected to: {title}", "level": 2},
-            {"type": "text", "content": url},
-        ]
-    }
+    # Success - return formatted info
+    return build_info_response(title="Connection Established", fields={"Page": result["title"], "URL": result["url"]})
 
 
-@app.command()
-def disconnect(state) -> str:
+@app.command(display="markdown")
+def disconnect(state) -> dict:
     """Disconnect from Chrome."""
-    if not state.cdp.connected.is_set():
-        return "Not connected"
+    result = state.service.disconnect()
 
-    state.cdp.disconnect()
-    return "Disconnected"
+    if not result["was_connected"]:
+        return build_info_response(title="Disconnect Status", fields={"Status": "Not connected"})
+
+    return build_info_response(title="Disconnect Status", fields={"Status": "Disconnected"})
 
 
-@app.command(display="table", headers=["Index", "Title", "URL", "Type"])
-def pages(state) -> list[dict]:
+@app.command(display="markdown")
+def clear(state, events: bool = True, console: bool = False, cache: bool = False) -> dict:
+    """Clear various data stores.
+
+    Args:
+        events: Clear CDP events from DuckDB (default: True)
+        console: Clear browser console (default: False)
+        cache: Clear response body cache (default: False)
+
+    Examples:
+        clear()                                    # Clear events only (default)
+        clear(console=True)                        # Clear console only
+        clear(events=False, console=True)          # Clear console only (explicit)
+        clear(events=True, console=True)           # Clear both
+        clear(events=True, console=True, cache=True)  # Clear everything
+
+    Returns:
+        Summary of what was cleared
+    """
+    cleared = []
+
+    # Clear CDP events
+    if events:
+        state.service.clear_events()
+        cleared.append("events")
+
+    # Clear browser console
+    if console:
+        if state.cdp and state.cdp.is_connected:
+            if state.service.console.clear_browser_console():
+                cleared.append("console")
+        else:
+            cleared.append("console (not connected)")
+
+    # Clear body cache
+    if cache:
+        if hasattr(state.service, "body") and state.service.body:
+            count = state.service.body.clear_cache()
+            cleared.append(f"cache ({count} bodies)")
+        else:
+            cleared.append("cache (0 bodies)")
+
+    # Return summary
+    if not cleared:
+        return build_info_response(
+            title="Clear Status",
+            fields={"Result": "Nothing to clear (specify events=True, console=True, or cache=True)"},
+        )
+
+    return build_info_response(title="Clear Status", fields={"Cleared": ", ".join(cleared)})
+
+
+@app.command(display="markdown")
+def pages(state) -> dict:
     """List available Chrome pages.
 
     Returns:
-        Table of available pages
+        Table of available pages in markdown
     """
-    pages_list = state.cdp.list_pages()
+    result = state.service.list_pages()
+    pages_list = result.get("pages", [])
 
-    # Format for table display
-    return [
+    # Format rows for table
+    rows = [
         {
             "Index": str(i),
-            "Title": p.get("title", "Untitled")[:40] + "..."
-            if len(p.get("title", "")) > 40
+            "Title": p.get("title", "Untitled")[:30] + "..."
+            if len(p.get("title", "")) > 30
             else p.get("title", "Untitled"),
-            "URL": p.get("url", "")[:50] + "..." if len(p.get("url", "")) > 50 else p.get("url", ""),
-            "Type": p.get("type", "page"),
+            "URL": p.get("url", "")[:40] + "..." if len(p.get("url", "")) > 40 else p.get("url", ""),
+            "ID": p.get("id", "")[:8] + "...",  # Show first 8 chars of ID
+            "Connected": sym("connected") if p.get("is_connected") else sym("disconnected"),
         }
         for i, p in enumerate(pages_list)
     ]
+
+    # Build markdown response
+    return build_table_response(
+        title="Chrome Pages",
+        headers=["Index", "Title", "URL", "ID", "Connected"],
+        rows=rows,
+        summary=f"{len(pages_list)} page{'s' if len(pages_list) != 1 else ''} available",
+    )
 
 
 @app.command(display="markdown")
@@ -95,23 +129,20 @@ def status(state) -> dict:
     Returns:
         Status information in markdown
     """
-    connected = state.cdp.connected.is_set()
+    # Check connection - return error dict if not connected
+    if error := check_connection(state):
+        return error
 
-    if not connected:
-        return {"elements": [{"type": "text", "content": "Not connected"}]}
+    status = state.service.get_status()
 
-    title = state.cdp.page_info.get("title", "Untitled") if state.cdp.page_info else "Unknown"
-    url = state.cdp.page_info.get("url", "") if state.cdp.page_info else ""
-
-    return {
-        "elements": [
-            {"type": "heading", "content": "Connection Status", "level": 2},
-            {"type": "text", "content": f"**Page:** {title}"},
-            {"type": "text", "content": f"**URL:** {url}"},
-            {
-                "type": "code_block",
-                "content": f"Network events: {len(state.cdp.network_events)}\nConsole events: {len(state.cdp.console_events)}",
-                "language": "",
-            },
-        ]
-    }
+    # Build formatted response
+    return build_info_response(
+        title="Connection Status",
+        fields={
+            "Page": status.get("title", "Unknown"),
+            "URL": status.get("url", ""),
+            "Events": f"{status['events']} stored",
+            "Fetch": "Enabled" if status["fetch_enabled"] else "Disabled",
+            "Domains": ", ".join(status["enabled_domains"]),
+        },
+    )

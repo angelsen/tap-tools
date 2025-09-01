@@ -19,3 +19,6 @@ _resources/
 
 # Work in progress packages
 packages/clispec/
+
+# Large CDP schema file (can be regenerated)
+packages/webtap/src/webtap/cdp/schema/cdp_protocol.json

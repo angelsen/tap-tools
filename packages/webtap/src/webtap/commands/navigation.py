@@ -1,9 +1,12 @@
 """Browser navigation commands."""
 
 from webtap.app import app
+from webtap.commands._errors import check_connection, error_response
+from webtap.commands._utils import build_info_response, build_table_response
+from webtap.commands._symbols import sym
 
 
-@app.command()
+@app.command(display="markdown")
 def navigate(state, url: str) -> dict:
     """Navigate to URL.
 
@@ -11,15 +14,24 @@ def navigate(state, url: str) -> dict:
         url: URL to navigate to
 
     Returns:
-        Navigation result from CDP
+        Navigation result in markdown
     """
-    if not state.cdp.connected.is_set():
-        raise RuntimeError("Not connected")
+    if error := check_connection(state):
+        return error
 
-    return state.cdp.execute("Page.navigate", {"url": url})
+    result = state.cdp.execute("Page.navigate", {"url": url})
+
+    return build_info_response(
+        title="Navigation",
+        fields={
+            "URL": url,
+            "Frame ID": result.get("frameId", sym("empty")),
+            "Loader ID": result.get("loaderId", sym("empty")),
+        },
+    )
 
 
-@app.command()
+@app.command(display="markdown")
 def reload(state, ignore_cache: bool = False) -> dict:
     """Reload the current page.
 
@@ -27,23 +39,27 @@ def reload(state, ignore_cache: bool = False) -> dict:
         ignore_cache: Force reload ignoring cache
 
     Returns:
-        CDP response
+        Reload status in markdown
     """
-    if not state.cdp.connected.is_set():
-        raise RuntimeError("Not connected")
+    if error := check_connection(state):
+        return error
 
-    return state.cdp.execute("Page.reload", {"ignoreCache": ignore_cache})
+    state.cdp.execute("Page.reload", {"ignoreCache": ignore_cache})
+
+    return build_info_response(
+        title="Page Reload", fields={"Status": "Page reloaded", "Cache": "Ignored" if ignore_cache else "Used"}
+    )
 
 
-@app.command()
+@app.command(display="markdown")
 def back(state) -> dict:
     """Navigate back in history.
 
     Returns:
-        Navigation history with current entry
+        Navigation result in markdown
     """
-    if not state.cdp.connected.is_set():
-        raise RuntimeError("Not connected")
+    if error := check_connection(state):
+        return error
 
     # Get history
     history = state.cdp.execute("Page.getNavigationHistory")
@@ -54,20 +70,30 @@ def back(state) -> dict:
         # Navigate to previous entry
         target_id = entries[current_index - 1]["id"]
         state.cdp.execute("Page.navigateToHistoryEntry", {"entryId": target_id})
-        return {"navigated": True, "index": current_index - 1}
 
-    return {"navigated": False, "reason": "No history to go back"}
+        prev_entry = entries[current_index - 1]
+        return build_info_response(
+            title="Navigation Back",
+            fields={
+                "Status": "Navigated back",
+                "Page": prev_entry.get("title", "Untitled"),
+                "URL": prev_entry.get("url", ""),
+                "Index": f"{current_index - 1} of {len(entries) - 1}",
+            },
+        )
+
+    return error_response("custom", custom_message="No history to go back")
 
 
-@app.command()
+@app.command(display="markdown")
 def forward(state) -> dict:
     """Navigate forward in history.
 
     Returns:
-        Navigation result
+        Navigation result in markdown
     """
-    if not state.cdp.connected.is_set():
-        raise RuntimeError("Not connected")
+    if error := check_connection(state):
+        return error
 
     # Get history
     history = state.cdp.execute("Page.getNavigationHistory")
@@ -78,9 +104,19 @@ def forward(state) -> dict:
         # Navigate to next entry
         target_id = entries[current_index + 1]["id"]
         state.cdp.execute("Page.navigateToHistoryEntry", {"entryId": target_id})
-        return {"navigated": True, "index": current_index + 1}
 
-    return {"navigated": False, "reason": "No history to go forward"}
+        next_entry = entries[current_index + 1]
+        return build_info_response(
+            title="Navigation Forward",
+            fields={
+                "Status": "Navigated forward",
+                "Page": next_entry.get("title", "Untitled"),
+                "URL": next_entry.get("url", ""),
+                "Index": f"{current_index + 1} of {len(entries) - 1}",
+            },
+        )
+
+    return error_response("custom", custom_message="No history to go forward")
 
 
 @app.command(display="markdown")
@@ -90,8 +126,9 @@ def page(state) -> dict:
     Returns:
         Current page information in markdown
     """
-    if not state.cdp.connected.is_set():
-        raise RuntimeError("Not connected")
+    # Check connection - return error dict if not connected
+    if error := check_connection(state):
+        return error
 
     # Get from navigation history
     history = state.cdp.execute("Page.getNavigationHistory")
@@ -111,41 +148,39 @@ def page(state) -> dict:
         except Exception:
             title = current.get("title", "")
 
-        # Return markdown format
-        return {
-            "elements": [
-                {"type": "heading", "content": title, "level": 1},
-                {"type": "text", "content": current.get("url", "")},
-                {
-                    "type": "code_block",
-                    "content": f"ID: {current.get('id')}\nType: {current.get('transitionType', '')}",
-                    "language": "",
-                },
-            ]
-        }
+        # Build formatted response
+        return build_info_response(
+            title=title or "Untitled Page",
+            fields={
+                "URL": current.get("url", ""),
+                "ID": current.get("id", ""),
+                "Type": current.get("transitionType", ""),
+            },
+        )
 
-    return {"elements": [{"type": "text", "content": "No navigation history"}]}
+    return error_response("no_data", custom_message="No navigation history available")
 
 
-@app.command(display="table", headers=["Index", "Current", "Title", "URL"])
-def history(state) -> list[dict]:
+@app.command(display="markdown")
+def history(state) -> dict:
     """Get navigation history.
 
     Returns:
         Table of history entries with current marked
     """
-    if not state.cdp.connected.is_set():
-        raise RuntimeError("Not connected")
+    # Check connection - return error dict if not connected
+    if error := check_connection(state):
+        return error
 
     history = state.cdp.execute("Page.getNavigationHistory")
     entries = history.get("entries", [])
     current_index = history.get("currentIndex", 0)
 
-    # Format for table display
-    return [
+    # Format rows for table
+    rows = [
         {
             "Index": str(i),
-            "Current": "→" if i == current_index else "",
+            "Current": sym("current") if i == current_index else "",
             "Title": entry.get("title", "")[:40] + "..."
             if len(entry.get("title", "")) > 40
             else entry.get("title", ""),
@@ -153,3 +188,11 @@ def history(state) -> list[dict]:
         }
         for i, entry in enumerate(entries)
     ]
+
+    # Build markdown response
+    return build_table_response(
+        title="Navigation History",
+        headers=["Index", "Current", "Title", "URL"],
+        rows=rows,
+        summary=f"{len(entries)} entries, current index: {current_index}",
+    )

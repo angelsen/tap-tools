@@ -108,12 +108,14 @@ cache_list()                        # List all cached items
 cache_list("request")               # List specific cache type
 ```
 
-### Console & Execution
+### Console & JavaScript
 ```python
 console()                           # View console messages
-eval("document.title")              # Evaluate JavaScript
-exec("console.log('Hello')")        # Execute without return
-clear()                             # Clear all events
+js("document.title")                # Evaluate JavaScript (returns value)
+js("console.log('Hello')", wait_return=False)  # Execute without return
+clear()                             # Clear events (default)
+clear(console=True)                 # Clear browser console
+clear(events=True, console=True, cache=True)  # Clear everything
 ```
 
 ## Architecture

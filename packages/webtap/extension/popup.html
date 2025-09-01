@@ -83,6 +83,20 @@
         background: #4caf50;
         color: white;
       }
+      .filter-section label {
+        display: block;
+        padding: 4px 0;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .filter-section input[type="checkbox"] {
+        margin-right: 6px;
+      }
+      .filter-count {
+        color: #666;
+        font-size: 11px;
+        margin-left: 4px;
+      }
     </style>
   </head>
   <body>
@@ -107,8 +121,28 @@
       <button id="fetchToggle" class="toggle">Toggle</button>
     </div>
     
+    <div id="pausedInfo" style="display: none; margin-top: 8px; padding: 6px; background: #fff3cd; border-radius: 4px; font-size: 12px;">
+      <span id="pausedCount">0</span> requests paused - use REPL to inspect
+    </div>
+    
     <div class="button-row" style="margin-top: 8px;">
       <button id="clear" style="width: 100%;">Clear Events</button>
+    </div>
+    
+    <div class="divider"></div>
+    
+    <div class="filter-section">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h4 style="margin: 5px 0; font-size: 13px;">Filters</h4>
+        <span id="filterStats" style="font-size: 11px; color: #666;">Loading...</span>
+      </div>
+      <div id="filterList" style="margin: 8px 0;">
+        <!-- Dynamically populated with checkboxes -->
+      </div>
+      <div class="button-row" style="margin-top: 8px;">
+        <button id="enableAllFilters" style="font-size: 11px;">Enable All</button>
+        <button id="disableAllFilters" style="font-size: 11px;">Disable All</button>
+      </div>
     </div>
     
     <script src="popup.js"></script>

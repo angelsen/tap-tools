@@ -1,85 +1,57 @@
 """Console monitoring commands."""
 
 from webtap.app import app
-from webtap.commands._utils import truncate_string
+from webtap.commands._errors import check_connection
+from webtap.commands._utils import truncate_string, build_table_response
+from webtap.commands._symbols import sym
 
 
-
-
-@app.command(display="table", headers=["Level", "Source", "Message", "Time"])
-def console(state, limit: int = 50):
+@app.command(display="markdown")
+def console(state, limit: int = 50) -> dict:
     """
     Show console messages in table format.
-    
+
     Args:
         limit: Max results (default: 50)
-    
+
     Examples:
         console()           # Recent console messages
         console(limit=100)  # Show more messages
-    
+
     Returns:
-        Table of console messages
+        Table of console messages in markdown
     """
-    if not state.cdp or not state.cdp.is_connected:
-        return []
-    
-    # Table view - extract specific fields (handling both event types)
-    sql = f"""
-    SELECT 
-        COALESCE(
-            json_extract_string(event, '$.params.type'),
-            json_extract_string(event, '$.params.entry.level')
-        ) as Level,
-        COALESCE(
-            json_extract_string(event, '$.params.source'),
-            json_extract_string(event, '$.params.entry.source'),
-            'console'
-        ) as Source,
-        COALESCE(
-            json_extract_string(event, '$.params.args[0].value'),
-            json_extract_string(event, '$.params.entry.text')
-        ) as Message,
-        COALESCE(
-            json_extract_string(event, '$.params.timestamp'),
-            json_extract_string(event, '$.params.entry.timestamp')
-        ) as Time
-    FROM events 
-    WHERE json_extract_string(event, '$.method') IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
-    ORDER BY rowid DESC LIMIT {limit}
-    """
-    
-    results = state.cdp.query(sql)
-    
+    # Check connection - return error dict if not connected
+    if error := check_connection(state):
+        return error
+
+    # Use ConsoleService to get the data
+    results = state.service.console.get_recent_messages(limit=limit)
+
     # Format for table display
     rows = []
     for row in results:
-        level, source, message, timestamp = row
-        rows.append({
-            "Level": (level or "log").upper(),
-            "Source": source or "console",
-            "Message": truncate_string(message, 80),
-            "Time": timestamp[:19] if timestamp else "-"  # Just date and time
-        })
-    
-    return rows
+        rowid, level, source, message, timestamp = row
+        rows.append(
+            {
+                "ID": str(rowid),
+                "Level": (level or "log").upper(),
+                "Source": source or "console",
+                "Message": truncate_string(message, 80),
+                "Time": timestamp[:19] if timestamp else sym("empty"),  # Just date and time
+            }
+        )
 
+    # Build warnings if needed
+    warnings = []
+    if limit and len(results) == limit:
+        warnings.append(f"Showing first {limit} messages (use limit parameter to see more)")
 
-
-
-@app.command()
-def clear_console(state):
-    """Clear console events from browser.
-    
-    Returns:
-        Clear status message
-    """
-    if not state.cdp or not state.cdp.is_connected:
-        return "Not connected"
-    
-    # Clear browser console
-    try:
-        state.cdp.execute("Runtime.discardConsoleEntries")
-        return "Console cleared"
-    except Exception as e:
-        return f"Failed to clear console: {e}"
+    # Build markdown response
+    return build_table_response(
+        title="Console Messages",
+        headers=["ID", "Level", "Source", "Message", "Time"],
+        rows=rows,
+        summary=f"{len(rows)} messages",
+        warnings=warnings,
+    )
