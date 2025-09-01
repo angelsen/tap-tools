@@ -33,10 +33,10 @@ _SYMBOLS = {
 
 def sym(name: str) -> str:
     """Get ASCII symbol by name with fallback to dash.
-    
+
     Args:
         name: Symbol name from the registry.
-        
+
     Returns:
         ASCII symbol string, or "-" if name not found.
     """

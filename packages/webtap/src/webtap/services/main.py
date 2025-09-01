@@ -15,7 +15,7 @@ from webtap.services.body import _BodyService
 
 REQUIRED_DOMAINS = [
     "Page",
-    "Network", 
+    "Network",
     "Runtime",
     "Log",
     "DOMStorage",

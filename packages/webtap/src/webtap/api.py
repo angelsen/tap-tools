@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 # Request models
 class ConnectRequest(BaseModel):
     """Request model for connecting to a Chrome page."""
+
     page_id: str
 
 
 class FetchRequest(BaseModel):
     """Request model for enabling/disabling fetch interception."""
+
     enabled: bool
 
 

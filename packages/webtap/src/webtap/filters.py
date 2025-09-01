@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 class FilterManager:
     """Manages network request filters for noise reduction.
-    
+
     Provides filtering of CDP network events based on domain patterns and resource
     types. Filters are organized into categories that can be enabled/disabled
     independently. Supports wildcard patterns and generates SQL WHERE clauses
     for efficient event filtering.
-    
+
     Attributes:
         filter_path: Path to the filters.json file.
         filters: Dict mapping category names to filter patterns.
