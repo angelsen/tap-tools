@@ -89,8 +89,15 @@ def execute(
         truncated = len(full_lines) > DEFAULT_LINES_PER_PAGE
 
     elements = []
-    if displayed_output:
-        elements.append({"type": "code_block", "content": displayed_output, "language": result["language"]})
+
+    # Add "read more" hint if output is truncated
+    code_content = displayed_output
+    if truncated and displayed_output:
+        hint = f'... read more with readMcpResource("termtap://pane/{session_window_pane}/2", "termtap")\n'
+        code_content = hint + displayed_output
+
+    if code_content:
+        elements.append({"type": "code_block", "content": code_content, "language": result["language"]})
 
     if result["status"] == "timeout":
         elements.append({"type": "blockquote", "content": f"Command timed out after {result['elapsed']:.1f}s"})
