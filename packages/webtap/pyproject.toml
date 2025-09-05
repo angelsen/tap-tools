@@ -7,7 +7,12 @@ authors = [
     { name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }
 ]
 requires-python = ">=3.12"
-classifiers = ["Private :: Do Not Upload"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
 dependencies = [
     "beautifulsoup4>=4.13.5",
     "cryptography>=45.0.6",
