@@ -1,65 +1,144 @@
-# WebTap
+# webtap
 
 Browser debugging via Chrome DevTools Protocol with native event storage and dynamic querying.
 
-## Overview
+## ✨ Features
 
-WebTap connects to Chrome's debugging protocol and stores CDP events as-is in DuckDB, enabling powerful SQL queries and dynamic field discovery without complex transformations.
+- 🔍 **Native CDP Storage** - Events stored exactly as received in DuckDB
+- 🎯 **Dynamic Field Discovery** - Automatically indexes all field paths from events
+- 🚫 **Smart Filtering** - Built-in filters for ads, tracking, analytics noise
+- 📊 **SQL Querying** - Direct DuckDB access for complex analysis
+- 🔌 **MCP Ready** - Tools and resources for Claude/LLMs
+- 🎨 **Rich Display** - Tables, alerts, and formatted output
+- 🐍 **Python Inspection** - Full Python environment for data exploration
 
-## Key Features
+## 📋 Prerequisites
 
-- **Native CDP Storage** - Events stored exactly as received in DuckDB
-- **Dynamic Field Discovery** - Automatically indexes all field paths from events
-- **Smart Filtering** - Built-in filters for ads, tracking, analytics noise
-- **SQL Querying** - Direct DuckDB access for complex analysis
-- **Chrome Extension** - Visual page selector and connection management
-- **Python Inspection** - Full Python environment for data exploration
+Required system dependencies:
+- **google-chrome-stable** or **chromium** - Browser with DevTools Protocol support
 
-## Installation
-
-```bash
-# Install with uv
-uv tool install webtap
-
-# Or from source
-cd packages/webtap
-uv sync
-```
-
-## Quick Start
-
-1. **Start Chrome with debugging**
 ```bash
 # macOS
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+brew install --cask google-chrome
 
-# Linux  
-google-chrome --remote-debugging-port=9222
+# Ubuntu/Debian
+wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+sudo apt update
+sudo apt install google-chrome-stable
 
-# Windows
-chrome.exe --remote-debugging-port=9222
+# Arch Linux
+yay -S google-chrome  # or google-chrome-stable from AUR
+
+# Fedora
+sudo dnf install google-chrome-stable
 ```
 
-2. **Launch WebTap**
+## 📦 Installation
+
 ```bash
+# Install via uv tool (recommended)
+uv tool install webtap-tool
+
+# Or with pipx
+pipx install webtap-tool
+
+# Update to latest
+uv tool upgrade webtap-tool
+
+# Uninstall
+uv tool uninstall webtap-tool
+```
+
+## 🚀 Quick Start
+
+```bash
+# 1. Install webtap
+uv tool install webtap-tool
+
+# 2. Optional: Setup helpers (first time only)
+webtap --cli setup-filters       # Download default filter configurations
+webtap --cli setup-extension     # Download Chrome extension files
+webtap --cli setup-chrome        # Install Chrome wrapper for debugging
+
+# 3. Launch Chrome with debugging
+webtap --cli run-chrome          # Or manually: google-chrome-stable --remote-debugging-port=9222
+
+# 4. Start webtap REPL
 webtap
 
-# You'll see:
-================================================================================
-                     WebTap - Chrome DevTools Protocol REPL
---------------------------------------------------------------------------------
-Type help() for available commands
->>>
-```
-
-3. **Connect and explore**
-```python
+# 5. Connect and explore
 >>> pages()                          # List available Chrome pages
 >>> connect(0)                       # Connect to first page
 >>> network()                        # View network requests (filtered)
 >>> console()                        # View console messages
 >>> events({"url": "*api*"})         # Query any CDP field dynamically
 ```
+
+## 🔌 MCP Setup for Claude
+
+```bash
+# Quick setup with Claude CLI
+claude mcp add webtap -- webtap --mcp
+```
+
+Or manually configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "webtap": {
+      "command": "webtap",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+## 🎮 Usage
+
+### Interactive REPL
+```bash
+webtap                     # Start REPL
+webtap --mcp               # Start as MCP server
+```
+
+### CLI Commands
+```bash
+webtap --cli setup-filters      # Download filter configurations
+webtap --cli setup-extension    # Download Chrome extension
+webtap --cli setup-chrome       # Install Chrome wrapper script
+webtap --cli run-chrome         # Launch Chrome with debugging
+webtap --cli --help            # Show all CLI commands
+```
+
+### Commands
+```python
+>>> pages()                          # List available Chrome pages
+>>> connect(0)                       # Connect to first page
+>>> network()                        # View network requests (filtered)
+>>> console()                        # View console messages
+>>> events({"url": "*api*"})         # Query any CDP field dynamically
+>>> body(50)                         # Get response body
+>>> inspect(49)                      # View event details
+>>> js("document.title")             # Execute JavaScript
+```
+
+### Command Reference
+
+| Command | Description |
+|---------|------------|
+| `pages()` | List available Chrome pages |
+| `connect(page=0)` | Connect to page by index |
+| `disconnect()` | Disconnect from current page |
+| `navigate(url)` | Navigate to URL |
+| `network(no_filters=False)` | View network requests |
+| `console()` | View console messages |
+| `events(filters)` | Query events dynamically |
+| `inspect(rowid, expr=None)` | Inspect event details |
+| `body(response_id, expr=None)` | Get response body |
+| `js(code, wait_return=True)` | Execute JavaScript |
+| `filters(action="list")` | Manage noise filters |
+| `clear(events=True)` | Clear events/console/cache |
 
 ## Core Commands
 
@@ -365,20 +444,41 @@ WebTap includes aggressive default filters to reduce noise. Customize in `.webta
 - Python 3.12+
 - Dependencies: websocket-client, duckdb, replkit2, fastapi, uvicorn, beautifulsoup4
 
-## Development
+## 🏗️ Architecture
+
+Built on [ReplKit2](https://github.com/angelsen/replkit2) for dual REPL/MCP functionality.
+
+**Key Design:**
+- **Store AS-IS** - No transformation of CDP events
+- **Query On-Demand** - Extract only what's needed
+- **Dynamic Discovery** - No predefined schemas
+- **SQL-First** - Leverage DuckDB's JSON capabilities
+- **Minimal Memory** - Store only CDP data
+
+## 📚 Documentation
+
+- [Architecture](ARCHITECTURE.md) - System design
+- [Vision](src/webtap/VISION.md) - Design philosophy
+- [Services](src/webtap/services/) - Service layer implementations
+- [Commands](src/webtap/commands/) - Command implementations
+
+## 🛠️ Development
 
 ```bash
-# Run from source
-cd packages/webtap
-uv run webtap
+# Clone repository
+git clone https://github.com/angelsen/tap-tools
+cd tap-tools
 
-# API server starts automatically on port 8765
-# Chrome extension connects to http://localhost:8765
+# Install for development
+uv sync --package webtap
 
-# Type checking and linting
-basedpyright packages/webtap/src/webtap
-ruff check --fix packages/webtap/src/webtap
-ruff format packages/webtap/src/webtap
+# Run development version
+uv run --package webtap webtap
+
+# Run tests and checks
+make check-webtap   # Check build
+make format         # Format code
+make lint           # Fix linting
 ```
 
 ## API Server
@@ -395,6 +495,6 @@ WebTap automatically starts a FastAPI server on port 8765 for Chrome extension i
 
 The API server runs in a background thread and doesn't block the REPL.
 
-## License
+## 📄 License
 
-MIT - See [LICENSE](../../LICENSE) for details.
+MIT - see [LICENSE](../../LICENSE) for details.

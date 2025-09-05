@@ -16,8 +16,13 @@ Terminal tools for LLM-assisted debugging and automation.
   pipx install termtap     # Alternative
   ```
 
+- **[webtap](packages/webtap)** - Browser debugging via Chrome DevTools Protocol
+  ```bash
+  uv tool install webtap-tool  # As CLI tool
+  pipx install webtap-tool     # Alternative
+  ```
+
 ### Coming Soon
-- **webtap** - Web page inspector for debugging sessions (Private)
 - **webserve** - YAML-driven web scraping API generator (Private)
 - **logtap** - Log stream analyzer and monitor (Private)
 
@@ -68,6 +73,8 @@ make release-termtap  # Create release
 ## 📚 Documentation
 
 - [termtap README](packages/termtap/README.md) - Full termtap documentation
+- [webtap README](packages/webtap/README.md) - Full webtap documentation
+- [tmux-popup README](packages/tmux-popup/README.md) - Full tmux-popup documentation
 
 ## 📄 License
 
