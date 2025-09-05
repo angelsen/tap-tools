@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.5.1] - 2025-09-05
+
+### Added
+
+### Changed
+
+### Fixed
 - Exclude node_modules and .svelte-kit from source distribution (reduces size from 16MB to ~50KB)
 
 ### Removed
