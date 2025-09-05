@@ -21,30 +21,41 @@ Use a **trunk-to-leaf analysis approach** (demand-driven API discovery):
 3. **Work down the dependency chain** (demand-driven):
    - For each dependency level, what functions/classes are imported by higher levels?
    - Those imported items → PUBLIC API (no underscore)
-   - Everything else → PRIVATE implementation (underscore prefix)
+   - Everything else → Consider context before marking PRIVATE
    - Each level's PUBLIC API is determined by what levels above it actually use
 
-4. **Refine iteratively** (2 steps forward, 1 step back):
-   - If lower-level analysis reveals a trunk module should expose more/less, refine
-   - If a leaf module needs to support trunk requirements, adjust accordingly
-   - Converge on a consistent API hierarchy
+4. **Apply context-aware documentation**:
+   - **Main entry points** (`__init__.py` of exported packages):
+     ```python
+     """Brief description of this module.
+     
+     PUBLIC API:
+       - function_name: Brief description
+       - ClassName: Brief description
+     """
+     ```
+   
+   - **Internal modules** (in subdirectories like `services/`, `utils/`, `internal/`):
+     ```python
+     """Brief description of this internal module."""
+     # No PUBLIC API section needed - it's internal
+     ```
+   
+   - **Helper modules** (files starting with `_`):
+     ```python
+     """Brief description of this utility module."""
+     # Simple docstring sufficient
+     ```
 
-5. **Update all __init__.py docstrings** (trunk to leaf order):
-   - For each module, analyze what should be PUBLIC API based on external imports
-   - Edit the __init__.py file to add/update the docstring with PUBLIC API list
-   - Use this exact format:
+5. **Consider directory context**:
+   - Modules in `services/`, `utils/`, `internal/` → Often don't need PUBLIC API docs
+   - Only document PUBLIC API where it's genuinely public (exported to users)
+   - Avoid over-documentation of obvious internal utilities
 
-```python
-"""Brief description of this module.
+**Principles to follow**:
+- Don't force PUBLIC API documentation everywhere
+- Respect directory structure as organizational context
+- Simple, clear docstrings for internal modules
+- Comprehensive PUBLIC API only for true entry points
 
-PUBLIC API:
-  - function_name: Brief description
-  - ClassName: Brief description
-"""
-```
-
-   - If __init__.py doesn't exist, create it with the docstring and appropriate imports
-   - Document your reasoning for each PUBLIC API decision
-   - Note any unclear cases that need human judgment
-
-**Goal**: After this command, all __init__.py files should have proper PUBLIC API docstrings that the convention agents can read and use.
+**Goal**: After this command, modules should have appropriate documentation that matches their actual purpose and visibility, not mechanical PUBLIC API sections everywhere.

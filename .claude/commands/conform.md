@@ -17,9 +17,13 @@ Follow this workflow:
    - Suggest user stages changes with `git add $ARGUMENTS`
    - This creates a checkpoint before semantic changes
 
-3. **Conform to conventions**:
+3. **Conform to conventions** (with context awareness):
    - `make conform-module TARGET=$ARGUMENTS`
    - This applies naming conventions and docstring templates
+   - **Important**: Check for double-privatization patterns:
+     - Files in `services/`, `utils/` directories shouldn't have underscore class names
+     - Functions in `_*.py` files shouldn't have underscore prefixes
+   - Consider directory structure as organizational context
 
 4. **Verify** the changes:
    - `ruff check $ARGUMENTS` to ensure no linting errors
