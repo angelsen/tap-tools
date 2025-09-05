@@ -101,57 +101,81 @@
   </head>
   <body>
     <h3>WebTap DevTools</h3>
-    
+
     <select id="pageList" size="6">
       <option disabled>Loading pages...</option>
     </select>
-    
+
     <div class="button-row">
       <button id="connect">Connect</button>
       <button id="disconnect">Disconnect</button>
       <button id="refresh">Refresh</button>
     </div>
-    
+
     <div id="status">Not connected</div>
-    
+
     <div class="divider"></div>
-    
+
     <div class="fetch-row">
-      <span class="fetch-status">Intercept: <span id="fetchStatus">OFF</span></span>
+      <span class="fetch-status"
+        >Intercept: <span id="fetchStatus">OFF</span></span
+      >
       <button id="fetchToggle" class="toggle">Toggle</button>
     </div>
-    
-    <div style="margin-top: 5px; font-size: 11px;">
-      <label style="cursor: pointer;">
-        <input type="checkbox" id="responseStage" style="margin-right: 4px;">
+
+    <div style="margin-top: 5px; font-size: 11px">
+      <label style="cursor: pointer">
+        <input type="checkbox" id="responseStage" style="margin-right: 4px" />
         Also pause at Response stage
       </label>
     </div>
-    
-    <div id="pausedInfo" style="display: none; margin-top: 8px; padding: 6px; background: #fff3cd; border-radius: 4px; font-size: 12px;">
+
+    <div
+      id="pausedInfo"
+      style="
+        display: none;
+        margin-top: 8px;
+        padding: 6px;
+        background: #fff3cd;
+        border-radius: 4px;
+        font-size: 12px;
+      "
+    >
       <span id="pausedCount">0</span> requests paused - use REPL to inspect
     </div>
-    
-    <div class="button-row" style="margin-top: 8px;">
-      <button id="clear" style="width: 100%;">Clear Events</button>
+
+    <div class="button-row" style="margin-top: 8px">
+      <button id="clear" style="width: 100%">Clear Events</button>
     </div>
-    
+
     <div class="divider"></div>
-    
+
     <div class="filter-section">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h4 style="margin: 5px 0; font-size: 13px;">Filters</h4>
-        <span id="filterStats" style="font-size: 11px; color: #666;">Loading...</span>
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        "
+      >
+        <h4 style="margin: 5px 0; font-size: 13px">Filters</h4>
+        <span id="filterStats" style="font-size: 11px; color: #666"
+          >Loading...</span
+        >
       </div>
-      <div id="filterList" style="margin: 8px 0;">
+      <div id="filterList" style="margin: 8px 0">
         <!-- Dynamically populated with checkboxes -->
       </div>
-      <div class="button-row" style="margin-top: 8px;">
-        <button id="enableAllFilters" style="font-size: 11px;">Enable All</button>
-        <button id="disableAllFilters" style="font-size: 11px;">Disable All</button>
+      <div class="button-row" style="margin-top: 8px">
+        <button id="enableAllFilters" style="font-size: 11px">
+          Enable All
+        </button>
+        <button id="disableAllFilters" style="font-size: 11px">
+          Disable All
+        </button>
       </div>
     </div>
-    
+
     <script src="popup.js"></script>
   </body>
 </html>

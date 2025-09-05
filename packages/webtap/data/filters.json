@@ -1,0 +1,92 @@
+{
+  "default": {
+    "domains": [],
+    "types": [
+      "Image",
+      "Font",
+      "Media",
+      "Stylesheet",
+      "Other"
+    ]
+  },
+  "tracking": {
+    "domains": [
+      "*google-analytics*",
+      "*analytics*",
+      "*metrics*",
+      "*google*/metrics*"
+    ],
+    "types": [
+      "Ping"
+    ]
+  },
+  "ads": {
+    "domains": [
+      "*doubleclick*",
+      "*googlesyndication*",
+      "*adsystem*",
+      "*adnxs*"
+    ],
+    "types": []
+  },
+  "cdn": {
+    "domains": [
+      "*assets*",
+      "*static*",
+      "*cdn*"
+    ],
+    "types": []
+  },
+  "consent": {
+    "domains": [
+      "*cmpv2*",
+      "*sourcepoint*",
+      "*gdpr*",
+      "*cookie*",
+      "*consent*"
+    ],
+    "types": []
+  },
+  "adtech": {
+    "domains": [
+      "*prebid*",
+      "*adform*",
+      "*adnxs*",
+      "*adtrafficquality*",
+      "*relevant-digital*",
+      "*glimr.io*",
+      "*ib.adnxs*",
+      "*europe.delivery.adnuntius*"
+    ],
+    "types": []
+  },
+  "google": {
+    "domains": [
+      "*googletagmanager*",
+      "*recaptcha*",
+      "*googlesyndication*",
+      "*securepubads*"
+    ],
+    "types": []
+  },
+  "monitoring": {
+    "domains": [
+      "*sentry*",
+      "*bugsnag*",
+      "*rollbar*",
+      "*datadog*",
+      "*newrelic*"
+    ],
+    "types": []
+  },
+  "meta": {
+    "domains": [
+      "*manifest.json*",
+      "*favicon*",
+      "*apple-touch-icon*"
+    ],
+    "types": [
+      "Manifest"
+    ]
+  }
+}
