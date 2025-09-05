@@ -1,0 +1,53 @@
+# FINN.no Service Configuration
+service:
+  name: finn
+  base_url: https://www.finn.no
+  language: "no"
+  description: "Norwegian marketplace for real estate, cars, and classifieds"
+
+# Browser configuration
+browser:
+  headless: true
+  viewport:
+    width: 1920
+    height: 1080
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  
+# Rate limiting
+rate_limit:
+  requests_per_second: 2
+  concurrent_pages: 3
+  retry_on_error: true
+  max_retries: 3
+  backoff: exponential
+
+# No authentication required for public data
+auth:
+  type: none
+
+# Response handling
+response:
+  timeout: 30000  # 30 seconds
+  wait_until: networkidle
+  encoding: utf-8
+
+# Error handling
+errors:
+  retry_on:
+    - timeout
+    - navigation_failed
+  fallback_on_error: true
+  log_errors: true
+
+# Caching
+cache:
+  enabled: true
+  ttl: 3600  # 1 hour
+  key_pattern: "{endpoint}:{params}"
+
+# Location system
+location:
+  format: hierarchical
+  pattern: "\\d+(\\.\\d+)*"
+  example: "1.20016.20318"
+  description: "country.region.city hierarchy"

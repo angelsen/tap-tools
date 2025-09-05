@@ -1,0 +1,227 @@
+# FINN.no Endpoint Definitions
+
+endpoints:
+  # Location search/resolver
+  resolve_location:
+    path: /realestate/homes/xhr
+    method: GET
+    params:
+      term:
+        type: string
+        required: true
+        description: "City or area name to search"
+    response:
+      type: json
+      extract:
+        suggestions:
+          path: "$"
+          multiple: true
+          fields:
+            text: "$.suggest"
+            type: "$.type"
+            location_id: "$.searchKeyGroups[0]"
+            score: "$.score"
+
+  # Property search
+  search_properties:
+    path: /realestate/homes/search.html
+    method: GET
+    params:
+      location:
+        type: string
+        required: true
+        description: "Location ID (e.g., 1.20016.20318)"
+        resolve_from: resolve_location
+      page:
+        type: integer
+        default: 1
+    response:
+      type: ssr
+      wait_for: "article"
+      extract:
+        total_count:
+          selector: "meta[name='description']"
+          attribute: content
+          regex: "(\\d+(?:\\s+\\d+)*) boliger"
+          transform: parse_number
+        listings:
+          selector: "article"
+          multiple: true
+          fields:
+            finnkode:
+              selector: "a[href*='finnkode']"
+              attribute: href
+              regex: "finnkode=(\\d+)"
+            url:
+              selector: "a[href*='finnkode']"
+              attribute: href
+              transform: absolute_url
+            title:
+              selector: "h2"
+              optional: true
+            price:
+              selector: "[class*='price']"
+              regex: "kr\\s*([\\d\\s]+)"
+              transform: parse_currency
+              optional: true
+            location:
+              selector: "[class*='location']"
+              optional: true
+            size:
+              selector: "[class*='size']"
+              regex: "(\\d+)\\s*m"
+              transform: parse_number
+              optional: true
+
+  # Property details
+  get_property:
+    path: /realestate/homes/ad.html
+    method: GET
+    params:
+      finnkode:
+        type: string
+        required: true
+        description: "Property ID"
+    response:
+      type: hybrid
+      ssr:
+        wait_for: "[data-testid='object-details']"
+        extract:
+          title:
+            selector: "title"
+          description:
+            selector: "meta[property='og:description']"
+            attribute: content
+          price:
+            selector: "h2"
+            regex: "Totalpris[:\\s]+kr\\s*([\\d\\s]+)"
+            transform: parse_currency
+            optional: true
+          address:
+            selector: "address"
+            optional: true
+          property_type:
+            selector: "dt:contains('Boligtype') + dd"
+            optional: true
+          size:
+            selector: "dt:contains('Primærrom') + dd"
+            regex: "(\\d+)"
+            transform: parse_number
+            optional: true
+          bedrooms:
+            selector: "dt:contains('Soverom') + dd"
+            regex: "(\\d+)"
+            transform: parse_number
+            optional: true
+          images:
+            selector: "[data-testid='image-gallery'] img"
+            attribute: src
+            multiple: true
+            optional: true
+      api_calls:
+        - name: neighborhood
+          endpoint: /realestate/widget-api/neighborhood-api-alt.json?finnkode={finnkode}
+          merge_as: neighborhood
+        - name: neighborhood_geo
+          endpoint: /realestate/widget-api/neighborhood-api-geo.json?finnkode={finnkode}
+          merge_as: transport_geo
+
+  # Neighborhood details with coordinates
+  get_neighborhood:
+    path: /realestate/widget-api/neighborhood-api-geo.json
+    method: GET
+    params:
+      finnkode:
+        type: string
+        required: true
+    response:
+      type: json
+      extract:
+        transport:
+          path: "$.features"
+          multiple: true
+          filter: "$.properties.group == 'travel'"
+          fields:
+            name: "$.properties.name"
+            type: "$.properties.poiType"
+            coordinates: "$.geometry.coordinates"
+            walk_time: "$.properties.travel.walk.duration"
+            walk_distance: "$.properties.travel.walk.distance"
+            routes: "$.properties.attributes.routes"
+            stop_id: "$.properties.attributes.supplierId"
+
+  # Area profile - Transport
+  get_transport_details:
+    path: /areaprofile/{finnkode}/transport
+    method: GET
+    params:
+      finnkode:
+        type: string
+        required: true
+    response:
+      type: ssr
+      extract:
+        stations:
+          selector: "article"
+          multiple: true
+          fields:
+            name:
+              selector: "h3"
+            type:
+              selector: "[class*='type']"
+            walking_time:
+              selector: "[class*='time']"
+              regex: "(\\d+)\\s*min"
+            routes:
+              selector: "[class*='route']"
+              multiple: true
+
+  # Area profile - Schools
+  get_school_details:
+    path: /areaprofile/{finnkode}/familie
+    method: GET
+    params:
+      finnkode:
+        type: string
+        required: true
+    response:
+      type: ssr
+      extract:
+        schools:
+          selector: "[data-school]"
+          multiple: true
+          fields:
+            name:
+              selector: "h3"
+            type:
+              selector: "[class*='school-type']"
+            distance:
+              selector: "[class*='distance']"
+            rating:
+              selector: "[class*='rating']"
+              optional: true
+
+# Transform functions
+transforms:
+  parse_number:
+    type: regex
+    pattern: "[\\d\\s]+"
+    replace:
+      " ": ""
+    output: integer
+
+  parse_currency:
+    type: regex
+    pattern: "[\\d\\s]+"
+    replace:
+      " ": ""
+    output: integer
+
+  absolute_url:
+    type: url
+    base: "https://www.finn.no"
+    
+  parse_norwegian_date:
+    type: date
+    input_format: "%d.%m.%Y"
+    output_format: "%Y-%m-%d"

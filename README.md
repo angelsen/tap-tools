@@ -18,6 +18,7 @@ Terminal tools for LLM-assisted debugging and automation.
 
 ### Coming Soon
 - **webtap** - Web page inspector for debugging sessions (Private)
+- **webserve** - YAML-driven web scraping API generator (Private)
 - **logtap** - Log stream analyzer and monitor (Private)
 
 ## 📋 Prerequisites
