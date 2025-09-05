@@ -43,7 +43,7 @@ app = App(
         "description": "Chrome DevTools Protocol debugger",
         "tags": {"browser", "debugging", "chrome", "cdp"},
     },
-    cli_config={
+    typer_config={
         "add_completion": False,  # Hide shell completion options
         "help": "WebTap - Chrome DevTools Protocol CLI",
     },

@@ -970,7 +970,7 @@ wheels = [
 
 [[package]]
 name = "replkit2"
-version = "0.9.0"
+version = "0.11.0"
 source = { editable = "../replkit2" }
 
 [package.optional-dependencies]
@@ -1387,7 +1387,7 @@ dependencies = [
     { name = "protobuf" },
     { name = "pyjwt" },
     { name = "pyyaml" },
-    { name = "replkit2" },
+    { name = "replkit2", extra = ["all"] },
     { name = "requests" },
     { name = "uvicorn" },
     { name = "websocket-client" },
@@ -1406,7 +1406,7 @@ requires-dist = [
     { name = "protobuf", specifier = ">=6.32.0" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "replkit2", editable = "../replkit2" },
+    { name = "replkit2", extras = ["all"], editable = "../replkit2" },
     { name = "requests", specifier = ">=2.32.4" },
     { name = "uvicorn", specifier = ">=0.35.0" },
     { name = "websocket-client", specifier = ">=1.8.0" },

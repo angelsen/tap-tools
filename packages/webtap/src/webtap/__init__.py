@@ -25,7 +25,7 @@ def main():
     - CLI mode (with --cli flag) for command-line interface
     - MCP mode (with --mcp flag) for Model Context Protocol server
     - REPL mode (default) for interactive shell
-    
+
     In REPL and MCP modes, the API server is started for Chrome extension
     integration. The API server runs in background to handle extension requests.
     """
