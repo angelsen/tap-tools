@@ -1,20 +1,10 @@
-"""Unified error handling for WebTap commands.
-
-Provides consistent error response formatting and connection validation
-for all WebTap command modules.
-
-PUBLIC API:
-  - check_connection: Validate CDP connection state
-  - error_response: Build formatted error responses
-  - warning_response: Build formatted warning responses
-"""
+"""Unified error handling for WebTap commands."""
 
 from typing import Optional
 from replkit2.textkit import markdown
 
 
-# Standard error message templates
-_ERRORS = {
+ERRORS = {
     "not_connected": {
         "message": "Not connected to Chrome",
         "details": "Use `connect()` to connect to a page",
@@ -37,9 +27,6 @@ def check_connection(state) -> Optional[dict]:
 
     Args:
         state: Application state containing CDP session.
-
-    Returns:
-        Error dict if not connected, None if connected.
     """
     if not (state.cdp and state.cdp.is_connected):
         return error_response("not_connected")
@@ -51,27 +38,21 @@ def error_response(error_key: str, custom_message: str | None = None, **kwargs) 
 
     Args:
         error_key: Key from error templates or custom identifier.
-        custom_message: Override default message. Defaults to None.
+        custom_message: Override default message.
         **kwargs: Additional context to add to error response.
-
-    Returns:
-        Markdown dict with error formatting.
     """
-    error_info = _ERRORS.get(error_key, {})
+    error_info = ERRORS.get(error_key, {})
     message = custom_message or error_info.get("message", "Error occurred")
 
     builder = markdown().element("alert", message=message, level="error")
 
-    # Add details if available
     if details := error_info.get("details"):
         builder.text(details)
 
-    # Add help items if available
     if help_items := error_info.get("help"):
         builder.text("**How to fix:**")
-        builder.list(help_items)
+        builder.list_(help_items)
 
-    # Add any custom context
     for key, value in kwargs.items():
         if value:
             builder.text(f"_{key}: {value}_")
@@ -84,12 +65,44 @@ def warning_response(message: str, details: str | None = None) -> dict:
 
     Args:
         message: Warning message text.
-        details: Additional details. Defaults to None.
-
-    Returns:
-        Markdown dict with warning formatting.
+        details: Additional details.
     """
     builder = markdown().element("alert", message=message, level="warning")
     if details:
         builder.text(details)
+    return builder.build()
+
+
+def invalid_options_error(message: str, expected: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
+    """Create error response for invalid options dict.
+
+    Args:
+        message: Error message describing the issue.
+        expected: Optional example of expected format.
+    """
+    builder = markdown().element("alert", message=message, level="error")
+
+    if expected:
+        builder.text("**Expected format:**")
+        import json
+
+        builder.code_block(json.dumps(expected, indent=2), language="json")
+
+    return builder.build()
+
+
+def missing_param_error(param: str, command: str = None) -> dict:  # pyright: ignore[reportArgumentType]
+    """Create error response for missing required parameter.
+
+    Args:
+        param: Name of the missing parameter.
+        command: Optional command name for context.
+    """
+    message = f"Required parameter '{param}' not provided"
+    if command:
+        message = f"{command}: {message}"
+
+    builder = markdown().element("alert", message=message, level="error")
+    builder.text(f"The '{param}' parameter is required for this operation")
+
     return builder.build()

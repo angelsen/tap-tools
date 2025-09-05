@@ -9,8 +9,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _ConsoleService:
-    """Service for console event queries and monitoring."""
+class ConsoleService:
+    """Internal service for console event queries and monitoring."""
 
     def __init__(self):
         """Initialize console service."""

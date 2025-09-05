@@ -7,20 +7,20 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from webtap.cdp import CDPSession
-    from webtap.services.body import _BodyService
+    from webtap.services.body import BodyService
 
 logger = logging.getLogger(__name__)
 
 
-class _FetchService:
-    """Fetch interception service with explicit, predictable actions."""
+class FetchService:
+    """Internal service for fetch interception with explicit actions."""
 
     def __init__(self):
         """Initialize fetch service."""
         self.enabled = False
         self.enable_response_stage = False  # Config option for future
         self.cdp: CDPSession | None = None
-        self.body_service: _BodyService | None = None
+        self.body_service: BodyService | None = None
 
     # ============= Core State Queries =============
 
@@ -80,8 +80,8 @@ class _FetchService:
                 "Method": row[2] or "GET",
                 "Status": row[3] or "-",
                 "URL": row[4][:60] if row[4] else "-",
-                "_network_id": row[5],  # Hidden, for internal use
-                "_request_id": row[6],  # Hidden, for internal use
+                "_network_id": row[5],
+                "_request_id": row[6],
             }
             for row in results
         ]

@@ -43,55 +43,67 @@ chrome.exe --remote-debugging-port=9222
 2. **Launch WebTap**
 ```bash
 webtap
+
+# You'll see:
+================================================================================
+                     WebTap - Chrome DevTools Protocol REPL
+--------------------------------------------------------------------------------
+Type help() for available commands
+>>>
 ```
 
 3. **Connect and explore**
 ```python
->>> pages()                          # List available tabs
->>> connect(0)                       # Connect to first tab
+>>> pages()                          # List available Chrome pages
+>>> connect(0)                       # Connect to first page
 >>> network()                        # View network requests (filtered)
->>> events(url="*api*", status=200)  # Query any CDP field dynamically
+>>> console()                        # View console messages
+>>> events({"url": "*api*"})         # Query any CDP field dynamically
 ```
 
 ## Core Commands
 
 ### Connection & Navigation
 ```python
-pages()                  # List Chrome tabs/workers
-connect(page_id)         # Connect to a page
-disconnect()             # Disconnect from Chrome
-navigate(url)            # Navigate to URL
-reload(ignore_cache=False)  # Reload page
-back() / forward()       # Navigate history
+pages()                      # List Chrome pages
+connect(0)                   # Connect by index (shorthand)
+connect(page=1)              # Connect by index (explicit)
+connect(page_id="xyz")       # Connect by page ID  
+disconnect()                 # Disconnect from current page
+navigate("https://...")      # Navigate to URL
+reload(ignore_cache=False)   # Reload page
+back() / forward()           # Navigate history
+page()                       # Show current page info
 ```
 
 ### Dynamic Event Querying
 ```python
-# Query ANY field across ALL event types
-events(url="*github*")              # Find GitHub requests
-events(status=404)                  # Find all 404s
-events(type="xhr", method="POST")   # Find AJAX POSTs  
-events(headers="*")                 # Extract all headers
+# Query ANY field across ALL event types using dict filters
+events({"url": "*github*"})              # Find GitHub requests
+events({"status": 404})                  # Find all 404s
+events({"type": "xhr", "method": "POST"})   # Find AJAX POSTs  
+events({"headers": "*"})                 # Extract all headers
 
 # Field names are fuzzy-matched and case-insensitive
-events(URL="*api*")     # Works! Finds 'url', 'URL', 'documentURL'
-events(err="*")         # Finds 'error', 'errorText', 'err'
+events({"URL": "*api*"})     # Works! Finds 'url', 'URL', 'documentURL'
+events({"err": "*"})         # Finds 'error', 'errorText', 'err'
 ```
 
 ### Network Monitoring
 ```python
-network()                           # Filtered network requests
-network(all_filters=False)          # Show everything (noisy!)
-network(filters=["ads", "tracking"]) # Specific filter categories
+network()                              # Filtered network requests (default)
+network(no_filters=True)               # Show everything (noisy!)
+network(filters=["ads", "tracking"])   # Specific filter categories
 ```
 
 ### Filter Management
 ```python
 # Manage noise filters
-filters()                           # Show current filters
-filters(load=True)                  # Load from .webtap/filters.json
-filters(add={"domain": "*doubleclick*", "category": "ads"})
-filters(save=True)                  # Persist to disk
+filters()                                # Show current filters (default action="list")
+filters(action="load")                   # Load from .webtap/filters.json
+filters(action="add", config={"domain": "*doubleclick*", "category": "ads"})
+filters(action="save")                   # Persist to disk
+filters(action="toggle", config={"category": "ads"})  # Toggle category
 
 # Built-in categories: ads, tracking, analytics, telemetry, cdn, fonts, images
 ```
@@ -108,17 +120,18 @@ body(49, expr="import json; json.loads(body)")  # Parse JSON
 body(49, expr="len(body)")         # Check size
 
 # Request interception
-fetch()                             # Enable request interception
+fetch("enable")                     # Enable request interception
+fetch("disable")                    # Disable request interception
 requests()                          # Show paused requests
-resume("123.456")                   # Continue paused request
-fail("123.456")                     # Fail paused request
+resume(123)                         # Continue paused request by ID
+fail(123)                           # Fail paused request by ID
 ```
 
 ### Console & JavaScript
 ```python
 console()                           # View console messages
 js("document.title")                # Evaluate JavaScript (returns value)
-js("console.log('Hello')", wait_promise=False)  # Execute without waiting
+js("console.log('Hello')", wait_return=False)  # Execute without waiting
 clear()                             # Clear events (default)
 clear(console=True)                 # Clear browser console
 clear(events=True, console=True, cache=True)  # Clear everything
@@ -200,13 +213,89 @@ Install the extension from `packages/webtap/extension/`:
 
 ## Examples
 
+### List and Connect to Pages
+```python
+>>> pages()
+## Chrome Pages
+
+| Index | Title                | URL                            | ID     | Connected |
+|:------|:---------------------|:-------------------------------|:-------|:----------|
+| 0     | Messenger            | https://www.m...1743198803269/ | DC8... | No        |
+| 1     | GitHub - replkit2    | https://githu...elsen/replkit2 | DD4... | No        |
+| 2     | YouTube Music        | https://music.youtube.com/     | F83... | No        |
+
+_3 pages available_
+<pages: 1 fields>
+
+>>> connect(1)
+## Connection Established
+
+**Page:** GitHub - angelsen/replkit2
+
+**URL:** https://github.com/angelsen/replkit2
+<connect: 1 fields>
+```
+
+### Monitor Network Traffic
+```python
+>>> network()
+## Network Requests
+
+| ID   | ReqID        | Method | Status | URL                                             | Type     | Size |
+|:-----|:-------------|:-------|:-------|:------------------------------------------------|:---------|:-----|
+| 3264 | 682214.9033  | GET    | 200    | https://api.github.com/graphql                  | Fetch    | 22KB |
+| 2315 | 682214.8985  | GET    | 200    | https://api.github.com/repos/angelsen/replkit2  | Fetch    | 16KB |
+| 359  | 682214.8638  | GET    | 200    | https://github.githubassets.com/assets/app.js   | Script   | 21KB |
+
+_3 requests_
+
+### Next Steps
+
+- **Analyze responses:** `body(3264)` - fetch response body
+- **Parse HTML:** `body(3264, "bs4(body, 'html.parser').find('title').text")`
+- **Extract JSON:** `body(3264, "json.loads(body)['data']")`
+- **Find patterns:** `body(3264, "re.findall(r'/api/\\w+', body)")`
+- **Decode JWT:** `body(3264, "jwt.decode(body, options={'verify_signature': False})")`
+- **Search events:** `events({'url': '*api*'})` - find all API calls
+- **Intercept traffic:** `fetch('enable')` then `requests()` - pause and modify
+<network: 1 fields>
+```
+
+### View Console Messages
+```python
+>>> console()
+## Console Messages
+
+| ID   | Level      | Source   | Message                                                         | Time     |
+|:-----|:-----------|:---------|:----------------------------------------------------------------|:---------|
+| 5939 | WARNING    | security | An iframe which has both allow-scripts and allow-same-origin... | 11:42:46 |
+| 2319 | LOG        | console  | API request completed                                           | 11:42:40 |
+| 32   | ERROR      | network  | Failed to load resource: the server responded with a status...  | 12:47:41 |
+
+_3 messages_
+
+### Next Steps
+
+- **Inspect error:** `inspect(32)` - view full stack trace
+- **Find all errors:** `events({'level': 'error'})` - filter console errors
+- **Extract stack:** `inspect(32, "data.get('stackTrace', {})")`
+- **Search messages:** `events({'message': '*failed*'})` - pattern match
+- **Check network:** `network()` - may show failed requests causing errors
+<console: 1 fields>
+```
+
 ### Find and Analyze API Calls
 ```python
->>> events(url="*api*", method="POST")
-RowID  Method                      URL                              Status
------  --------------------------  -------------------------------  ------
-49     Network.requestWillBeSent   https://api.github.com/graphql  -
-50     Network.responseReceived    https://api.github.com/graphql  200
+>>> events({"url": "*api*", "method": "POST"})
+## Query Results
+
+| RowID | Method                      | URL                             | Status |
+|:------|:----------------------------|:--------------------------------|:-------|
+| 49    | Network.requestWillBeSent   | https://api.github.com/graphql  | -      |
+| 50    | Network.responseReceived    | https://api.github.com/graphql  | 200    |
+
+_2 events_
+<events: 1 fields>
 
 >>> body(50, expr="import json; json.loads(body)['data']")
 {'viewer': {'login': 'octocat', 'name': 'The Octocat'}}
@@ -216,23 +305,33 @@ RowID  Method                      URL                              Status
 
 ### Debug Failed Requests
 ```python
->>> events(status=404)  # or status=500, etc.
->>> events(errorText="*")  # Find network errors
->>> events(type="Failed")  # Find failed resources
+>>> events({"status": 404})
+## Query Results
+
+| RowID | Method                   | URL                               | Status |
+|:------|:-------------------------|:----------------------------------|:-------|
+| 32    | Network.responseReceived | https://api.example.com/missing   | 404    |
+| 29    | Network.responseReceived | https://api.example.com/notfound  | 404    |
+
+_2 events_
+<events: 1 fields>
+
+>>> events({"errorText": "*"})  # Find network errors
+>>> events({"type": "Failed"})  # Find failed resources
 ```
 
 ### Monitor Specific Domains
 ```python
->>> events(url="*myapi.com*")  # Your API
->>> events(url="*localhost*")  # Local development
->>> events(url="*stripe*")     # Payment APIs
+>>> events({"url": "*myapi.com*"})  # Your API
+>>> events({"url": "*localhost*"})  # Local development
+>>> events({"url": "*stripe*"})     # Payment APIs
 ```
 
 ### Extract Headers and Cookies
 ```python
->>> events(headers="*authorization*")  # Find auth headers
+>>> events({"headers": "*authorization*"})  # Find auth headers
 >>> state.cdp.execute("Storage.getCookies", {})  # Get all cookies
->>> events(setCookie="*")  # Find Set-Cookie headers
+>>> events({"setCookie": "*"})  # Find Set-Cookie headers
 ```
 
 ## Filter Configuration
@@ -287,9 +386,9 @@ ruff format packages/webtap/src/webtap
 WebTap automatically starts a FastAPI server on port 8765 for Chrome extension integration:
 
 - `GET /status` - Connection status
-- `GET /pages` - List available Chrome tabs
+- `GET /pages` - List available Chrome pages
 - `POST /connect` - Connect to a page
-- `POST /disconnect` - Disconnect from Chrome
+- `POST /disconnect` - Disconnect from current page
 - `POST /clear` - Clear events/console/cache
 - `GET /fetch/paused` - Get paused requests
 - `POST /filters/toggle/{category}` - Toggle filter categories

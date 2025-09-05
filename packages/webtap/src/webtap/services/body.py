@@ -11,13 +11,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _BodyService:
-    """Manages response body fetching and caching."""
+class BodyService:
+    """Internal service for response body fetching and caching."""
 
     def __init__(self):
         """Initialize body service."""
-        self.cdp: CDPSession | None = None  # Set by main service
-        self._body_cache: dict[str, dict] = {}  # Cache: {requestId: body_data}
+        self.cdp: CDPSession | None = None
+        self._body_cache: dict[str, dict] = {}
 
     def get_response_body(self, rowid: int, use_cache: bool = True) -> dict:
         """Fetch response body for a response.

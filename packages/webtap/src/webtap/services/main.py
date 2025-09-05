@@ -7,10 +7,10 @@ PUBLIC API:
 from typing import Any
 
 from webtap.filters import FilterManager
-from webtap.services.fetch import _FetchService
-from webtap.services.network import _NetworkService
-from webtap.services.console import _ConsoleService
-from webtap.services.body import _BodyService
+from webtap.services.fetch import FetchService
+from webtap.services.network import NetworkService
+from webtap.services.console import ConsoleService
+from webtap.services.body import BodyService
 
 
 REQUIRED_DOMAINS = [
@@ -51,10 +51,10 @@ class WebTapService:
         self.enabled_domains: set[str] = set()
         self.filters = FilterManager()
 
-        self.fetch = _FetchService()
-        self.network = _NetworkService()
-        self.console = _ConsoleService()
-        self.body = _BodyService()
+        self.fetch = FetchService()
+        self.network = NetworkService()
+        self.console = ConsoleService()
+        self.body = BodyService()
 
         self.fetch.cdp = self.cdp
         self.network.cdp = self.cdp

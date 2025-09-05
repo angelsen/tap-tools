@@ -1,21 +1,11 @@
-"""Browser page navigation and history commands.
-
-PUBLIC API:
-  - navigate: Navigate to URL
-  - reload: Reload current page
-  - back: Navigate back in history
-  - forward: Navigate forward in history
-  - page: Get current page information
-  - history: Show navigation history
-"""
+"""Browser page navigation and history commands."""
 
 from webtap.app import app
-from webtap.commands._errors import check_connection, error_response
-from webtap.commands._utils import build_info_response, build_table_response
-from webtap.commands._symbols import sym
+from webtap.commands._errors import check_connection
+from webtap.commands._builders import info_response, table_response, error_response
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "tool"})
 def navigate(state, url: str) -> dict:
     """Navigate to URL.
 
@@ -30,17 +20,17 @@ def navigate(state, url: str) -> dict:
 
     result = state.cdp.execute("Page.navigate", {"url": url})
 
-    return build_info_response(
+    return info_response(
         title="Navigation",
         fields={
             "URL": url,
-            "Frame ID": result.get("frameId", sym("empty")),
-            "Loader ID": result.get("loaderId", sym("empty")),
+            "Frame ID": result.get("frameId", "None"),
+            "Loader ID": result.get("loaderId", "None"),
         },
     )
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "tool"})
 def reload(state, ignore_cache: bool = False) -> dict:
     """Reload the current page.
 
@@ -55,12 +45,12 @@ def reload(state, ignore_cache: bool = False) -> dict:
 
     state.cdp.execute("Page.reload", {"ignoreCache": ignore_cache})
 
-    return build_info_response(
+    return info_response(
         title="Page Reload", fields={"Status": "Page reloaded", "Cache": "Ignored" if ignore_cache else "Used"}
     )
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "tool"})
 def back(state) -> dict:
     """Navigate back in history.
 
@@ -81,20 +71,20 @@ def back(state) -> dict:
         state.cdp.execute("Page.navigateToHistoryEntry", {"entryId": target_id})
 
         prev_entry = entries[current_index - 1]
-        return build_info_response(
+        return info_response(
             title="Navigation Back",
             fields={
                 "Status": "Navigated back",
                 "Page": prev_entry.get("title", "Untitled"),
-                "URL": prev_entry.get("url", ""),
+                "URL": prev_entry.get("url", ""),  # Full URL, no truncation
                 "Index": f"{current_index - 1} of {len(entries) - 1}",
             },
         )
 
-    return error_response("custom", custom_message="No history to go back")
+    return error_response("No history to go back")
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "tool"})
 def forward(state) -> dict:
     """Navigate forward in history.
 
@@ -115,20 +105,20 @@ def forward(state) -> dict:
         state.cdp.execute("Page.navigateToHistoryEntry", {"entryId": target_id})
 
         next_entry = entries[current_index + 1]
-        return build_info_response(
+        return info_response(
             title="Navigation Forward",
             fields={
                 "Status": "Navigated forward",
                 "Page": next_entry.get("title", "Untitled"),
-                "URL": next_entry.get("url", ""),
+                "URL": next_entry.get("url", ""),  # Full URL, no truncation
                 "Index": f"{current_index + 1} of {len(entries) - 1}",
             },
         )
 
-    return error_response("custom", custom_message="No history to go forward")
+    return error_response("No history to go forward")
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "resource", "mime_type": "application/json"})
 def page(state) -> dict:
     """Get current page information.
 
@@ -158,19 +148,23 @@ def page(state) -> dict:
             title = current.get("title", "")
 
         # Build formatted response
-        return build_info_response(
+        return info_response(
             title=title or "Untitled Page",
             fields={
-                "URL": current.get("url", ""),
+                "URL": current.get("url", ""),  # Full URL
                 "ID": current.get("id", ""),
                 "Type": current.get("transitionType", ""),
             },
         )
 
-    return error_response("no_data", custom_message="No navigation history available")
+    return error_response("No navigation history available")
 
 
-@app.command(display="markdown")
+@app.command(
+    display="markdown",
+    truncate={"Title": {"max": 40, "mode": "end"}, "URL": {"max": 50, "mode": "middle"}},
+    fastmcp={"type": "resource", "mime_type": "application/json"},
+)
 def history(state) -> dict:
     """Get navigation history.
 
@@ -185,21 +179,19 @@ def history(state) -> dict:
     entries = history.get("entries", [])
     current_index = history.get("currentIndex", 0)
 
-    # Format rows for table
+    # Format rows for table with FULL data
     rows = [
         {
             "Index": str(i),
-            "Current": sym("current") if i == current_index else "",
-            "Title": entry.get("title", "")[:40] + "..."
-            if len(entry.get("title", "")) > 40
-            else entry.get("title", ""),
-            "URL": entry.get("url", "")[:50] + "..." if len(entry.get("url", "")) > 50 else entry.get("url", ""),
+            "Current": "Yes" if i == current_index else "",
+            "Title": entry.get("title", ""),  # Full title
+            "URL": entry.get("url", ""),  # Full URL
         }
         for i, entry in enumerate(entries)
     ]
 
     # Build markdown response
-    return build_table_response(
+    return table_response(
         title="Navigation History",
         headers=["Index", "Current", "Title", "URL"],
         rows=rows,

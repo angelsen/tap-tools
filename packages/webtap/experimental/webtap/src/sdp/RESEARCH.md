@@ -190,10 +190,12 @@ packages/webtap/svelte_dev/svelte-debug-lab/
 
 ```python
 # Start server in REPL
-from src.webtap.sdp import app, db, get_server
+from src.webtap.sdp import get_server
 import uvicorn, threading
 
 sdp = get_server()
+app = sdp["app"]  # Get the FastAPI app from server components
+db = sdp["db"]    # Get the DuckDB connection from server components
 t = threading.Thread(target=lambda: uvicorn.run(app, host="localhost", port=8766, log_level="error"), daemon=True)
 t.start()
 

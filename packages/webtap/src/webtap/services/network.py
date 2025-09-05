@@ -9,8 +9,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _NetworkService:
-    """Service for network event queries and monitoring."""
+class NetworkService:
+    """Internal service for network event queries and monitoring."""
 
     def __init__(self):
         """Initialize network service."""

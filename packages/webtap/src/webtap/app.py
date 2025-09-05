@@ -1,9 +1,5 @@
 """Main application entry point for WebTap browser debugger.
 
-Provides dual REPL/MCP functionality for Chrome DevTools Protocol interaction.
-Built on ReplKit2 framework with CDP-native design for browser debugging and
-automation leveraging Chrome's native debugging protocol.
-
 PUBLIC API:
   - WebTapState: Application state class with CDP session and service
   - app: Main ReplKit2 App instance (imported by commands and __init__)
@@ -48,9 +44,6 @@ app = App(
     },
 )
 
-# Import custom markdown elements to register them
-from webtap.commands._markdown import Table, Alert  # noqa: E402, F401
-
 # Command imports trigger @app.command decorator registration
 from webtap.commands import connection  # noqa: E402, F401
 from webtap.commands import navigation  # noqa: E402, F401
@@ -65,3 +58,6 @@ from webtap.commands import body  # noqa: E402, F401
 
 
 # Entry point is in __init__.py:main() as specified in pyproject.toml
+
+
+__all__ = ["WebTapState", "app"]

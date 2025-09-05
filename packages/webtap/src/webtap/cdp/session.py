@@ -60,7 +60,6 @@ class CDPSession:
 
         # Live field path lookup for fast discovery
         # Maps lowercase field names to their full paths with original case
-        # e.g. {"url": {"params.response.url", "params.frame.documentURL"}}
         self.field_paths: dict[str, set[str]] = {}
 
     def list_pages(self) -> list[dict]:

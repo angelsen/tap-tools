@@ -1,92 +1,83 @@
-"""Network request monitoring and display commands.
-
-PUBLIC API:
-  - network: Show network requests in table format with filtering support
-"""
+"""Network request monitoring and display commands."""
 
 from webtap.app import app
+from webtap.commands._builders import table_response
 from webtap.commands._errors import check_connection
-from webtap.commands._utils import truncate_string, format_size, format_id, build_table_response
-from webtap.commands._symbols import sym
+from webtap.commands._tips import get_tips
 
 
-@app.command(display="markdown")
-def network(
-    state, all_filters: bool = True, default_filter: bool = True, filters: list | None = None, limit: int = 20
-) -> dict:
-    """
-    Show network requests in table format.
+@app.command(
+    display="markdown",
+    truncate={"ReqID": {"max": 12, "mode": "end"}, "URL": {"max": 60, "mode": "middle"}},
+    transforms={"Size": "format_size"},
+    fastmcp=[{"type": "resource", "mime_type": "application/json"}, {"type": "tool"}],
+)
+def network(state, limit: int = 20, filters: list = None, no_filters: bool = False) -> dict:  # pyright: ignore[reportArgumentType]
+    """Show network requests with full data.
+
+    As Resource (no parameters):
+        network             # Returns last 20 requests with enabled filters
+
+    As Tool (with parameters):
+        network(limit=50)                    # More results
+        network(filters=["ads"])            # Specific filter only
+        network(no_filters=True, limit=50)  # Everything unfiltered
 
     Args:
-        all_filters: Apply all defined filter categories (default: True)
-        default_filter: Apply default filter category (default: True, ignored if all_filters=True)
-        filters: Specific filter categories to apply (ignored if all_filters=True)
-        limit: Max results (default: 20)
-
-    Examples:
-        network()                            # Apply all filters (default)
-        network(all_filters=False)           # Just default filter
-        network(all_filters=False, default_filter=False)  # Show everything
-        network(all_filters=False, filters=["ads"])       # Default + ads only
-        network(all_filters=False, default_filter=False, filters=["ads"])  # Only ads
-
-    Note: Use filters() command to manage filter categories.
-          Create a "default" category for the default filter.
+        limit: Maximum results to show (default: 20)
+        filters: Specific filter categories to apply
+        no_filters: Show everything unfiltered (default: False)
 
     Returns:
-        Table of network requests in markdown
+        Table of network requests with full data
     """
-    # Check connection - return error dict if not connected
+    # Check connection
     if error := check_connection(state):
         return error
 
     # Get filter SQL from service
-    if all_filters:
-        # Use all enabled categories
-        filter_sql = state.service.filters.get_filter_sql(use_all=True)
-    elif filters or default_filter:
-        # Build specific category list
-        categories_to_apply = []
-        if default_filter:
-            categories_to_apply.append("default")
-        if filters:
-            categories_to_apply.extend(filters)
-        filter_sql = state.service.filters.get_filter_sql(use_all=False, categories=categories_to_apply)
-    else:
-        # No filtering
+    if no_filters:
         filter_sql = ""
+    elif filters:
+        filter_sql = state.service.filters.get_filter_sql(use_all=False, categories=filters)
+    else:
+        filter_sql = state.service.filters.get_filter_sql(use_all=True)
 
-    # Use NetworkService to get the data
+    # Get data from service
     results = state.service.network.get_recent_requests(limit=limit, filter_sql=filter_sql)
 
-    # Format for table display
+    # Build rows with FULL data
     rows = []
     for row in results:
-        # Unpack tuple - now includes rowid
         rowid, request_id, method, status, url, type_val, size = row
-
         rows.append(
             {
                 "ID": str(rowid),
-                "ReqID": format_id(request_id, 8),  # Truncate requestId for display
+                "ReqID": request_id or "",  # Full request ID
                 "Method": method or "GET",
-                "Status": str(status) if status else sym("empty"),
-                "URL": truncate_string(url, 60, mode="middle"),  # Middle truncation for URLs
-                "Type": type_val or sym("empty"),
-                "Size": format_size(size),
+                "Status": str(status) if status else "-",
+                "URL": url or "",  # Full URL
+                "Type": type_val or "-",
+                "Size": size or 0,  # Raw bytes
             }
         )
 
-    # Build warnings if needed
+    # Build response with developer guidance
     warnings = []
     if limit and len(results) == limit:
         warnings.append(f"Showing first {limit} results (use limit parameter to see more)")
 
-    # Build markdown response
-    return build_table_response(
+    # Get tips from TIPS.md with context
+    tips = None
+    if rows:
+        example_id = rows[0]["ID"]
+        tips = get_tips("network", context={"id": example_id})
+
+    return table_response(
         title="Network Requests",
         headers=["ID", "ReqID", "Method", "Status", "URL", "Type", "Size"],
         rows=rows,
         summary=f"{len(rows)} requests",
         warnings=warnings,
+        tips=tips,
     )

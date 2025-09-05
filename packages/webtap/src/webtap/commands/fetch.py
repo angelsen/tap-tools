@@ -1,84 +1,77 @@
-"""HTTP fetch request interception and debugging commands.
-
-PUBLIC API:
-  - fetch: Enable/disable fetch interception for request debugging
-  - requests: Show paused fetch requests
-  - resume: Resume paused fetch requests with optional modifications
-  - fail: Fail paused fetch requests with specified reason
-"""
+"""HTTP fetch request interception and debugging commands."""
 
 from webtap.app import app
-from webtap.commands._errors import check_connection, error_response
-from webtap.commands._utils import build_table_response, build_info_response
-from webtap.commands._symbols import sym
+from webtap.commands._errors import check_connection
+from webtap.commands._builders import error_response, info_response, table_response
+from webtap.commands._tips import get_tips
 
 
-@app.command(display="markdown")
-def fetch(state, enable: bool | None = None, disable: bool = False, response: bool = False) -> dict:
-    """Enable/disable fetch interception for request debugging.
+@app.command(display="markdown", fastmcp={"type": "tool"})
+def fetch(state, action: str, options: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
+    """Control fetch interception.
 
     When enabled, requests pause for inspection.
     Use requests() to see paused items, resume() or fail() to proceed.
 
     Args:
-        enable: Enable interception (True/False to set, None to show status)
-        disable: Disable interception
-        response: Also pause at Response stage (when enabling)
+        action: Action to perform
+            - "enable" - Enable interception
+            - "disable" - Disable interception
+            - "status" - Get current status
+        options: Action-specific options
+            - For enable: {"response": true} - Also intercept responses
 
     Examples:
-        fetch()                      # Show current status
-        fetch(enable=True)           # Enable (Request stage only)
-        fetch(enable=True, response=True)  # Enable both stages
-        fetch(disable=True)          # Disable
+        fetch("status")                           # Check status
+        fetch("enable")                           # Enable request stage
+        fetch("enable", {"response": true})       # Both stages
+        fetch("disable")                          # Disable
 
     Returns:
         Fetch interception status
     """
     fetch_service = state.service.fetch
 
-    # Handle disable
-    if disable:
+    if action == "disable":
         result = fetch_service.disable()
         if "error" in result:
-            return error_response("custom", custom_message=result["error"])
-        return build_info_response(title=f"Fetch {sym('disabled')}", fields={"Status": "Interception disabled"})
+            return error_response(result["error"])
+        return info_response(title="Fetch Disabled", fields={"Status": "Interception disabled"})
 
-    # Handle enable
-    if enable is True:
+    elif action == "enable":
         # Check connection first
         if error := check_connection(state):
             return error
 
-        result = fetch_service.enable(state.cdp, response_stage=response)
+        opts = options or {}
+        response_stage = opts.get("response", False)
+
+        result = fetch_service.enable(state.cdp, response_stage=response_stage)
         if "error" in result:
-            return error_response("custom", custom_message=result["error"])
-        return build_info_response(
-            title=f"Fetch {sym('enabled')}",
+            return error_response(result["error"])
+        return info_response(
+            title="Fetch Enabled",
             fields={
                 "Stages": result.get("stages", "Request stage only"),
-                "Status": f"{sym('paused')} Requests will pause",
+                "Status": "Requests will pause",
             },
         )
-    elif enable is False:
-        result = fetch_service.disable()
-        if "error" in result:
-            return error_response("custom", custom_message=result["error"])
-        return build_info_response(title=f"Fetch {sym('disabled')}", fields={"Status": "Interception disabled"})
 
-    # Show status
-    status_symbol = sym("enabled") if fetch_service.enabled else sym("disabled")
-    return build_info_response(
-        title=f"Fetch Status {status_symbol}",
-        fields={
-            "Status": "Enabled" if fetch_service.enabled else "Disabled",
-            "Paused": f"{sym('paused')} {fetch_service.paused_count} requests"
-            if fetch_service.enabled
-            else sym("none"),
-        },
-    )
+    elif action == "status":
+        # Show status
+        return info_response(
+            title=f"Fetch Status: {'Enabled' if fetch_service.enabled else 'Disabled'}",
+            fields={
+                "Status": "Enabled" if fetch_service.enabled else "Disabled",
+                "Paused": f"{fetch_service.paused_count} requests paused" if fetch_service.enabled else "None",
+            },
+        )
+
+    else:
+        return error_response(f"Unknown action: {action}")
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "resource", "mime_type": "application/json"})
 def requests(state, limit: int = 50) -> dict:
     """Show paused requests and responses.
 
@@ -103,7 +96,7 @@ def requests(state, limit: int = 50) -> dict:
     fetch_service = state.service.fetch
 
     if not fetch_service.enabled:
-        return error_response("fetch_disabled")
+        return error_response("Fetch interception is disabled. Use fetch('enable') first.")
 
     rows = fetch_service.get_paused_list()
 
@@ -116,19 +109,26 @@ def requests(state, limit: int = 50) -> dict:
     if limit and len(rows) == limit:
         warnings.append(f"Showing first {limit} paused requests (use limit parameter to see more)")
 
+    # Get tips from TIPS.md
+    tips = None
+    if rows:
+        example_id = rows[0]["ID"]
+        tips = get_tips("requests", context={"id": example_id})
+
     # Build markdown response
-    return build_table_response(
-        title=f"{sym('paused')} Paused Requests",
+    return table_response(
+        title="Paused Requests",
         headers=["ID", "Stage", "Method", "Status", "URL"],
         rows=rows,
-        summary=f"{sym('paused')} {len(rows)} paused requests",
+        summary=f"{len(rows)} requests paused",
         warnings=warnings,
+        tips=tips,
     )
 
 
-@app.command(display="markdown")
-def resume(state, request: int, wait: float = 0.5, **modifications) -> dict:
-    """Resume a paused request with optional modifications.
+@app.command(display="markdown", fastmcp={"type": "tool"})
+def resume(state, request: int, wait: float = 0.5, modifications: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
+    """Resume a paused request.
 
     For Request stage, can modify:
         url, method, headers, postData
@@ -137,17 +137,21 @@ def resume(state, request: int, wait: float = 0.5, **modifications) -> dict:
         responseCode, responseHeaders
 
     Args:
-        request: Row ID from requests() table (e.g., 47)
-        wait: Seconds to wait for follow-up events (0 to disable)
-        **modifications: Direct CDP parameters to modify
+        request: Request row ID from requests() table
+        wait: Wait time for next event in seconds (default: 0.5)
+        modifications: Request/response modifications dict
+            - {"url": "..."} - Change URL
+            - {"method": "POST"} - Change method
+            - {"headers": [{"name": "X-Custom", "value": "test"}]} - Set headers
+            - {"responseCode": 404} - Change response code
+            - {"responseHeaders": [...]} - Modify response headers
 
     Examples:
-        resume(47)                                      # Resume as-is
-        resume(47, wait=1.0)                           # Resume and wait longer for follow-up
-        resume(47, wait=0)                             # Resume without waiting
-        resume(47, url="https://modified.com")         # Change URL
-        resume(47, method="POST")                      # Change method
-        resume(47, headers=[{"name":"X-Custom","value":"test"}])
+        resume(123)                               # Simple resume
+        resume(123, wait=1.0)                    # Wait for redirect
+        resume(123, modifications={"url": "..."})  # Change URL
+        resume(123, modifications={"method": "POST"})  # Change method
+        resume(123, modifications={"headers": [{"name":"X-Custom","value":"test"}]})
 
     Returns:
         Continuation status with any follow-up events detected
@@ -155,29 +159,30 @@ def resume(state, request: int, wait: float = 0.5, **modifications) -> dict:
     fetch_service = state.service.fetch
 
     if not fetch_service.enabled:
-        return error_response("fetch_disabled")
+        return error_response("Fetch interception is disabled. Use fetch('enable') first.")
 
-    result = fetch_service.continue_request(request, modifications, wait_for_next=wait)
+    mods = modifications or {}
+    result = fetch_service.continue_request(request, mods, wait_for_next=wait)
 
     if "error" in result:
-        return error_response("custom", custom_message=result["error"])
+        return error_response(result["error"])
 
-    fields = {"Stage": result["stage"], "Continued": f"{sym('success')} Row {result['continued']}"}
+    fields = {"Stage": result["stage"], "Continued": f"Row {result['continued']}"}
 
     # Report follow-up if detected
     if next_event := result.get("next_event"):
-        fields[f"{sym('arrow')} Next"] = next_event["description"]
+        fields["Next Event"] = next_event["description"]
         fields["Next ID"] = str(next_event["rowid"])
         if next_event.get("status"):
             fields["Status"] = next_event["status"]
 
     if result.get("remaining"):
-        fields["Remaining"] = f"{sym('paused')} {result['remaining']} requests"
+        fields["Remaining"] = f"{result['remaining']} requests paused"
 
-    return build_info_response(title=f"{sym('success')} Request Resumed", fields=fields)
+    return info_response(title="Request Resumed", fields=fields)
 
 
-@app.command(display="markdown")
+@app.command(display="markdown", fastmcp={"type": "tool"})
 def fail(state, request: int, reason: str = "BlockedByClient") -> dict:
     """Fail a paused request.
 
@@ -200,15 +205,15 @@ def fail(state, request: int, reason: str = "BlockedByClient") -> dict:
     fetch_service = state.service.fetch
 
     if not fetch_service.enabled:
-        return error_response("fetch_disabled")
+        return error_response("Fetch interception is disabled. Use fetch('enable') first.")
 
     result = fetch_service.fail_request(request, reason)
 
     if "error" in result:
-        return error_response("custom", custom_message=result["error"])
+        return error_response(result["error"])
 
-    fields = {"Failed": f"{sym('error')} Row {result['failed']}", "Reason": result["reason"]}
+    fields = {"Failed": f"Row {result['failed']}", "Reason": result["reason"]}
     if result.get("remaining") is not None:
-        fields["Remaining"] = f"{sym('paused')} {result['remaining']} requests"
+        fields["Remaining"] = f"{result['remaining']} requests paused"
 
-    return build_info_response(title=f"{sym('error')} Request Failed", fields=fields)
+    return info_response(title="Request Failed", fields=fields)

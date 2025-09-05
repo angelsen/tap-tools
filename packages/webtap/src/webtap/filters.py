@@ -1,11 +1,7 @@
 """Network request filter management for WebTap.
 
-Provides filtering of CDP network events to reduce noise from ads, tracking,
-and other unwanted requests. Supports wildcard patterns for domains and
-resource types with category-based organization.
-
 PUBLIC API:
-    - FilterManager: Main filter management class
+  - FilterManager: Main filter management class
 """
 
 import json
@@ -288,3 +284,6 @@ class FilterManager:
             lines.append(f"  {enabled} {category}: {domains} domains, {types} types")
 
         return "\n".join(lines)
+
+
+__all__ = ["FilterManager"]
