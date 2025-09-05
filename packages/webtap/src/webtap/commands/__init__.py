@@ -16,6 +16,7 @@ from webtap.commands import (
     fetch,
     body,
     filters,
+    bootstrap,
 )
 
 __all__ = [
@@ -29,4 +30,5 @@ __all__ = [
     "fetch",
     "body",
     "filters",
+    "bootstrap",
 ]
