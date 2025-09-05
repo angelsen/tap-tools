@@ -46,23 +46,9 @@ def run_chrome(state, detach: bool = True, port: int = 9222) -> dict:
             ],
         )
 
-    # Setup temp profile with symlinks to real profile
+    # Simple: use clean temp profile for debugging
     temp_config = Path("/tmp/webtap-chrome-debug")
-    real_config = Path.home() / ".config" / "google-chrome"
-
-    if not temp_config.exists():
-        temp_config.mkdir(parents=True)
-
-        # Symlink Default profile
-        default_profile = real_config / "Default"
-        if default_profile.exists():
-            (temp_config / "Default").symlink_to(default_profile)
-
-        # Copy essential files
-        for file in ["Local State", "First Run"]:
-            src = real_config / file
-            if src.exists():
-                (temp_config / file).write_text(src.read_text())
+    temp_config.mkdir(parents=True, exist_ok=True)
 
     # Launch Chrome
     cmd = [chrome_exe, f"--remote-debugging-port={port}", "--remote-allow-origins=*", f"--user-data-dir={temp_config}"]
@@ -74,7 +60,7 @@ def run_chrome(state, detach: bool = True, port: int = 9222) -> dict:
             details={
                 "Port": str(port),
                 "Mode": "Background (detached)",
-                "Profile": str(temp_config),
+                "Profile": "Temporary (clean)",
                 "Next step": "Run connect() to attach WebTap",
             },
         )

@@ -25,6 +25,13 @@ async function loadPages() {
     return;
   }
 
+  // Also fetch instance info if available
+  const instanceInfo = await api("/instance");
+  if (instanceInfo && !instanceInfo.error) {
+    document.getElementById("switchInstance").title =
+      `PID: ${instanceInfo.pid} | Events: ${instanceInfo.events}`;
+  }
+
   const pages = result.pages || [];
   const select = document.getElementById("pageList");
 
@@ -245,6 +252,27 @@ document.getElementById("enableAllFilters").onclick = async () => {
 document.getElementById("disableAllFilters").onclick = async () => {
   await api("/filters/disable-all", "POST");
   setTimeout(updateFilters, 100);
+};
+
+// Switch to a different WebTap instance
+document.getElementById("switchInstance").onclick = async () => {
+  const result = await api("/release", "POST");
+  if (!result.error) {
+    document.getElementById("status").innerHTML =
+      '<span style="color: #666">Port released. Start new WebTap.</span>';
+    // Disable controls until reconnected
+    document.getElementById("connect").disabled = true;
+    document.getElementById("disconnect").disabled = true;
+    document.getElementById("fetchToggle").disabled = true;
+    // Try to reconnect after delay
+    setTimeout(() => {
+      loadPages();
+      updateStatus();
+    }, 2000);
+  } else {
+    document.getElementById("status").innerHTML =
+      `<span class="error">Error: ${result.error}</span>`;
+  }
 };
 
 // Update all status from server - single source of truth

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class BodyService:
-    """Internal service for response body fetching and caching."""
+    """Response body fetching and caching."""
 
     def __init__(self):
         """Initialize body service."""

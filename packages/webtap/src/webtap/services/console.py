@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConsoleService:
-    """Internal service for console event queries and monitoring."""
+    """Console event queries and monitoring."""
 
     def __init__(self):
         """Initialize console service."""

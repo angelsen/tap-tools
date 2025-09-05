@@ -6,6 +6,7 @@ PUBLIC API:
 """
 
 import sys
+import threading
 from dataclasses import dataclass, field
 
 from replkit2 import App
@@ -24,10 +25,12 @@ class WebTapState:
     Attributes:
         cdp: Chrome DevTools Protocol session instance.
         service: WebTapService orchestrating all domain services.
+        api_thread: Thread running the FastAPI server (if this instance owns the port).
     """
 
     cdp: CDPSession = field(default_factory=CDPSession)
     service: WebTapService = field(init=False)
+    api_thread: threading.Thread | None = None
 
     def __post_init__(self):
         """Initialize service with self reference after dataclass init."""

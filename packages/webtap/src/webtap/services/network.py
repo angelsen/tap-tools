@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class NetworkService:
-    """Internal service for network event queries and monitoring."""
+    """Network event queries and monitoring."""
 
     def __init__(self):
         """Initialize network service."""
@@ -81,7 +81,7 @@ class NetworkService:
             json_extract_string(event, '$.params.response.statusText') as StatusText
         FROM events 
         WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'
-        AND CAST(json_extract_string(event, '$.params.response.status') AS INTEGER) >= 400
+        AND json_extract_string(event, '$.params.response.status') >= '400'
         ORDER BY rowid DESC LIMIT {limit}
         """
 

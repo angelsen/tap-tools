@@ -47,8 +47,12 @@ def main():
 def _start_api_server_safely():
     """Start API server with error handling."""
     try:
-        start_api_server(app.state)
-        logger.info("API server started on http://localhost:8765")
+        thread = start_api_server(app.state)
+        if thread and app.state:
+            app.state.api_thread = thread
+            logger.info("API server started on port 8765")
+        else:
+            logger.info("Port 8765 in use by another instance")
     except Exception as e:
         logger.warning(f"Failed to start API server: {e}")
 

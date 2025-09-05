@@ -74,7 +74,8 @@ def build_query(
                     pattern = value
                 path_conditions.append(f"json_extract_string(event, '{json_path}') LIKE '{pattern}'")
             elif isinstance(value, (int, float)):
-                path_conditions.append(f"CAST(json_extract_string(event, '{json_path}') AS NUMERIC) = {value}")
+                # Use string comparison for numeric values to avoid type conversion errors
+                path_conditions.append(f"json_extract_string(event, '{json_path}') = '{value}'")
             elif isinstance(value, bool):
                 path_conditions.append(f"json_extract_string(event, '{json_path}') = '{str(value).lower()}'")
             elif value is None:

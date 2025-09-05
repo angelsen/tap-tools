@@ -177,22 +177,32 @@ class SetupService:
             }
 
         wrapper_script = """#!/bin/bash
-# Chrome wrapper to always enable debugging
+# Chrome wrapper using bindfs for perfect state sync with debug port
 
-REAL_CONFIG="$HOME/.config/google-chrome"
-DEBUG_CONFIG="/tmp/chrome-debug-profile"
+DEBUG_DIR="$HOME/.config/google-chrome-debug"
+REAL_DIR="$HOME/.config/google-chrome"
 
-if [ ! -d "$DEBUG_CONFIG" ]; then
-    mkdir -p "$DEBUG_CONFIG"
-    ln -sf "$REAL_CONFIG/Default" "$DEBUG_CONFIG/Default"
-    cp "$REAL_CONFIG/Local State" "$DEBUG_CONFIG/" 2>/dev/null || true
-    cp "$REAL_CONFIG/First Run" "$DEBUG_CONFIG/" 2>/dev/null || true
+# Check if bindfs is installed
+if ! command -v bindfs &>/dev/null; then
+    echo "Error: bindfs not installed. Install with: yay -S bindfs" >&2
+    exit 1
 fi
 
+# Mount real profile via bindfs if not already mounted
+if ! mountpoint -q "$DEBUG_DIR" 2>/dev/null; then
+    mkdir -p "$DEBUG_DIR"
+    if ! bindfs --no-allow-other "$REAL_DIR" "$DEBUG_DIR"; then
+        echo "Error: Failed to mount Chrome profile via bindfs" >&2
+        exit 1
+    fi
+    echo "Chrome debug profile mounted. To unmount: fusermount -u $DEBUG_DIR" >&2
+fi
+
+# Launch Chrome with debugging on bindfs mount
 exec /usr/bin/google-chrome-stable \\
     --remote-debugging-port=9222 \\
-    --remote-allow-origins=* \\
-    --user-data-dir="$DEBUG_CONFIG" \\
+    --remote-allow-origins='*' \\
+    --user-data-dir="$DEBUG_DIR" \\
     "$@"
 """
 

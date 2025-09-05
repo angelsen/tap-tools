@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class FetchService:
-    """Internal service for fetch interception with explicit actions."""
+    """Fetch interception with explicit actions."""
 
     def __init__(self):
         """Initialize fetch service."""

@@ -5,6 +5,8 @@ PUBLIC API:
 """
 
 import logging
+import os
+import socket
 import threading
 from typing import Any, Dict
 
@@ -184,7 +186,39 @@ async def disable_all_filters() -> Dict[str, Any]:
     return {"enabled": [], "total": 0}
 
 
-def start_api_server(state, host: str = "127.0.0.1", port: int = 8765):
+@api.get("/instance")
+async def get_instance_info() -> Dict[str, Any]:
+    """Get info about this WebTap instance."""
+    if not app_state:
+        return {"error": "WebTap not initialized"}
+
+    return {
+        "pid": os.getpid(),
+        "connected_to": app_state.cdp.current_page_title if app_state.cdp.is_connected else None,
+        "events": app_state.cdp.event_count,
+    }
+
+
+@api.post("/release")
+async def release_port() -> Dict[str, Any]:
+    """Release API port for another WebTap instance."""
+    logger.info("Releasing API port for another instance")
+
+    # Schedule graceful shutdown after response
+    def shutdown():
+        # Just set the flag to stop uvicorn, don't kill the whole process
+        global _shutdown_requested
+        _shutdown_requested = True
+
+    threading.Timer(0.5, shutdown).start()
+    return {"message": "Releasing port 8765"}
+
+
+# Flag to signal shutdown
+_shutdown_requested = False
+
+
+def start_api_server(state, host: str = "127.0.0.1", port: int = 8765) -> threading.Thread | None:
     """Start the API server in a background thread.
 
     Args:
@@ -193,8 +227,16 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765):
         port: Port to bind to. Defaults to 8765.
 
     Returns:
-        Thread instance running the server.
+        Thread instance running the server, or None if port is in use.
     """
+    # Check port availability first
+    try:
+        with socket.socket() as s:
+            s.bind((host, port))
+    except OSError:
+        logger.info(f"Port {port} already in use")
+        return None
+
     global app_state
     app_state = state
 
@@ -208,13 +250,39 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765):
 def run_server(host: str, port: int):
     """Run the FastAPI server in a thread."""
     try:
-        uvicorn.run(
+        config = uvicorn.Config(
             api,
             host=host,
             port=port,
             log_level="error",
             access_log=False,
         )
+        server = uvicorn.Server(config)
+
+        # Run with checking for shutdown flag
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        async def serve():
+            await server.serve()
+
+        # Start serving
+        task = loop.create_task(serve())
+
+        # Check for shutdown flag
+        while not _shutdown_requested:
+            loop.run_until_complete(asyncio.sleep(0.1))
+            if task.done():
+                break
+
+        # Shutdown if requested
+        if _shutdown_requested:
+            logger.info("API server shutting down")
+            server.should_exit = True
+            loop.run_until_complete(server.shutdown())
+
     except Exception as e:
         logger.error(f"API server failed: {e}")
 

@@ -8,10 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Multi-instance WebTap support with first-come-first-serve port management
+- `/instance` endpoint to show WebTap instance information (PID, connected page, events)
+- `/release` endpoint for graceful API port handoff between instances
+- Chrome extension "Switch WebTap Instance" button for managing multiple instances
+- Instance status display in extension popup showing PID and event count
+- Automatic reconnection in extension after instance switching
 
 ### Changed
+- API server now checks port availability before starting (port 8765)
+- Chrome profile launch strategy uses bindfs mounting instead of symlinks
+- Service docstrings simplified (removed redundant "Internal service for" prefixes)
+- Added `api_thread` tracking to WebTapState for proper thread lifecycle management
 
 ### Fixed
+- SQL numeric comparisons in query builder now use string comparison instead of CAST
+- Type annotations improved with proper union types (`threading.Thread | None`)
+- Network service HTTP status filtering uses string comparison to prevent SQL errors
+- Extension connection handling during instance transitions
 
 ### Removed
 
