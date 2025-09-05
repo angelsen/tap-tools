@@ -22,3 +22,6 @@ packages/clispec/
 
 # Large CDP schema file (can be regenerated)
 packages/webtap/src/webtap/cdp/schema/cdp_protocol.json
+
+# WebTap local data (filters are in data/ directory)
+.webtap/
