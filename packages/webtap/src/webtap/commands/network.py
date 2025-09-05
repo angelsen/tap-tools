@@ -1,5 +1,7 @@
 """Network request monitoring and display commands."""
 
+from typing import List
+
 from webtap.app import app
 from webtap.commands._builders import table_response
 from webtap.commands._errors import check_connection
@@ -12,7 +14,7 @@ from webtap.commands._tips import get_tips
     transforms={"Size": "format_size"},
     fastmcp=[{"type": "resource", "mime_type": "application/json"}, {"type": "tool"}],
 )
-def network(state, limit: int = 20, filters: list = None, no_filters: bool = False) -> dict:  # pyright: ignore[reportArgumentType]
+def network(state, limit: int = 20, filters: List[str] = None, no_filters: bool = False) -> dict:  # pyright: ignore[reportArgumentType]
     """Show network requests with full data.
 
     As Resource (no parameters):

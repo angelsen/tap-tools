@@ -5,6 +5,7 @@ PUBLIC API:
   - app: Main ReplKit2 App instance (imported by commands and __init__)
 """
 
+import sys
 from dataclasses import dataclass, field
 
 from replkit2 import App
@@ -42,19 +43,29 @@ app = App(
         "description": "Chrome DevTools Protocol debugger",
         "tags": {"browser", "debugging", "chrome", "cdp"},
     },
+    cli_config={
+        "add_completion": False,  # Hide shell completion options
+        "help": "WebTap - Chrome DevTools Protocol CLI",
+    },
 )
 
 # Command imports trigger @app.command decorator registration
-from webtap.commands import connection  # noqa: E402, F401
-from webtap.commands import navigation  # noqa: E402, F401
-from webtap.commands import javascript  # noqa: E402, F401
-from webtap.commands import network  # noqa: E402, F401
-from webtap.commands import console  # noqa: E402, F401
-from webtap.commands import events  # noqa: E402, F401
-from webtap.commands import filters  # noqa: E402, F401
-from webtap.commands import inspect  # noqa: E402, F401
-from webtap.commands import fetch  # noqa: E402, F401
-from webtap.commands import body  # noqa: E402, F401
+if "--cli" in sys.argv:
+    # Only import CLI-compatible commands (no dict/list parameters)
+    from webtap.commands import bootstrap  # noqa: E402, F401
+else:
+    # Import all commands for REPL/MCP mode
+    from webtap.commands import connection  # noqa: E402, F401
+    from webtap.commands import navigation  # noqa: E402, F401
+    from webtap.commands import javascript  # noqa: E402, F401
+    from webtap.commands import network  # noqa: E402, F401
+    from webtap.commands import console  # noqa: E402, F401
+    from webtap.commands import events  # noqa: E402, F401
+    from webtap.commands import filters  # noqa: E402, F401
+    from webtap.commands import inspect  # noqa: E402, F401
+    from webtap.commands import fetch  # noqa: E402, F401
+    from webtap.commands import body  # noqa: E402, F401
+    from webtap.commands import bootstrap  # noqa: E402, F401
 
 
 # Entry point is in __init__.py:main() as specified in pyproject.toml

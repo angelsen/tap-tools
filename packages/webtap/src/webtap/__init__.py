@@ -21,15 +21,24 @@ logger = logging.getLogger(__name__)
 def main():
     """Entry point for the WebTap REPL.
 
-    Starts either MCP mode (with --mcp flag) or REPL mode. In both modes,
-    the API server is started for Chrome extension integration. The API server
-    runs in background to handle extension requests.
+    Starts in one of three modes:
+    - CLI mode (with --cli flag) for command-line interface
+    - MCP mode (with --mcp flag) for Model Context Protocol server
+    - REPL mode (default) for interactive shell
+    
+    In REPL and MCP modes, the API server is started for Chrome extension
+    integration. The API server runs in background to handle extension requests.
     """
-    # Always start API server for Chrome extension integration
-    _start_api_server_safely()
+    # Start API server for Chrome extension (except in CLI mode)
+    if "--cli" not in sys.argv:
+        _start_api_server_safely()
 
     if "--mcp" in sys.argv:
         app.mcp.run()
+    elif "--cli" in sys.argv:
+        # Remove --cli from argv before passing to Typer
+        sys.argv.remove("--cli")
+        app.cli()  # Run CLI mode via Typer
     else:
         # Run REPL
         app.run(title="WebTap - Chrome DevTools Protocol REPL")
