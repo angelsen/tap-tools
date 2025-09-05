@@ -14,6 +14,7 @@ members = [
     "packages/logtap",
     "packages/tmux-popup",
     "packages/clispec",
+    "packages/webserve",
 ]
 
 [tool.ruff]
