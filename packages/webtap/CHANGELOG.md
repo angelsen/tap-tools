@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.1.3] - 2025-09-05
+
+### Added
 - Multi-instance WebTap support with first-come-first-serve port management
 - `/instance` endpoint to show WebTap instance information (PID, connected page, events)
 - `/release` endpoint for graceful API port handoff between instances
