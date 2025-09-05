@@ -35,6 +35,14 @@ termtap = "termtap:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "examples/demo/frontend/node_modules",
+    "examples/demo/frontend/.svelte-kit",
+    "examples/demo/frontend/build",
+    ".claude",
+]
+
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
 tmux-popup = { workspace = true }
