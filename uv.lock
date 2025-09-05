@@ -10,7 +10,7 @@ members = [
     "termtap",
     "tmux-popup",
     "webserve",
-    "webtap",
+    "webtap-tool",
 ]
 
 [[package]]
@@ -1373,7 +1373,7 @@ wheels = [
 ]
 
 [[package]]
-name = "webtap"
+name = "webtap-tool"
 version = "0.1.0"
 source = { editable = "packages/webtap" }
 dependencies = [

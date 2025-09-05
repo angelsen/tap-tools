@@ -1,5 +1,5 @@
 [project]
-name = "webtap"
+name = "webtap-tool"
 version = "0.1.0"
 description = "Terminal-based web page inspector for AI debugging sessions"
 readme = "README.md"
@@ -30,6 +30,14 @@ dependencies = [
     "websocket-client>=1.8.0",
     "websockets>=15.0.1",
 ]
+
+[tool.hatch.build]
+exclude = [
+  "/experimental",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/webtap"]
 
 [project.scripts]
 webtap = "webtap:main"
