@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.0] - 2025-09-05
+
+### Added
+
+### Changed
 - **BREAKING**: Renamed `read` command to `pane` for better semantic clarity
 - **BREAKING**: Updated to tmux-popup v0.2.1 API (requires tmux-popup >= 0.2.1)
 - Migrated popup components from GumStyle/GumFilter/GumInput to Canvas/Markdown/Filter/Input
