@@ -1,43 +1,26 @@
-"""Bootstrap service for downloading WebTap components.
+"""Setup service for installing WebTap components."""
 
-This service downloads filters and Chrome extension files from GitHub
-to their expected locations for use by other WebTap services.
-"""
-
-from pathlib import Path
-import requests
+import os
 import json
 import logging
+from pathlib import Path
 from typing import Dict, Any
+
+import requests
 
 logger = logging.getLogger(__name__)
 
 
-class BootstrapService:
-    """Bootstrap service for downloading WebTap components.
+class SetupService:
+    """Service for installing WebTap components."""
 
-    This service is independent and doesn't interact with other services.
-    It simply downloads files to the correct locations where other services
-    expect them to be.
-    """
-
-    # Fixed GitHub URLs
+    # GitHub URLs
     FILTERS_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/data/filters.json"
     EXTENSION_BASE_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/extension"
     EXTENSION_FILES = ["manifest.json", "popup.html", "popup.js"]
 
-    def __init__(self):
-        """Initialize bootstrap service."""
-        # No state needed - stateless service
-        pass
-
-    def bootstrap_filters(self, force: bool = False) -> Dict[str, Any]:
-        """Download filters to .webtap/filters.json where FilterManager expects them.
-
-        The FilterManager.load() method looks for filters at:
-        Path.cwd() / ".webtap" / "filters.json"
-
-        So we save there, and FilterManager.load() will find them automatically.
+    def install_filters(self, force: bool = False) -> Dict[str, Any]:
+        """Install filters to .webtap/filters.json.
 
         Args:
             force: Overwrite existing file
@@ -54,7 +37,7 @@ class BootstrapService:
                 "success": False,
                 "message": f"Filters already exist at {target_path}",
                 "path": str(target_path),
-                "details": "Use force=True or --force to overwrite",
+                "details": "Use --force to overwrite",
             }
 
         # Download from GitHub
@@ -101,8 +84,8 @@ class BootstrapService:
             logger.error(f"Unexpected error: {e}")
             return {"success": False, "message": f"Failed to download filters: {e}", "path": None, "details": None}
 
-    def bootstrap_extension(self, force: bool = False) -> Dict[str, Any]:
-        """Download extension to ~/.config/webtap/extension/.
+    def install_extension(self, force: bool = False) -> Dict[str, Any]:
+        """Install Chrome extension to ~/.config/webtap/extension/.
 
         Args:
             force: Overwrite existing files
@@ -119,7 +102,7 @@ class BootstrapService:
                 "success": False,
                 "message": f"Extension already exists at {target_dir}",
                 "path": str(target_dir),
-                "details": "Use force=True or --force to overwrite",
+                "details": "Use --force to overwrite",
             }
 
         # Create directory
@@ -174,5 +157,63 @@ class BootstrapService:
             "details": f"Files: {', '.join(downloaded)}",
         }
 
+    def install_chrome_wrapper(self, force: bool = False) -> Dict[str, Any]:
+        """Install Chrome wrapper script for debugging.
 
-__all__ = ["BootstrapService"]
+        Args:
+            force: Overwrite existing script
+
+        Returns:
+            Dict with success, message, path, details
+        """
+        target_path = Path.home() / ".local" / "bin" / "wrappers" / "google-chrome-stable"
+
+        if target_path.exists() and not force:
+            return {
+                "success": False,
+                "message": "Chrome wrapper already exists",
+                "path": str(target_path),
+                "details": "Use --force to overwrite",
+            }
+
+        wrapper_script = """#!/bin/bash
+# Chrome wrapper to always enable debugging
+
+REAL_CONFIG="$HOME/.config/google-chrome"
+DEBUG_CONFIG="/tmp/chrome-debug-profile"
+
+if [ ! -d "$DEBUG_CONFIG" ]; then
+    mkdir -p "$DEBUG_CONFIG"
+    ln -sf "$REAL_CONFIG/Default" "$DEBUG_CONFIG/Default"
+    cp "$REAL_CONFIG/Local State" "$DEBUG_CONFIG/" 2>/dev/null || true
+    cp "$REAL_CONFIG/First Run" "$DEBUG_CONFIG/" 2>/dev/null || true
+fi
+
+exec /usr/bin/google-chrome-stable \\
+    --remote-debugging-port=9222 \\
+    --remote-allow-origins=* \\
+    --user-data-dir="$DEBUG_CONFIG" \\
+    "$@"
+"""
+
+        # Create directory and save
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(wrapper_script)
+        target_path.chmod(0o755)  # Make executable
+
+        # Check PATH
+        path_dirs = os.environ.get("PATH", "").split(":")
+        wrapper_dir = str(target_path.parent)
+        in_path = wrapper_dir in path_dirs
+
+        logger.info(f"Installed Chrome wrapper to {target_path}")
+
+        return {
+            "success": True,
+            "message": "Installed Chrome wrapper script",
+            "path": str(target_path),
+            "details": "Already in PATH ✓" if in_path else "Add to PATH",
+        }
+
+
+__all__ = ["SetupService"]

@@ -6,10 +6,10 @@ operations, making them reusable across different interfaces.
 
 PUBLIC API:
   - WebTapService: Main service orchestrating all domain services
-  - BootstrapService: Service for downloading WebTap components
+  - SetupService: Service for installing WebTap components
 """
 
 from webtap.services.main import WebTapService
-from webtap.services.bootstrap import BootstrapService
+from webtap.services.setup import SetupService
 
-__all__ = ["WebTapService", "BootstrapService"]
+__all__ = ["WebTapService", "SetupService"]

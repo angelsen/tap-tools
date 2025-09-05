@@ -52,7 +52,8 @@ app = App(
 # Command imports trigger @app.command decorator registration
 if "--cli" in sys.argv:
     # Only import CLI-compatible commands (no dict/list parameters)
-    from webtap.commands import bootstrap  # noqa: E402, F401
+    from webtap.commands import setup  # noqa: E402, F401
+    from webtap.commands import launch  # noqa: E402, F401
 else:
     # Import all commands for REPL/MCP mode
     from webtap.commands import connection  # noqa: E402, F401
@@ -65,7 +66,8 @@ else:
     from webtap.commands import inspect  # noqa: E402, F401
     from webtap.commands import fetch  # noqa: E402, F401
     from webtap.commands import body  # noqa: E402, F401
-    from webtap.commands import bootstrap  # noqa: E402, F401
+    from webtap.commands import setup  # noqa: E402, F401
+    from webtap.commands import launch  # noqa: E402, F401
 
 
 # Entry point is in __init__.py:main() as specified in pyproject.toml
