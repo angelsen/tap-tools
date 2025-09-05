@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.1.0] - 2025-09-05
+
+### Added
 - Chrome DevTools Protocol (CDP) integration for browser debugging
 - Native CDP Storage architecture using DuckDB for event storage
 - Dynamic field discovery with fuzzy matching across all CDP events
