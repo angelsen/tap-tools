@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.1.4] - 2025-09-08
+
+### Added
 - Request timeout handling (3 seconds) in Chrome extension for better error detection
 - Comprehensive `cleanup()` method for proper resource management on exit
 - `atexit` registration to ensure cleanup happens even on unexpected termination
