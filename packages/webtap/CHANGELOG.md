@@ -8,12 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Request timeout handling (3 seconds) in Chrome extension for better error detection
+- Comprehensive `cleanup()` method for proper resource management on exit
+- `atexit` registration to ensure cleanup happens even on unexpected termination
 
 ### Changed
+- **API Consolidation**: Merged `/pages` and `/instance` endpoints into single `/info` endpoint
+- Enhanced `/status` endpoint to include fetch details inline (eliminates separate API call)
+- Improved error messages in extension to distinguish between timeout, server not running, and other failures
+- API server shutdown now uses `asyncio.run()` for proper task cleanup
 
 ### Fixed
+- Graceful shutdown issue that left zombie tasks with "Task was destroyed but it is pending" error
+- API server cleanup on application exit now properly cancels all async tasks
+- Extension error handling now provides specific feedback for different failure modes
 
 ### Removed
+- `/instance` endpoint (functionality merged into `/info`)
+- `/fetch/paused` endpoint (data now included in `/status` response)
 
 ## [0.1.3] - 2025-09-05
 
