@@ -9,6 +9,7 @@ PUBLIC API:
   - main: Entry point function for CLI
 """
 
+import atexit
 import sys
 import logging
 
@@ -45,12 +46,15 @@ def main():
 
 
 def _start_api_server_safely():
-    """Start API server with error handling."""
+    """Start API server with error handling and cleanup registration."""
     try:
         thread = start_api_server(app.state)
         if thread and app.state:
             app.state.api_thread = thread
             logger.info("API server started on port 8765")
+
+            # Register cleanup to shut down API server on exit
+            atexit.register(lambda: app.state.cleanup() if app.state else None)
         else:
             logger.info("Port 8765 in use by another instance")
     except Exception as e:

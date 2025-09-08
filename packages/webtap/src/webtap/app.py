@@ -36,6 +36,21 @@ class WebTapState:
         """Initialize service with self reference after dataclass init."""
         self.service = WebTapService(self)
 
+    def cleanup(self):
+        """Cleanup resources on exit."""
+        # Disconnect CDP if connected
+        if self.cdp.is_connected:
+            self.cdp.disconnect()
+
+        # Stop API server if we own it
+        if self.api_thread and self.api_thread.is_alive():
+            # Import here to avoid circular dependency
+            import webtap.api
+
+            webtap.api._shutdown_requested = True
+            # Wait up to 1 second for graceful shutdown
+            self.api_thread.join(timeout=1.0)
+
 
 # Must be created before command imports for decorator registration
 app = App(

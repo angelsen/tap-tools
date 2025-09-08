@@ -50,22 +50,54 @@ api.add_middleware(
 app_state = None
 
 
-@api.get("/pages")
-async def list_pages() -> Dict[str, Any]:
-    """List available Chrome pages for extension selection."""
-    if not app_state:
-        return {"error": "WebTap not initialized", "pages": []}
+@api.get("/health")
+async def health_check() -> Dict[str, Any]:
+    """Quick health check endpoint for extension."""
+    return {"status": "ok", "pid": os.getpid()}
 
-    return app_state.service.list_pages()
+
+@api.get("/info")
+async def get_info() -> Dict[str, Any]:
+    """Combined endpoint for pages and instance info - reduces round trips."""
+    if not app_state:
+        return {"error": "WebTap not initialized", "pages": [], "pid": os.getpid()}
+
+    # Get pages
+    pages_data = app_state.service.list_pages()
+
+    # Get instance info
+    connected_to = None
+    if app_state.cdp.is_connected and app_state.cdp.page_info:
+        connected_to = app_state.cdp.page_info.get("title", "Untitled")
+
+    return {
+        "pid": os.getpid(),
+        "connected_to": connected_to,
+        "events": app_state.service.event_count,
+        "pages": pages_data.get("pages", []),
+        "error": pages_data.get("error"),
+    }
 
 
 @api.get("/status")
 async def get_status() -> Dict[str, Any]:
-    """Get current connection status and event count."""
+    """Get comprehensive status including connection, events, and fetch details."""
     if not app_state:
         return {"connected": False, "error": "WebTap not initialized", "events": 0}
 
-    return app_state.service.get_status()
+    status = app_state.service.get_status()
+
+    # Add fetch details if fetch is enabled
+    if status.get("fetch_enabled"):
+        fetch_service = app_state.service.fetch
+        paused_list = fetch_service.get_paused_list()
+        status["fetch_details"] = {
+            "paused_requests": paused_list,
+            "paused_count": len(paused_list),
+            "response_stage": fetch_service.enable_response_stage,
+        }
+
+    return status
 
 
 @api.post("/connect")
@@ -106,25 +138,6 @@ async def set_fetch_interception(request: FetchRequest) -> Dict[str, Any]:
     else:
         result = app_state.service.fetch.disable()
     return result
-
-
-@api.get("/fetch/paused")
-async def get_paused_requests() -> Dict[str, Any]:
-    """Get list of currently paused fetch requests."""
-    if not app_state:
-        return {"error": "WebTap not initialized", "requests": []}
-
-    fetch_service = app_state.service.fetch
-    if not fetch_service.enabled:
-        return {"enabled": False, "requests": []}
-
-    paused_list = fetch_service.get_paused_list()
-    return {
-        "enabled": True,
-        "requests": paused_list,
-        "count": len(paused_list),
-        "response_stage": fetch_service.enable_response_stage,
-    }
 
 
 @api.get("/filters/status")
@@ -186,19 +199,6 @@ async def disable_all_filters() -> Dict[str, Any]:
     return {"enabled": [], "total": 0}
 
 
-@api.get("/instance")
-async def get_instance_info() -> Dict[str, Any]:
-    """Get info about this WebTap instance."""
-    if not app_state:
-        return {"error": "WebTap not initialized"}
-
-    return {
-        "pid": os.getpid(),
-        "connected_to": app_state.cdp.current_page_title if app_state.cdp.is_connected else None,
-        "events": app_state.cdp.event_count,
-    }
-
-
 @api.post("/release")
 async def release_port() -> Dict[str, Any]:
     """Release API port for another WebTap instance."""
@@ -237,8 +237,9 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765) -> thread
         logger.info(f"Port {port} already in use")
         return None
 
-    global app_state
+    global app_state, _shutdown_requested
     app_state = state
+    _shutdown_requested = False  # Reset flag for new instance
 
     thread = threading.Thread(target=run_server, args=(host, port), daemon=True)
     thread.start()
@@ -249,7 +250,10 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765) -> thread
 
 def run_server(host: str, port: int):
     """Run the FastAPI server in a thread."""
-    try:
+    import asyncio
+
+    async def run():
+        """Run server with proper shutdown handling."""
         config = uvicorn.Config(
             api,
             host=host,
@@ -259,30 +263,33 @@ def run_server(host: str, port: int):
         )
         server = uvicorn.Server(config)
 
-        # Run with checking for shutdown flag
-        import asyncio
+        # Start server in background task
+        serve_task = asyncio.create_task(server.serve())
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        async def serve():
-            await server.serve()
-
-        # Start serving
-        task = loop.create_task(serve())
-
-        # Check for shutdown flag
+        # Wait for shutdown signal
         while not _shutdown_requested:
-            loop.run_until_complete(asyncio.sleep(0.1))
-            if task.done():
+            await asyncio.sleep(0.1)
+            if serve_task.done():
                 break
 
-        # Shutdown if requested
-        if _shutdown_requested:
+        # Trigger shutdown
+        if not serve_task.done():
             logger.info("API server shutting down")
             server.should_exit = True
-            loop.run_until_complete(server.shutdown())
+            # Wait a bit for graceful shutdown
+            try:
+                await asyncio.wait_for(serve_task, timeout=1.0)
+            except asyncio.TimeoutError:
+                logger.debug("Server task timeout - cancelling")
+                serve_task.cancel()
+                try:
+                    await serve_task
+                except asyncio.CancelledError:
+                    pass
 
+    try:
+        # Use asyncio.run() which properly cleans up
+        asyncio.run(run())
     except Exception as e:
         logger.error(f"API server failed: {e}")
 

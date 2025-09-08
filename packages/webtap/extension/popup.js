@@ -1,14 +1,28 @@
 // API helper - communicate with WebTap service
 async function api(endpoint, method = "GET", body = null) {
   try {
-    const opts = { method };
+    const opts = { 
+      method,
+      // Add timeout to detect unresponsive server faster
+      signal: AbortSignal.timeout(3000)
+    };
     if (body) {
       opts.headers = { "Content-Type": "application/json" };
       opts.body = JSON.stringify(body);
     }
     const resp = await fetch(`http://localhost:8765${endpoint}`, opts);
+    if (!resp.ok) {
+      return { error: `HTTP ${resp.status}: ${resp.statusText}` };
+    }
     return await resp.json();
   } catch (e) {
+    // Better error messages
+    if (e.name === 'AbortError') {
+      return { error: "WebTap not responding (timeout)" };
+    }
+    if (e.message.includes('Failed to fetch')) {
+      return { error: "WebTap not running" };
+    }
     return { error: e.message };
   }
 }
@@ -17,22 +31,20 @@ async function api(endpoint, method = "GET", body = null) {
 
 // Load available pages from WebTap
 async function loadPages() {
-  const result = await api("/pages");
-
-  if (result.error) {
+  // Use combined /info endpoint for single round trip
+  const info = await api("/info");
+  
+  if (info.error) {
     document.getElementById("pageList").innerHTML =
-      "<option disabled>WebTap not running</option>";
+      `<option disabled>${info.error === "WebTap not initialized" ? "WebTap not running" : "Error loading pages"}</option>`;
     return;
   }
 
-  // Also fetch instance info if available
-  const instanceInfo = await api("/instance");
-  if (instanceInfo && !instanceInfo.error) {
-    document.getElementById("switchInstance").title =
-      `PID: ${instanceInfo.pid} | Events: ${instanceInfo.events}`;
-  }
+  // Update instance info tooltip
+  document.getElementById("switchInstance").title =
+    `PID: ${info.pid} | Events: ${info.events}`;
 
-  const pages = result.pages || [];
+  const pages = info.pages || [];
   const select = document.getElementById("pageList");
 
   select.innerHTML = "";
@@ -296,13 +308,12 @@ async function updateStatus() {
       document.getElementById("status").innerHTML =
         `<span class="connected">Connected</span> - Events: ${status.events}`;
 
-      // Get fetch details if enabled
-      if (status.fetch_enabled) {
-        const fetchDetails = await api("/fetch/paused");
+      // Use fetch details from enhanced status (no extra API call needed)
+      if (status.fetch_enabled && status.fetch_details) {
         updateFetchStatus(
           true,
-          status.paused_requests || 0,
-          fetchDetails.response_stage || false,
+          status.fetch_details.paused_count || 0,
+          status.fetch_details.response_stage || false,
         );
       } else {
         updateFetchStatus(false);
