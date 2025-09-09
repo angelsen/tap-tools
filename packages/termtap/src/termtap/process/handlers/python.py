@@ -1,4 +1,4 @@
-"""Internal Python handler for REPL and script processes.
+"""Python handler for REPL and script processes.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:

@@ -25,3 +25,6 @@ packages/webtap/src/webtap/cdp/schema/cdp_protocol.json
 
 # WebTap local data (filters are in data/ directory)
 .webtap/
+
+# Termtap handler configuration (project-specific)
+handlers.md

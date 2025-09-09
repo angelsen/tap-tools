@@ -28,19 +28,19 @@ Use a **trunk-to-leaf analysis approach** (demand-driven API discovery):
    - **Main entry points** (`__init__.py` of exported packages):
      ```python
      """Brief description of this module.
-     
+
      PUBLIC API:
        - function_name: Brief description
        - ClassName: Brief description
      """
      ```
-   
+
    - **Internal modules** (in subdirectories like `services/`, `utils/`, `internal/`):
      ```python
      """Brief description of this internal module."""
      # No PUBLIC API section needed - it's internal
      ```
-   
+
    - **Helper modules** (files starting with `_`):
      ```python
      """Brief description of this utility module."""

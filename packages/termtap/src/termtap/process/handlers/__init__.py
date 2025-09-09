@@ -68,9 +68,34 @@ class ProcessHandler(ABC):
         return success, "sent Ctrl+C"
 
     def before_send(self, pane: Pane, command: str) -> str | None:
-        """Called before sending command.
+        """Called before sending command. DO NOT OVERRIDE - use _before_send_impl instead.
 
-        Can modify or cancel command execution.
+        Checks configuration first, then calls handler implementation.
+
+        Args:
+            pane: Target pane.
+            command: Command to be sent.
+
+        Returns:
+            Modified command or None to cancel.
+        """
+        # Check configuration first
+        from .config import _get_handler_config
+        handler_name = self.__class__.__name__.replace("_", "").replace("Handler", "").upper()
+        action, timeout = _get_handler_config().get_action(handler_name, command)
+        
+        if action == "auto":
+            # Store for after_send to use
+            self._auto_timeout = timeout
+            return command  # Skip handler's before_send logic
+        elif action == "never":
+            return None  # Block command
+        
+        # No config match or "ask" - use handler's normal behavior
+        return self._before_send_impl(pane, command)
+    
+    def _before_send_impl(self, pane: Pane, command: str) -> str | None:
+        """Handler-specific before_send logic. Override this in subclasses.
 
         Args:
             pane: Target pane.
@@ -82,7 +107,26 @@ class ProcessHandler(ABC):
         return command
 
     def after_send(self, pane: Pane, command: str) -> None:
-        """Called after command is sent.
+        """Called after command is sent. DO NOT OVERRIDE - use _after_send_impl instead.
+
+        Handles auto-accept timeout, then calls handler implementation.
+
+        Args:
+            pane: Target pane.
+            command: Command that was sent.
+        """
+        # If auto-accepted, handle timeout and skip handler logic
+        if hasattr(self, '_auto_timeout'):
+            import time
+            time.sleep(self._auto_timeout)
+            del self._auto_timeout
+            return
+        
+        # Use handler's normal behavior
+        self._after_send_impl(pane, command)
+    
+    def _after_send_impl(self, pane: Pane, command: str) -> None:
+        """Handler-specific after_send logic. Override this in subclasses.
 
         Args:
             pane: Target pane.

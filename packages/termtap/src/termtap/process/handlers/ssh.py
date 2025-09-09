@@ -1,4 +1,4 @@
-"""Internal SSH handler with connection detection and command confirmation.
+"""SSH handler with connection detection and command confirmation.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
@@ -111,7 +111,7 @@ class _SSHHandler(ProcessHandler):
             return True, "connected"
         return False, "connecting"
 
-    def before_send(self, pane: Pane, command: str) -> str | None:
+    def _before_send_impl(self, pane: Pane, command: str) -> str | None:
         """Show edit popup for SSH commands.
 
         Args:
@@ -136,7 +136,7 @@ Edit the command or press Enter to execute as-is""")
 
         return edited if edited else None
 
-    def after_send(self, pane: Pane, command: str) -> None:
+    def _after_send_impl(self, pane: Pane, command: str) -> None:
         """Wait for user to indicate when remote command is done.
 
         Args:

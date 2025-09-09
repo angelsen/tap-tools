@@ -1,4 +1,4 @@
-"""Internal Claude CLI handler using content detection.
+"""Claude CLI handler using content detection.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
