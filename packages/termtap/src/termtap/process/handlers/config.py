@@ -27,9 +27,16 @@ Syntax:
 Example:
 # SSH
 ## Safe Commands (auto, 2s)
-- ls *
+- ls
 - pwd
-- ~clear~  # disabled
+
+## File Operations (ask, 5s)
+- rm *
+- cp *
+
+## Dangerous (never)
+- sudo *
+- rm -rf *
 ```
 '''
 
