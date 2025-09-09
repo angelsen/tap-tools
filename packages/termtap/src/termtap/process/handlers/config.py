@@ -1,4 +1,8 @@
-"""Handler configuration from markdown files."""
+"""Handler configuration from markdown files.
+
+PUBLIC API:
+  - ensure_handlers_file: Ensure handlers.md exists on startup
+"""
 
 import re
 from pathlib import Path
@@ -7,15 +11,25 @@ from dataclasses import dataclass
 
 
 DEFAULT_TEMPLATE = '''```
-# Example SSH Handler
+HANDLER CONFIGURATION
 
+Available Handlers: SSH, PYTHON, CLAUDE
+Actions: auto, ask, never
+Timeout: 2s, 5s, 10s, 30s
+
+Syntax:
+# HANDLER_NAME
+## Group Name (action, timeout)
+- pattern
+- ~disabled~
+- pattern # comment
+
+Example:
+# SSH
 ## Safe Commands (auto, 2s)
-- ls *             # auto-accept, 2 second timeout
-- pwd              # current directory
-- ~clear~          # disabled with ~ ~
-
-## Dangerous (never)
-- rm -rf *         # never allow this
+- ls *
+- pwd
+- ~clear~  # disabled
 ```
 '''
 
@@ -41,19 +55,6 @@ class _HandlerRule:
 
 class _HandlerConfig:
     """Configuration manager for handler patterns from markdown files."""
-    
-    def __init__(self):
-        self._ensure_handlers_file()
-    
-    def _ensure_handlers_file(self) -> Path:
-        """Ensure handlers.md exists in cwd, create template if missing."""
-        handlers_path = Path.cwd() / "handlers.md"
-        
-        if not handlers_path.exists():
-            handlers_path.write_text(DEFAULT_TEMPLATE)
-            print(f"[termtap] Created handlers.md template in {Path.cwd()}")
-        
-        return handlers_path
     
     def _load_patterns(self) -> dict:
         """Load and parse handlers.md file."""
@@ -161,3 +162,10 @@ def _get_handler_config() -> _HandlerConfig:
     if _config_instance is None:
         _config_instance = _HandlerConfig()
     return _config_instance
+
+
+def ensure_handlers_file() -> None:
+    """Ensure handlers.md exists in current directory. Called at startup."""
+    handlers_path = Path.cwd() / "handlers.md"
+    if not handlers_path.exists():
+        handlers_path.write_text(DEFAULT_TEMPLATE)

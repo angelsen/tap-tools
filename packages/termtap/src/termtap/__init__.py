@@ -23,6 +23,10 @@ def main():
     - With --mcp: Runs as MCP server for integration
     - Without --mcp: Runs as interactive REPL
     """
+    # Ensure handlers.md exists on startup
+    from .process.handlers.config import ensure_handlers_file
+    ensure_handlers_file()
+    
     if "--mcp" in sys.argv:
         app.mcp.run()
     else:
