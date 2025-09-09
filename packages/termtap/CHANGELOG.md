@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- Improved handler configuration initialization - handlers.md now created at startup
+- Cleaner template with better instructions and syntax examples
+- Fixed code duplication in __main__.py module
 
 ### Removed
 
