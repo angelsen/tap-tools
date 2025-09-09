@@ -8,8 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Handler configuration system with markdown-based rules via `handlers.md` file
+- Auto-accept, ask, and never actions for commands based on pattern matching
+- Template method pattern for `before_send`/`after_send` hooks with configuration checking
+- Automatic `handlers.md` template creation when missing
 
 ### Changed
+- **BREAKING**: Handlers should now override `_before_send_impl` and `_after_send_impl` instead of `before_send` and `after_send` directly
+- Applied Python naming conventions to internal handler module classes and functions
 
 ### Fixed
 
