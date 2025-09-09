@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [0.6.2] - 2025-09-09
+
+### Added
+
+### Changed
 - Improved handlers.md template with more comprehensive examples showing auto, ask, and never actions
 
 ### Fixed
