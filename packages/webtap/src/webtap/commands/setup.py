@@ -61,6 +61,28 @@ def setup_chrome(state, force: bool = False) -> dict:
     return _format_setup_result(result, "chrome")
 
 
+@app.command(
+    display="markdown",
+    typer={"name": "setup-desktop", "help": "Install desktop entry to use Chrome wrapper from GUI"},
+    fastmcp={"enabled": False},
+)
+def setup_desktop(state, force: bool = False) -> dict:
+    """Install desktop entry to ~/.local/share/applications/google-chrome.desktop.
+
+    This makes the Chrome wrapper work when launching from GUI (app launcher, dock, etc).
+    The desktop entry overrides the system Chrome launcher to use our debug-enabled wrapper.
+
+    Args:
+        force: Overwrite existing desktop entry (default: False)
+
+    Returns:
+        Markdown-formatted result with success/error messages
+    """
+    service = SetupService()
+    result = service.install_desktop_entry(force=force)
+    return _format_setup_result(result, "desktop")
+
+
 def _format_setup_result(result: dict, component: str) -> dict:
     """Format setup result as markdown."""
     elements = []
@@ -123,5 +145,17 @@ def _format_setup_result(result: dict, component: str) -> dict:
                         ],
                     }
                 )
+        elif component == "desktop":
+            elements.append({"type": "text", "content": "\n**Next steps:**"})
+            elements.append(
+                {
+                    "type": "list",
+                    "items": [
+                        "Log out and log back in (or run `update-desktop-database ~/.local/share/applications`)",
+                        "Chrome will now launch with debugging enabled from GUI",
+                        "The wrapper at ~/.local/bin/wrappers/google-chrome-stable will be used",
+                    ],
+                }
+            )
 
     return {"elements": elements}
