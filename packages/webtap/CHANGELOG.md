@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.1.5] - 2025-09-10
+
+### Added
 - New `setup-desktop` command to install desktop entry for GUI Chrome integration
 - Desktop entry installation that overrides system Chrome launcher to use debug wrapper
 - Automatic detection and modification of system Chrome desktop files
