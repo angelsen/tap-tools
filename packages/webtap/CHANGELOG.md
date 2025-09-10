@@ -8,10 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- New `setup-desktop` command to install desktop entry for GUI Chrome integration
+- Desktop entry installation that overrides system Chrome launcher to use debug wrapper
+- Automatic detection and modification of system Chrome desktop files
 
 ### Changed
+- Refactored setup service from monolithic file into modular components
+- Split `services/setup.py` into separate modules: `filters.py`, `extension.py`, `chrome.py`, `desktop.py`
+- Updated type hints to use modern Python 3.9+ style (`dict` instead of `Dict`)
 
 ### Fixed
+- Code style issues across setup modules (imports, formatting, type hints)
 
 ### Removed
 
