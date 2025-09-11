@@ -280,14 +280,14 @@ def get_handler(pane: Pane) -> ProcessHandler:
 
     if not _handlers:
         from .python import _PythonHandler
-        from .ssh import _SSHHandler
+        from .confirmation import _ConfirmationHandler
         from .claude import _ClaudeHandler
         from .default import _DefaultHandler
 
         _handlers = [
             _ClaudeHandler(),
             _PythonHandler(),
-            _SSHHandler(),
+            _ConfirmationHandler(),
             _DefaultHandler(),
         ]
 

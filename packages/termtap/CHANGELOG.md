@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- macOS and BSD support through confirmation handler (systems without /proc)
 
 ### Changed
+- Renamed `_SSHHandler` to `_ConfirmationHandler` to handle both SSH and no-/proc systems
 
 ### Fixed
 

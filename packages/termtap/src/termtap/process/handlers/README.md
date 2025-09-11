@@ -118,7 +118,7 @@ def get_handler(pane: Pane):
     """Get handler for pane's current process."""
     handlers = [
         _PythonHandler(),
-        _SSHHandler(),
+        _ConfirmationHandler(),
         _YourProcessHandler(),  # Add here
         _DefaultHandler(),  # Keep default last
     ]
@@ -188,7 +188,7 @@ handlers/
 ├── __init__.py      # Handler registry and get_handler()
 ├── default.py       # Fallback handler
 ├── python.py        # Python/IPython handler
-├── ssh.py           # SSH session handler
+├── confirmation.py  # Confirmation handler (SSH, no-/proc)
 ├── claude.py        # Claude CLI handler
 └── yourprocess.py   # Your new handler
 ```

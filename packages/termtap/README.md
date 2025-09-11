@@ -5,6 +5,7 @@ Process-native tmux session manager with MCP support.
 ## ✨ Features
 
 - 🎯 **Smart Detection** - Auto-detects Python, SSH, Claude processes
+- 🍎 **macOS Support** - Works on systems without /proc filesystem
 - 📝 **Handler System** - Process-specific output filtering and caching
 - 🔌 **MCP Ready** - Tools and resources for Claude/LLMs
 - 🚀 **Service Orchestration** - Run multi-service environments

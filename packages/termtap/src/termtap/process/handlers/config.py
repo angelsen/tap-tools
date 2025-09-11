@@ -13,21 +13,24 @@ from dataclasses import dataclass
 DEFAULT_TEMPLATE = '''```
 HANDLER CONFIGURATION
 
-Available Handlers: SSH, PYTHON, CLAUDE
+Available Handlers: CONFIRMATION, PYTHON, CLAUDE
 Actions: auto, ask, never
 Timeout: 2s, 5s, 10s, 30s
 Line Endings: lf (Unix), crlf (Windows), cr (Mac Classic)
 
+Note: CONFIRMATION handler manages SSH connections and all processes
+on systems without /proc (macOS, BSD).
+
 Syntax:
 # HANDLER_NAME
 ## Group Name (action, timeout)        # Unix/Linux (default)
-## Group Name (action, timeout, crlf)  # Windows SSH servers
+## Group Name (action, timeout, crlf)  # Windows servers
 - pattern
 - ~disabled~
 - pattern # comment
 
 Example:
-# SSH
+# CONFIRMATION
 ## Safe Commands (auto, 2s)
 - ls
 - pwd

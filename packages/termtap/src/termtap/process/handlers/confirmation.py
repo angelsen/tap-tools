@@ -1,4 +1,4 @@
-"""SSH handler with connection detection and command confirmation.
+"""Confirmation handler for processes requiring interactive confirmation.
 
 # to_agent: Required per handlers/README.md
 TESTING LOG:
@@ -24,11 +24,12 @@ from . import ProcessHandler
 from ...pane import Pane
 
 
-class _SSHHandler(ProcessHandler):
-    """SSH client handler with connection detection and command confirmation.
-
-    Provides connection state detection and interactive command confirmation
-    popups for remote command execution safety.
+class _ConfirmationHandler(ProcessHandler):
+    """Handler for processes requiring confirmation popups.
+    
+    Handles:
+    - SSH connections (always need confirmation for remote commands)
+    - ALL processes on systems without /proc (can't track state)
     """
 
     _handles = ["ssh"]
@@ -36,7 +37,12 @@ class _SSHHandler(ProcessHandler):
     _screenshot_tracking = {}
 
     def can_handle(self, pane: Pane) -> bool:
-        """Check if this handler manages SSH processes."""
+        """Handle SSH OR any process when /proc unavailable."""
+        # No /proc? Handle everything
+        if not os.path.exists("/proc"):
+            return True
+            
+        # With /proc, only handle specific processes (SSH)
         return bool(pane.process and pane.process.name in self._handles)
 
     def _get_process_age(self, pid: int) -> float:
@@ -65,11 +71,26 @@ class _SSHHandler(ProcessHandler):
             return 0.0
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
-        """Check if SSH connection is established using screenshot stability.
+        """Check readiness based on available tracking.
 
         Args:
-            pane: Pane with SSH process information.
+            pane: Pane with process information.
         """
+        if not os.path.exists("/proc"):
+            # Can't track without /proc
+            return True, "ready (no /proc)"
+            
+        if not pane.process:
+            return True, "no_process"
+        
+        # SSH-specific connection detection when /proc available
+        if pane.process.name == "ssh":
+            return self._check_ssh_connection(pane)
+            
+        return True, "ready"
+    
+    def _check_ssh_connection(self, pane: Pane) -> tuple[bool | None, str]:
+        """SSH-specific connection detection when /proc available."""
         if not pane.process:
             return True, "no_process"
 
@@ -112,7 +133,7 @@ class _SSHHandler(ProcessHandler):
         return False, "connecting"
 
     def _before_send_impl(self, pane: Pane, command: str) -> str | None:
-        """Show edit popup for SSH commands.
+        """Show edit popup for commands requiring confirmation.
 
         Args:
             pane: Target pane.
@@ -124,7 +145,7 @@ class _SSHHandler(ProcessHandler):
         popup = Popup(width="65")
         canvas = Canvas()
         canvas.add(
-            Markdown(f"""# Remote Command Execution
+            Markdown(f"""# Command Execution
 
 **Command:** {truncate_command(command)}
 
@@ -164,7 +185,7 @@ Press Enter when the command has completed.""")
         popup.add(Input(prompt="", placeholder="Press Enter to continue...")).show()
 
     def _apply_filters(self, raw_output: str) -> str:
-        """Apply aggressive filtering for SSH output.
+        """Apply aggressive filtering for output.
 
         Args:
             raw_output: Raw captured output.
