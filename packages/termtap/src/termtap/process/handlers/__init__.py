@@ -82,11 +82,12 @@ class ProcessHandler(ABC):
         # Check configuration first
         from .config import _get_handler_config
         handler_name = self.__class__.__name__.replace("_", "").replace("Handler", "").upper()
-        action, timeout = _get_handler_config().get_action(handler_name, command)
+        action, timeout, line_ending = _get_handler_config().get_action(handler_name, command)
         
         if action == "auto":
             # Store for after_send to use
             self._auto_timeout = timeout
+            self._auto_line_ending = line_ending
             return command  # Skip handler's before_send logic
         elif action == "never":
             return None  # Block command
@@ -120,6 +121,9 @@ class ProcessHandler(ABC):
             import time
             time.sleep(self._auto_timeout)
             del self._auto_timeout
+            # Clean up line ending attribute too
+            if hasattr(self, '_auto_line_ending'):
+                del self._auto_line_ending
             return
         
         # Use handler's normal behavior
@@ -170,12 +174,22 @@ class ProcessHandler(ABC):
             True if sent successfully, False otherwise.
         """
         from ...tmux.pane import send_keys as tmux_send_keys, send_via_paste_buffer
+        from ...types import LineEnding
 
         try:
-            if "\n" in command:
-                return send_via_paste_buffer(pane.pane_id, command)
+            # Use configured line ending if auto-accepting
+            if hasattr(self, '_auto_line_ending'):
+                line_ending = getattr(self, '_auto_line_ending', 'lf')
+                # Convert string to LineEnding enum if needed
+                if isinstance(line_ending, str):
+                    line_ending = LineEnding(line_ending) if line_ending else LineEnding.NONE
             else:
-                return tmux_send_keys(pane.pane_id, command)
+                line_ending = LineEnding.LF  # Default
+
+            if "\n" in command:
+                return send_via_paste_buffer(pane.pane_id, command, line_ending=line_ending)
+            else:
+                return tmux_send_keys(pane.pane_id, command, line_ending=line_ending)
         except Exception:
             return False
 

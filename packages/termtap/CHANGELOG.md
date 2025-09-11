@@ -8,8 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Line ending configuration support in handlers.md (lf, crlf, cr, none)
+- `LineEnding` enum for explicit line termination control
+- Support for Windows SSH servers requiring CRLF line endings
+- Deprecation warnings for legacy `enter` parameter
 
 ### Changed
+- Handler configuration now accepts optional third parameter for line ending
+- `send_keys` and `send_via_paste_buffer` use `line_ending` parameter instead of `enter`
+- Auto-accepted commands now respect configured line endings
 
 ### Fixed
 

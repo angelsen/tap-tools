@@ -6,14 +6,28 @@ Target resolution is explicit and unambiguous.
 PUBLIC API:
   - Target: Union type for flexible pane targeting
   - SessionWindowPane: Canonical format (e.g., "session:0.0")
+  - LineEnding: Line ending types for command execution
 """
 
 from typing import TypedDict, NotRequired, Literal, TYPE_CHECKING
 from dataclasses import dataclass, field
+from enum import StrEnum
 import re
 
 if TYPE_CHECKING:
     pass
+
+
+class LineEnding(StrEnum):
+    """Line ending types for command execution.
+    
+    Used to specify how commands should be terminated when sent to panes.
+    Supports different operating systems and terminal types.
+    """
+    LF = "lf"       # Unix/Linux line feed (\n) - default
+    CRLF = "crlf"   # Windows carriage return + line feed (\r\n)
+    CR = "cr"       # Old Mac/some terminals carriage return (\r)
+    NONE = ""       # No line ending
 
 
 type PaneID = str

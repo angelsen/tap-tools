@@ -17,10 +17,11 @@ from dataclasses import dataclass
 import json
 import subprocess
 import hashlib
+import warnings
 
 from .core import run_tmux, _is_current_pane, _get_current_pane
 from ._exceptions import CurrentPaneError, PaneNotFoundError
-from ..types import SessionWindowPane
+from ..types import SessionWindowPane, LineEnding
 
 
 @dataclass
@@ -52,7 +53,13 @@ class PaneInfo:
     swp: SessionWindowPane  # session:window.pane
 
 
-def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) -> bool:
+def send_keys(
+    pane_id: str, 
+    *commands, 
+    enter: bool | None = None,  # Deprecated
+    line_ending: LineEnding | str = LineEnding.LF,
+    delay: float = 0.05
+) -> bool:
     """Send keystrokes to a pane.
 
     Works with any content including interactive commands with Claude.
@@ -61,8 +68,13 @@ def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) 
     Args:
         pane_id: Target pane ID.
         *commands: One or more commands/keys to send.
-        enter: Whether to send Enter key after commands. Defaults to True.
-        delay: Delay in seconds before sending Enter. Defaults to 0.05.
+        enter: DEPRECATED - use line_ending instead.
+        line_ending: How to terminate the command:
+            - LineEnding.LF or "lf": Unix line feed (default)
+            - LineEnding.CRLF or "crlf": Windows CR+LF
+            - LineEnding.CR or "cr": Carriage return only
+            - LineEnding.NONE or "": No line ending
+        delay: Delay in seconds before sending line ending. Defaults to 0.05.
 
     Returns:
         True if successful.
@@ -76,6 +88,18 @@ def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) 
     if not commands:
         return True
 
+    # Handle deprecated 'enter' parameter
+    if enter is not None:
+        warnings.warn(
+            f"Parameter 'enter' is deprecated. Use 'line_ending' instead.\n"
+            f"  Old: send_keys(..., enter={enter})\n"
+            f"  New: send_keys(..., line_ending=LineEnding.{'LF' if enter else 'NONE'})",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        line_ending = LineEnding.LF if enter else LineEnding.NONE
+
+    # Send the commands
     args = ["send-keys", "-t", pane_id]
     args.extend(commands)
 
@@ -83,28 +107,59 @@ def send_keys(pane_id: str, *commands, enter: bool = True, delay: float = 0.05) 
     if code != 0:
         return False
 
-    if enter:
+    # Send appropriate line ending
+    if line_ending and line_ending != LineEnding.NONE:
         if delay > 0:
             import time
-
             time.sleep(delay)
-        code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+        
+        if line_ending == LineEnding.LF or line_ending == "lf":
+            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+        elif line_ending == LineEnding.CRLF or line_ending == "crlf":
+            # Send Ctrl-M (carriage return) followed by Ctrl-J (line feed)
+            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m", "C-j"])
+        elif line_ending == LineEnding.CR or line_ending == "cr":
+            # Send only Ctrl-M (carriage return)
+            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m"])
+        
         return code == 0
 
     return True
 
 
-def send_via_paste_buffer(pane_id: str, content: str, enter: bool = True, delay: float = 0.05) -> bool:
+def send_via_paste_buffer(
+    pane_id: str, 
+    content: str, 
+    enter: bool | None = None,  # Deprecated
+    line_ending: LineEnding | str = LineEnding.LF,
+    delay: float = 0.05
+) -> bool:
     """Send content using tmux paste buffer for multiline/special content.
 
     Args:
         pane_id: Target pane ID.
         content: Content to send (can be multiline).
-        enter: Whether to send Enter key after content.
-        delay: Delay in seconds before sending Enter.
+        enter: DEPRECATED - use line_ending instead.
+        line_ending: How to terminate the command:
+            - LineEnding.LF or "lf": Unix line feed (default)
+            - LineEnding.CRLF or "crlf": Windows CR+LF
+            - LineEnding.CR or "cr": Carriage return only
+            - LineEnding.NONE or "": No line ending
+        delay: Delay in seconds before sending line ending.
     """
     if _is_current_pane(pane_id):
         raise CurrentPaneError(f"Cannot send to current pane ({pane_id})")
+
+    # Handle deprecated 'enter' parameter
+    if enter is not None:
+        warnings.warn(
+            f"Parameter 'enter' is deprecated. Use 'line_ending' instead.\n"
+            f"  Old: send_via_paste_buffer(..., enter={enter})\n"
+            f"  New: send_via_paste_buffer(..., line_ending=LineEnding.{'LF' if enter else 'NONE'})",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        line_ending = LineEnding.LF if enter else LineEnding.NONE
 
     buffer_name = f"tt_{hashlib.md5(content.encode()).hexdigest()[:8]}"
 
@@ -125,12 +180,20 @@ def send_via_paste_buffer(pane_id: str, content: str, enter: bool = True, delay:
     if code != 0:
         raise RuntimeError(f"Failed to paste buffer: {stderr}")
 
-    if enter:
+    # Send appropriate line ending
+    if line_ending and line_ending != LineEnding.NONE:
         if delay > 0:
             import time
-
             time.sleep(delay)
-        code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+        
+        if line_ending == LineEnding.LF or line_ending == "lf":
+            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+        elif line_ending == LineEnding.CRLF or line_ending == "crlf":
+            # Send Ctrl-M (carriage return) followed by Ctrl-J (line feed)
+            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m", "C-j"])
+        elif line_ending == LineEnding.CR or line_ending == "cr":
+            # Send only Ctrl-M (carriage return)
+            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m"])
 
     return code == 0
 

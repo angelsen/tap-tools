@@ -16,10 +16,12 @@ HANDLER CONFIGURATION
 Available Handlers: SSH, PYTHON, CLAUDE
 Actions: auto, ask, never
 Timeout: 2s, 5s, 10s, 30s
+Line Endings: lf (Unix), crlf (Windows), cr (Mac Classic)
 
 Syntax:
 # HANDLER_NAME
-## Group Name (action, timeout)
+## Group Name (action, timeout)        # Unix/Linux (default)
+## Group Name (action, timeout, crlf)  # Windows SSH servers
 - pattern
 - ~disabled~
 - pattern # comment
@@ -29,6 +31,10 @@ Example:
 ## Safe Commands (auto, 2s)
 - ls
 - pwd
+
+## Windows Commands (auto, 2s, crlf)
+- dir
+- ipconfig
 
 ## File Operations (ask, 5s)
 - rm *
@@ -43,10 +49,11 @@ Example:
 
 @dataclass
 class _HandlerRule:
-    """Single handler rule with pattern, action, and timeout."""
+    """Single handler rule with pattern, action, timeout, and line ending."""
     pattern: str
     action: str  # "auto", "ask", "never"
     timeout: float
+    line_ending: str = "lf"  # "lf", "crlf", "cr", ""
     
     def matches(self, command: str) -> bool:
         """Check if command matches this pattern."""
@@ -84,6 +91,7 @@ class _HandlerConfig:
         current_handler = None
         current_action = "ask"
         current_timeout = 10.0
+        current_line_ending = "lf"
         in_code_block = False
         
         for line in lines:
@@ -102,17 +110,26 @@ class _HandlerConfig:
                     if handler_name not in patterns:
                         patterns[handler_name] = []
             
-            # Group heading (## Safe Commands (auto, 2s))
+            # Group heading (## Safe Commands (auto, 2s) or ## Windows Commands (auto, 2s, crlf))
             elif line.startswith('## '):
-                group_match = re.match(r'## .* \((\w+)(?:, (\d+)s?)?\)', line)
+                # Match pattern with optional line ending
+                group_match = re.match(r'## .* \((\w+)(?:, (\d+)s?)?(?:, (\w+))?\)', line)
                 if group_match:
                     current_action = group_match.group(1)
+                    current_line_ending = "lf"  # default
+                    
                     if group_match.group(2):
                         timeout_str = group_match.group(2).rstrip('s')
                         try:
                             current_timeout = float(timeout_str)
                         except ValueError:
                             current_timeout = 10.0
+                    
+                    if group_match.group(3):
+                        # Line ending specified (lf, crlf, cr)
+                        ending = group_match.group(3).lower()
+                        if ending in ["lf", "crlf", "cr", "none"]:
+                            current_line_ending = ending if ending != "none" else ""
             
             # Pattern line (- ls *)
             elif line.strip().startswith('- ') and current_handler:
@@ -130,34 +147,35 @@ class _HandlerConfig:
                     rule = _HandlerRule(
                         pattern=pattern_line,
                         action=current_action,
-                        timeout=current_timeout
+                        timeout=current_timeout,
+                        line_ending=current_line_ending
                     )
                     patterns[current_handler].append(rule)
         
         return patterns
     
-    def get_action(self, handler_name: str, command: str) -> Tuple[Optional[str], float]:
-        """Get action and timeout for a command.
+    def get_action(self, handler_name: str, command: str) -> Tuple[Optional[str], float, str]:
+        """Get action, timeout, and line ending for a command.
         
         Args:
             handler_name: Name of handler (e.g., "SSH")
             command: Command to check
             
         Returns:
-            Tuple of (action, timeout) or (None, 10.0) if no match
+            Tuple of (action, timeout, line_ending) or (None, 10.0, "lf") if no match
         """
         patterns = self._load_patterns()
         
         handler_name = handler_name.upper()
         if handler_name not in patterns:
-            return None, 10.0
+            return None, 10.0, "lf"
         
         # Check patterns in order (first match wins)
         for rule in patterns[handler_name]:
             if rule.matches(command):
-                return rule.action, rule.timeout
+                return rule.action, rule.timeout, rule.line_ending
         
-        return None, 10.0
+        return None, 10.0, "lf"
 
 
 _config_instance: Optional[_HandlerConfig] = None
