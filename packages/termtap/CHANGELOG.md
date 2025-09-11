@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.7.0] - 2025-09-11
+
+### Added
 - Line ending configuration support in handlers.md (lf, crlf, cr, none)
 - `LineEnding` enum for explicit line termination control
 - Support for Windows SSH servers requiring CRLF line endings
