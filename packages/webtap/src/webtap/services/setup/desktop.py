@@ -62,6 +62,11 @@ MACOS_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
     <string>????</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.12</string>
+    <key>LSArchitecturePriority</key>
+    <array>
+        <string>arm64</string>
+        <string>x86_64</string>
+    </array>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -160,12 +165,30 @@ class DesktopSetupService:
         macos_dir = contents_dir / "MacOS"
         macos_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create launcher script
+        # Create launcher script that directly launches Chrome
+        # This avoids Rosetta warnings from nested bash scripts
         launcher_path = macos_dir / "Chrome Debug"
+        
+        # Get Chrome path from platform info
+        chrome_path = self.chrome["path"]
+        profile_dir = self.paths["data_dir"] / "profiles" / "default"
+        
         launcher_content = f"""#!/bin/bash
-# Chrome Debug app launcher
-# Uses absolute path to wrapper
-exec "{self.wrapper_path.expanduser()}" "$@"
+# Chrome Debug app launcher - direct Chrome execution
+# Avoids Rosetta warnings by directly launching Chrome
+
+PORT=${{WEBTAP_PORT:-9222}}
+PROFILE_DIR="{profile_dir}"
+mkdir -p "$PROFILE_DIR"
+
+# Launch Chrome directly with debugging
+exec "{chrome_path}" \\
+    --remote-debugging-port="$PORT" \\
+    --remote-allow-origins='*' \\
+    --user-data-dir="$PROFILE_DIR" \\
+    --no-first-run \\
+    --no-default-browser-check \\
+    "$@"
 """
         launcher_path.write_text(launcher_content)
         launcher_path.chmod(0o755)

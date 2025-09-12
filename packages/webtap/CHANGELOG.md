@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- macOS Chrome Debug.app now launches Chrome directly to avoid Rosetta warnings on Apple Silicon
+- Added LSArchitecturePriority to Info.plist for native architecture support
 
 ### Removed
 
