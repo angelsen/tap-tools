@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.8.1] - 2025-09-12
+
+### Added
 - Cross-platform support for macOS/BSD systems without `/proc` filesystem
 - `_create_noproc_process()` function to create fallback ProcessNode instances
 - Special "no_proc" wait_channel marker to identify processes on systems without /proc
