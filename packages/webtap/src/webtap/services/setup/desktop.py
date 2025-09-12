@@ -168,11 +168,11 @@ class DesktopSetupService:
         # Create launcher script that directly launches Chrome
         # This avoids Rosetta warnings from nested bash scripts
         launcher_path = macos_dir / "Chrome Debug"
-        
+
         # Get Chrome path from platform info
         chrome_path = self.chrome["path"]
         profile_dir = self.paths["data_dir"] / "profiles" / "default"
-        
+
         launcher_content = f"""#!/bin/bash
 # Chrome Debug app launcher - direct Chrome execution
 # Avoids Rosetta warnings by directly launching Chrome

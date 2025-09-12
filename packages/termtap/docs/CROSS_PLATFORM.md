@@ -109,13 +109,48 @@ class _PythonHandler(ProcessHandler):
 - ❌ No wait channel info
 - ❌ Can't distinguish ready vs busy sleeping
 
+## Current Implementation
+
+As of v0.3.0, termtap uses a graceful degradation approach:
+
+1. **Linux**: Full `/proc` filesystem support with wait channels
+2. **macOS/BSD**: Returns `ProcessNode` with `wait_channel="no_proc"` marker
+3. **Handler detection**: `ConfirmationHandler` automatically handles all processes with "no_proc" marker
+4. **User experience**: Commands work on all platforms, with confirmation popups on macOS
+
+## Future Enhancement: ps Command Fallback
+
+For better macOS support without full /proc, we could use `ps` to get basic process info:
+
+```python
+def _get_process_info_macos(pid: int) -> Optional[ProcessNode]:
+    """Get process info using ps command on macOS."""
+    import subprocess
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "pid,ppid,comm,state"],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        # Parse ps output to create ProcessNode
+        # Still mark with wait_channel="no_proc" 
+        # But would have real process names
+```
+
+This would provide:
+- Real process names (python3, node, ruby, etc.)
+- Basic process state (R/S/Z)
+- Parent-child relationships via PPID
+- Still use ConfirmationHandler for state detection
+
 ## Recommendations
 
 1. **Keep current Linux implementation** - `/proc/wchan` is optimal
-2. **Add optional py-spy support** for Python handler on macOS
-3. **Use ConfirmationHandler as fallback** - Better to ask than guess wrong
-4. **Document optional dependencies** - Users can install tools for better experience
-5. **Avoid ptrace/dtrace** - Too heavy, requires permissions
+2. **Current fallback works** - "no_proc" marker with ConfirmationHandler
+3. **Future: Add ps command support** - Better process names on macOS
+4. **Add optional py-spy support** for Python handler on macOS
+5. **Document optional dependencies** - Users can install tools for better experience
+6. **Avoid ptrace/dtrace** - Too heavy, requires permissions
 
 ## Future Enhancements
 

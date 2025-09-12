@@ -29,7 +29,7 @@ class _ConfirmationHandler(ProcessHandler):
     
     Handles:
     - SSH connections (always need confirmation for remote commands)
-    - ALL processes on systems without /proc (can't track state)
+    - ALL processes on systems without /proc (marked with wait_channel="no_proc")
     """
 
     _handles = ["ssh"]
@@ -38,8 +38,8 @@ class _ConfirmationHandler(ProcessHandler):
 
     def can_handle(self, pane: Pane) -> bool:
         """Handle SSH OR any process when /proc unavailable."""
-        # No /proc? Handle everything
-        if not os.path.exists("/proc"):
+        # Check if process has the no_proc marker
+        if pane.process and pane.process.wait_channel == "no_proc":
             return True
             
         # With /proc, only handle specific processes (SSH)
@@ -50,6 +50,9 @@ class _ConfirmationHandler(ProcessHandler):
 
         Args:
             pid: Process ID to check.
+            
+        Returns:
+            Process age in seconds, or 0.0 if unavailable.
         """
         try:
             with open(f"/proc/{pid}/stat", "r") as f:
@@ -68,6 +71,7 @@ class _ConfirmationHandler(ProcessHandler):
             age = uptime - process_uptime
             return age
         except (IOError, OSError, ValueError, IndexError):
+            # This includes the case where /proc doesn't exist
             return 0.0
 
     def is_ready(self, pane: Pane) -> tuple[bool | None, str]:
@@ -76,12 +80,12 @@ class _ConfirmationHandler(ProcessHandler):
         Args:
             pane: Pane with process information.
         """
-        if not os.path.exists("/proc"):
-            # Can't track without /proc
-            return True, "ready (no /proc)"
-            
         if not pane.process:
             return True, "no_process"
+        
+        # Check if we're on a system without /proc
+        if pane.process.wait_channel == "no_proc":
+            return True, "ready (no /proc)"
         
         # SSH-specific connection detection when /proc available
         if pane.process.name == "ssh":
@@ -93,6 +97,10 @@ class _ConfirmationHandler(ProcessHandler):
         """SSH-specific connection detection when /proc available."""
         if not pane.process:
             return True, "no_process"
+        
+        # Can't detect SSH connection state without /proc
+        if pane.process.wait_channel == "no_proc":
+            return True, "ready (no /proc)"
 
         process_age = self._get_process_age(pane.process.pid)
         if process_age > 5.0:

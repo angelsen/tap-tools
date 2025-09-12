@@ -15,6 +15,9 @@ from typing import List, Optional, Dict, Any, Set
 
 _logger = logging.getLogger(__name__)
 
+# Check once at module load time if /proc exists
+_HAS_PROC = os.path.exists("/proc")
+
 
 @dataclass
 class ProcessNode:
@@ -73,6 +76,27 @@ class ProcessNode:
         return bool(self.children)
 
 
+def _create_noproc_process(pid: int, name: str = "unknown") -> ProcessNode:
+    """Create process node for systems without /proc.
+    
+    Args:
+        pid: Process ID.
+        name: Optional process name if known.
+        
+    Returns:
+        ProcessNode with minimal info and 'no_proc' wait_channel marker.
+    """
+    return ProcessNode(
+        pid=pid,
+        name=name,
+        cmdline=name,
+        state="?",  # Unknown state
+        ppid=0,
+        wait_channel="no_proc",  # Special marker for no /proc
+        fd_count=None
+    )
+
+
 def _read_proc_file(path: str, default: str = "") -> str:
     """Read a /proc file safely.
 
@@ -107,7 +131,12 @@ def get_all_processes() -> Dict[int, Dict[str, Any]]:
 
     Returns:
         Dict mapping PID to process info including PPID.
+        Returns empty dict on systems without /proc.
     """
+    if not _HAS_PROC:
+        _logger.debug("No /proc filesystem found (likely macOS/BSD)")
+        return {}
+    
     processes = {}
 
     try:
@@ -228,7 +257,11 @@ def get_process_tree(root_pid: int) -> Optional[ProcessNode]:
 
     Returns:
         ProcessNode representing root with descendants, or None if not found.
+        On systems without /proc, returns a noproc process node.
     """
+    if not _HAS_PROC:
+        return _create_noproc_process(root_pid)
+    
     processes = get_all_processes()
     return build_tree_from_processes(processes, root_pid)
 
@@ -267,6 +300,7 @@ def get_process_chain(root_pid: int) -> List[ProcessNode]:
 
     Returns:
         List of ProcessNodes from root to leaf process.
+        On systems without /proc, returns a single noproc process node.
     """
     tree = get_process_tree(root_pid)
     return _extract_chain_from_tree(tree)
@@ -280,7 +314,12 @@ def _get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
 
     Returns:
         Dict mapping PID to its process chain.
+        On systems without /proc, returns noproc process nodes.
     """
+    if not _HAS_PROC:
+        # Return noproc processes for all PIDs
+        return {pid: [_create_noproc_process(pid)] for pid in pids}
+    
     all_processes = get_all_processes()
 
     chains = {}

@@ -8,10 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Cross-platform support for macOS/BSD systems without `/proc` filesystem
+- `_create_noproc_process()` function to create fallback ProcessNode instances
+- Special "no_proc" wait_channel marker to identify processes on systems without /proc
 
 ### Changed
+- Process tree functions now gracefully handle absence of /proc filesystem
+- `ConfirmationHandler` now detects "no_proc" marker instead of checking filesystem directly
+- All process operations return noproc ProcessNodes on macOS/BSD instead of failing
 
 ### Fixed
+- Process tracking no longer crashes on macOS due to missing /proc filesystem
+- `process_scan` context manager works on all platforms
 
 ### Removed
 
