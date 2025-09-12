@@ -8,10 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Cross-platform support (Linux and macOS)
+- `setup-cleanup` command to identify and remove old WebTap installations
+- `--bindfs` flag for `setup-chrome` to mount real Chrome profile for debugging (Linux only)
+- Unified `chrome-debug` wrapper at `~/.local/bin/chrome-debug`
+- Separate Chrome Debug launcher (doesn't override system Chrome)
+- Platform detection with XDG-compliant paths via platformdirs
 
 ### Changed
+- Chrome wrapper location from `~/.local/bin/wrappers/google-chrome-stable` to `~/.local/bin/chrome-debug`
+- Desktop entry from `google-chrome.desktop` override to separate `chrome-debug.desktop`
+- Extension location to platform-appropriate data directories
+- Setup service refactored into platform-aware modules
 
 ### Fixed
+- Cleanup command now detects all old installation locations
 
 ### Removed
 

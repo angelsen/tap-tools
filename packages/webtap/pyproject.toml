@@ -10,6 +10,8 @@ requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
     "Topic :: Software Development :: Debuggers",
     "Topic :: Internet :: WWW/HTTP :: Browsers",
 ]
@@ -21,6 +23,7 @@ dependencies = [
     "httpx>=0.28.1",
     "lxml>=6.0.1",
     "msgpack-python>=0.5.6",
+    "platformdirs>=4.4.0",
     "protobuf>=6.32.0",
     "pyjwt>=2.10.1",
     "pyyaml>=6.0.2",

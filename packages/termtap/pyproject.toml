@@ -10,7 +10,8 @@ keywords = ["tmux", "terminal", "mcp", "session-manager"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3.12",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Shells",
 ]

@@ -1,143 +1,27 @@
-"""Desktop entry setup functionality for WebTap."""
+"""Desktop/Application launcher setup (cross-platform)."""
 
-import re
 import logging
-from pathlib import Path
 from typing import Dict, Any
+
+from .platform import get_platform_info
 
 logger = logging.getLogger(__name__)
 
-
-def install_desktop_entry(force: bool = False) -> Dict[str, Any]:
-    """Install desktop entry to override system Chrome launcher.
-
-    Creates a .desktop file that makes Chrome launch with our debug wrapper
-    when started from GUI (app launcher, dock, etc).
-
-    Args:
-        force: Overwrite existing desktop entry
-
-    Returns:
-        Dict with success, message, path, details
-    """
-    # Check if wrapper exists first
-    wrapper_path = Path.home() / ".local" / "bin" / "wrappers" / "google-chrome-stable"
-    if not wrapper_path.exists():
-        return {
-            "success": False,
-            "message": "Chrome wrapper not found. Run 'setup-chrome' first",
-            "path": None,
-            "details": f"Expected wrapper at {wrapper_path}",
-        }
-
-    # Desktop entry location (user override of system entry)
-    desktop_path = Path.home() / ".local" / "share" / "applications" / "google-chrome.desktop"
-
-    if desktop_path.exists() and not force:
-        return {
-            "success": False,
-            "message": "Desktop entry already exists",
-            "path": str(desktop_path),
-            "details": "Use --force to overwrite",
-        }
-
-    # Get system Chrome desktop file for reference
-    system_desktop = _find_system_desktop_file()
-
-    if system_desktop:
-        desktop_content = _create_from_system_desktop(system_desktop, wrapper_path)
-        source_info = system_desktop.name
-    else:
-        desktop_content = _create_minimal_desktop(wrapper_path)
-        source_info = "minimal template"
-
-    # Create directory and save
-    desktop_path.parent.mkdir(parents=True, exist_ok=True)
-    desktop_path.write_text(desktop_content)
-    desktop_path.chmod(0o644)  # Standard permissions for desktop files
-
-    logger.info(f"Installed desktop entry to {desktop_path}")
-
-    return {
-        "success": True,
-        "message": "Installed Chrome desktop entry with debug wrapper",
-        "path": str(desktop_path),
-        "details": f"Based on {source_info}",
-    }
-
-
-def _find_system_desktop_file() -> Path | None:
-    """Find the system Chrome desktop file."""
-    for system_path in [
-        Path("/usr/share/applications/google-chrome.desktop"),
-        Path("/usr/share/applications/google-chrome-stable.desktop"),
-        Path("/usr/local/share/applications/google-chrome.desktop"),
-    ]:
-        if system_path.exists():
-            return system_path
-    return None
-
-
-def _create_from_system_desktop(system_desktop: Path, wrapper_path: Path) -> str:
-    """Create desktop content by modifying the system desktop file."""
-    try:
-        system_content = system_desktop.read_text()
-
-        # Replace all Exec= lines to use our wrapper
-        # Match Exec= lines that point to chrome executables
-        exec_pattern = re.compile(
-            r"^Exec=.*?(?:google-chrome-stable|google-chrome|chromium|chrome)(?:\s|$)", re.MULTILINE
-        )
-
-        # Replace with our wrapper, preserving arguments
-        def replace_exec(match):
-            line = match.group(0)
-            # Find where the executable ends and arguments begin
-            # Look for common chrome executables
-            for exe in ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium", "chrome"]:
-                if exe in line:
-                    # Split at the executable name
-                    parts = line.split(exe, 1)
-                    if len(parts) > 1:
-                        # Has arguments after executable
-                        return f"Exec={wrapper_path}{parts[1]}"
-                    else:
-                        # No arguments
-                        return f"Exec={wrapper_path}"
-            # Fallback - shouldn't happen
-            return f"Exec={wrapper_path}"
-
-        desktop_content = exec_pattern.sub(replace_exec, system_content)
-
-        # Also handle TryExec if present (used to check if program exists)
-        tryexec_pattern = re.compile(
-            r"^TryExec=.*?(?:google-chrome-stable|google-chrome|chromium|chrome)", re.MULTILINE
-        )
-        desktop_content = tryexec_pattern.sub(f"TryExec={wrapper_path}", desktop_content)
-
-        return desktop_content
-
-    except Exception as e:
-        logger.warning(f"Failed to parse system desktop file, using minimal entry: {e}")
-        return _create_minimal_desktop(wrapper_path)
-
-
-def _create_minimal_desktop(wrapper_path: Path) -> str:
-    """Create a minimal desktop entry from scratch."""
-    return f"""[Desktop Entry]
+# Desktop entry template for Linux
+LINUX_DESKTOP_ENTRY = """[Desktop Entry]
 Version=1.0
 Type=Application
-Name=Google Chrome
-GenericName=Web Browser
-Comment=Access the Internet
+Name=Chrome Debug
+GenericName=Web Browser (Debug Mode)
+Comment=Chrome with remote debugging enabled
 Icon=google-chrome
-Categories=Network;WebBrowser;
+Categories=Development;WebBrowser;
 MimeType=application/pdf;application/rdf+xml;application/rss+xml;application/xhtml+xml;application/xhtml_xml;application/xml;image/gif;image/jpeg;image/png;image/webp;text/html;text/xml;x-scheme-handler/ftp;x-scheme-handler/http;x-scheme-handler/https;
 StartupWMClass=Google-chrome
 StartupNotify=true
 Terminal=false
 Exec={wrapper_path} %U
-Actions=new-window;new-private-window;
+Actions=new-window;new-private-window;temp-profile;
 
 [Desktop Action new-window]
 Name=New Window
@@ -148,4 +32,197 @@ Exec={wrapper_path}
 Name=New Incognito Window
 StartupWMClass=Google-chrome
 Exec={wrapper_path} --incognito
+
+[Desktop Action temp-profile]
+Name=New Window (Temp Profile)
+StartupWMClass=Google-chrome
+Exec={wrapper_path} --temp
 """
+
+# Info.plist template for macOS app bundle
+MACOS_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Chrome Debug</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.webtap.chrome-debug</string>
+    <key>CFBundleName</key>
+    <string>Chrome Debug</string>
+    <key>CFBundleDisplayName</key>
+    <string>Chrome Debug</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.12</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTML Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.html</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Web Location</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.url</string>
+            </array>
+        </dict>
+    </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Web site URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>http</string>
+                <string>https</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>"""
+
+
+class DesktopSetupService:
+    """Platform-appropriate GUI launcher setup."""
+
+    def __init__(self):
+        self.info = get_platform_info()
+        self.paths = self.info["paths"]
+        self.chrome = self.info["chrome"]
+
+        # Unified wrapper path: ~/.local/bin/chrome-debug
+        self.wrapper_name = self.chrome["wrapper_name"]  # chrome-debug
+        self.wrapper_path = self.paths["bin_dir"] / self.wrapper_name
+
+    def install_launcher(self, force: bool = False) -> Dict[str, Any]:
+        """Install platform-appropriate launcher.
+
+        Args:
+            force: Overwrite existing launcher
+
+        Returns:
+            Installation result
+        """
+        # Check if wrapper exists first
+        if not self.wrapper_path.exists():
+            return {
+                "success": False,
+                "message": "Chrome wrapper 'chrome-debug' not found. Run 'setup-chrome' first",
+                "path": None,
+                "details": f"Expected wrapper at {self.wrapper_path}",
+            }
+
+        if self.info["is_macos"]:
+            return self._install_macos_app(force)
+        else:
+            return self._install_linux_desktop(force)
+
+    def _install_macos_app(self, force: bool) -> Dict[str, Any]:
+        """Create .app bundle for macOS.
+
+        Args:
+            force: Overwrite existing app
+
+        Returns:
+            Installation result
+        """
+        app_path = self.paths["applications_dir"] / "Chrome Debug.app"
+
+        if app_path.exists() and not force:
+            return {
+                "success": False,
+                "message": "Chrome Debug app already exists",
+                "path": str(app_path),
+                "details": "Use --force to overwrite",
+            }
+
+        # Create app structure
+        contents_dir = app_path / "Contents"
+        macos_dir = contents_dir / "MacOS"
+        macos_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create launcher script
+        launcher_path = macos_dir / "Chrome Debug"
+        launcher_content = f"""#!/bin/bash
+# Chrome Debug app launcher
+# Uses absolute path to wrapper
+exec "{self.wrapper_path.expanduser()}" "$@"
+"""
+        launcher_path.write_text(launcher_content)
+        launcher_path.chmod(0o755)
+
+        # Create Info.plist
+        plist_path = contents_dir / "Info.plist"
+        plist_path.write_text(MACOS_INFO_PLIST)
+
+        logger.info(f"Created Chrome Debug app at {app_path}")
+
+        return {
+            "success": True,
+            "message": "Chrome Debug app created successfully",
+            "path": str(app_path),
+            "details": "Available in Launchpad and Spotlight search",
+        }
+
+    def _install_linux_desktop(self, force: bool) -> Dict[str, Any]:
+        """Install .desktop file for Linux.
+
+        Args:
+            force: Overwrite existing desktop entry
+
+        Returns:
+            Installation result
+        """
+        # Create separate Chrome Debug desktop entry (doesn't override system Chrome)
+        desktop_path = self.paths["applications_dir"] / "chrome-debug.desktop"
+
+        if desktop_path.exists() and not force:
+            return {
+                "success": False,
+                "message": "Desktop entry already exists",
+                "path": str(desktop_path),
+                "details": "Use --force to overwrite",
+            }
+
+        # Create Chrome Debug desktop entry
+        desktop_content = self._create_chrome_debug_desktop()
+
+        # Create directory and save
+        desktop_path.parent.mkdir(parents=True, exist_ok=True)
+        desktop_path.write_text(desktop_content)
+        desktop_path.chmod(0o644)  # Standard permissions for desktop files
+
+        logger.info(f"Installed desktop entry to {desktop_path}")
+
+        return {
+            "success": True,
+            "message": "Installed Chrome Debug desktop entry",
+            "path": str(desktop_path),
+            "details": "Available in application menu as 'Chrome Debug'",
+        }
+
+    def _create_chrome_debug_desktop(self) -> str:
+        """Create Chrome Debug desktop entry with absolute paths."""
+        # Use absolute expanded path for Exec lines
+        wrapper_abs_path = self.wrapper_path.expanduser()
+
+        return LINUX_DESKTOP_ENTRY.format(wrapper_path=wrapper_abs_path)
