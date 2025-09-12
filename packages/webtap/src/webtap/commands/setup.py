@@ -150,23 +150,14 @@ def _format_setup_result(result: dict, component: str) -> dict:
                     {
                         "type": "list",
                         "items": [
-                            "Run `google-chrome-stable` to start Chrome with debugging",
+                            "Run `chrome-debug` to start Chrome with debugging",
                             "Or use `run-chrome` command for direct launch",
                         ],
                     }
                 )
         elif component == "desktop":
-            elements.append({"type": "text", "content": "\n**Next steps:**"})
-            elements.append(
-                {
-                    "type": "list",
-                    "items": [
-                        "Log out and log back in (or run `update-desktop-database ~/.local/share/applications`)",
-                        "Chrome will now launch with debugging enabled from GUI",
-                        "The wrapper at ~/.local/bin/wrappers/google-chrome-stable will be used",
-                    ],
-                }
-            )
+            # Platform-specific instructions are already in the service's details
+            pass
 
     return {"elements": elements}
 

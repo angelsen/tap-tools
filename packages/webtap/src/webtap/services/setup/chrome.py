@@ -75,6 +75,7 @@ fi
 # Launch Chrome with debugging
 exec "$CHROME_BIN" \\
     --remote-debugging-port="$PORT" \\
+    --remote-allow-origins='*' \\
     --user-data-dir="$PROFILE_DIR" \\
     --no-first-run \\
     --no-default-browser-check \\
@@ -103,6 +104,7 @@ fi
 # Launch Chrome with debugging
 exec "$CHROME_APP" \\
     --remote-debugging-port="$PORT" \\
+    --remote-allow-origins='*' \\
     --user-data-dir="$PROFILE_DIR" \\
     --no-first-run \\
     --no-default-browser-check \\
