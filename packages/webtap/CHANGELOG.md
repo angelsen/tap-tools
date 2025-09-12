@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.2.1] - 2025-09-12
+
+### Added
+
+### Changed
+
+### Fixed
 - Chrome wrapper on macOS now includes `--remote-allow-origins='*'` flag to allow WebSocket connections
 - All Chrome wrappers (Linux standard, Linux bindfs, macOS) now consistently include the flag
 - Removed incorrect Linux-specific instructions from setup-desktop command output on macOS
