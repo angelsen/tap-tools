@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+- Refactored inline strings to constants in setup services for better maintainability
+- Extracted all script templates, paths, and configuration values as module-level constants
 
 ### Fixed
 

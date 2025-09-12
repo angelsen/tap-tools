@@ -10,7 +10,26 @@ from .filters import FilterSetupService
 from .extension import ExtensionSetupService
 from .chrome import ChromeSetupService
 from .desktop import DesktopSetupService
-from .platform import get_platform_info, ensure_directories
+from .platform import get_platform_info, ensure_directories, APP_NAME
+
+# Old installation paths to clean up
+OLD_EXTENSION_PATH = ".config/webtap/extension"
+OLD_WRAPPER_PATH = ".local/bin/wrappers/google-chrome-stable"
+OLD_DESKTOP_PATH = ".local/share/applications/google-chrome.desktop"
+OLD_DEBUG_DIR = ".config/google-chrome-debug"
+
+# Path components
+WRAPPERS_DIR = "wrappers"
+GOOGLE_CHROME_STABLE = "google-chrome-stable"
+
+# Size formatting constants
+KB_SIZE = 1024
+SIZE_FORMAT_KB = "{:.1f} KB"
+SIZE_FORMAT_EMPTY = "empty"
+
+# Mount point command
+MOUNTPOINT_CMD = "mountpoint"
+MOUNTPOINT_CHECK_FLAG = "-q"
 
 
 class SetupService:
@@ -108,11 +127,11 @@ class SetupService:
         result = {}
 
         # Check old extension location
-        old_extension_path = Path.home() / ".config" / "webtap" / "extension"
+        old_extension_path = Path.home() / OLD_EXTENSION_PATH
         if old_extension_path.exists():
             # Calculate size
             size = sum(f.stat().st_size for f in old_extension_path.rglob("*") if f.is_file())
-            size_str = f"{size / 1024:.1f} KB" if size > 0 else "empty"
+            size_str = SIZE_FORMAT_KB.format(size / KB_SIZE) if size > 0 else SIZE_FORMAT_EMPTY
 
             result["old_extension"] = {"path": str(old_extension_path), "size": size_str, "removed": False}
 
@@ -128,7 +147,7 @@ class SetupService:
                     result["old_extension"]["error"] = str(e)
 
         # Check old Chrome wrapper location
-        old_wrapper_path = Path.home() / ".local" / "bin" / "wrappers" / "google-chrome-stable"
+        old_wrapper_path = Path.home() / OLD_WRAPPER_PATH
         if old_wrapper_path.exists():
             result["old_wrapper"] = {"path": str(old_wrapper_path), "removed": False}
 
@@ -144,12 +163,13 @@ class SetupService:
                     result["old_wrapper"]["error"] = str(e)
 
         # Check old desktop entry
-        old_desktop_path = Path.home() / ".local" / "share" / "applications" / "google-chrome.desktop"
+        old_desktop_path = Path.home() / OLD_DESKTOP_PATH
         if old_desktop_path.exists():
             # Check if it's our override (contains reference to wrapper)
             try:
                 content = old_desktop_path.read_text()
-                if "wrappers/google-chrome-stable" in content or "webtap" in content.lower():
+                wrapper_ref = f"{WRAPPERS_DIR}/{GOOGLE_CHROME_STABLE}"
+                if wrapper_ref in content or APP_NAME in content.lower():
                     result["old_desktop"] = {"path": str(old_desktop_path), "removed": False}
 
                     if not dry_run:
@@ -162,11 +182,11 @@ class SetupService:
                 pass  # If we can't read it, skip it
 
         # Check for bindfs mount
-        debug_dir = Path.home() / ".config" / "google-chrome-debug"
+        debug_dir = Path.home() / OLD_DEBUG_DIR
         if debug_dir.exists():
             try:
                 # Check if it's a mount point
-                output = subprocess.run(["mountpoint", "-q", str(debug_dir)], capture_output=True)
+                output = subprocess.run([MOUNTPOINT_CMD, MOUNTPOINT_CHECK_FLAG, str(debug_dir)], capture_output=True)
                 if output.returncode == 0:
                     result["bindfs_mount"] = str(debug_dir)
             except (FileNotFoundError, OSError):
