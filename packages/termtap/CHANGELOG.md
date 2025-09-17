@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.9.0] - 2025-09-17
+
+### Added
 - New handler action types: `auto-ask` and `ask-ask` for more flexible confirmation patterns
   - `auto-ask`: Send command automatically, then ask when done
   - `ask-ask`: Ask before sending, then ask when done
