@@ -54,11 +54,11 @@ class PaneInfo:
 
 
 def send_keys(
-    pane_id: str, 
-    *commands, 
+    pane_id: str,
+    *commands,
     enter: bool | None = None,  # Deprecated
     line_ending: LineEnding | str = LineEnding.LF,
-    delay: float = 0.05
+    delay: float = 0.05,
 ) -> bool:
     """Send keystrokes to a pane.
 
@@ -95,7 +95,7 @@ def send_keys(
             f"  Old: send_keys(..., enter={enter})\n"
             f"  New: send_keys(..., line_ending=LineEnding.{'LF' if enter else 'NONE'})",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         line_ending = LineEnding.LF if enter else LineEnding.NONE
 
@@ -111,8 +111,9 @@ def send_keys(
     if line_ending and line_ending != LineEnding.NONE:
         if delay > 0:
             import time
+
             time.sleep(delay)
-        
+
         if line_ending == LineEnding.LF or line_ending == "lf":
             code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
         elif line_ending == LineEnding.CRLF or line_ending == "crlf":
@@ -121,18 +122,18 @@ def send_keys(
         elif line_ending == LineEnding.CR or line_ending == "cr":
             # Send only Ctrl-M (carriage return)
             code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m"])
-        
+
         return code == 0
 
     return True
 
 
 def send_via_paste_buffer(
-    pane_id: str, 
-    content: str, 
+    pane_id: str,
+    content: str,
     enter: bool | None = None,  # Deprecated
     line_ending: LineEnding | str = LineEnding.LF,
-    delay: float = 0.05
+    delay: float = 0.05,
 ) -> bool:
     """Send content using tmux paste buffer for multiline/special content.
 
@@ -157,7 +158,7 @@ def send_via_paste_buffer(
             f"  Old: send_via_paste_buffer(..., enter={enter})\n"
             f"  New: send_via_paste_buffer(..., line_ending=LineEnding.{'LF' if enter else 'NONE'})",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         line_ending = LineEnding.LF if enter else LineEnding.NONE
 
@@ -184,8 +185,9 @@ def send_via_paste_buffer(
     if line_ending and line_ending != LineEnding.NONE:
         if delay > 0:
             import time
+
             time.sleep(delay)
-        
+
         if line_ending == LineEnding.LF or line_ending == "lf":
             code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
         elif line_ending == LineEnding.CRLF or line_ending == "crlf":

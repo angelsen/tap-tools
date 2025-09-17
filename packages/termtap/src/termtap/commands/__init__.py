@@ -11,7 +11,7 @@ PUBLIC API:
   - run: Run development environment from configuration
   - run_list: List available run configurations
   - kill: Stop running environment
-  - send_keys: Send raw keys to pane
+  - send_keystrokes: Send raw keystrokes to pane
   - track: Track process state changes (development tool)
 """
 
@@ -20,7 +20,7 @@ from .interrupt import interrupt
 from .ls import ls
 from .pane import pane
 from .run import run, run_list, kill
-from .send_keys import send_keys
+from .send_keystrokes import send_keystrokes
 from .track import track
 
 __all__ = [
@@ -31,6 +31,6 @@ __all__ = [
     "run",
     "run_list",
     "kill",
-    "send_keys",
+    "send_keystrokes",
     "track",
 ]

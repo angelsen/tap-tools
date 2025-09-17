@@ -25,8 +25,9 @@ def main():
     """
     # Ensure handlers.md exists on startup
     from .process.handlers.config import ensure_handlers_file
+
     ensure_handlers_file()
-    
+
     if "--mcp" in sys.argv:
         app.mcp.run()
     else:

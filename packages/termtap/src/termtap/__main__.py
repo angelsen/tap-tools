@@ -12,4 +12,5 @@ logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT, datefmt=_LOG_DATEFMT
 
 if __name__ == "__main__":
     from . import main
+
     main()

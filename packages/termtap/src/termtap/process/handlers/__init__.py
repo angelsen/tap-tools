@@ -81,20 +81,27 @@ class ProcessHandler(ABC):
         """
         # Check configuration first
         from .config import _get_handler_config
+
         handler_name = self.__class__.__name__.replace("_", "").replace("Handler", "").upper()
         action, timeout, line_ending = _get_handler_config().get_action(handler_name, command)
-        
-        if action == "auto":
+
+        if action in ["auto", "auto-ask"]:
             # Store for after_send to use
+            self._auto_action = action
             self._auto_timeout = timeout
             self._auto_line_ending = line_ending
             return command  # Skip handler's before_send logic
         elif action == "never":
             return None  # Block command
-        
+        elif action == "ask-ask":
+            # Store for after_send, but still call before_send for initial ask
+            self._auto_action = action
+            self._auto_timeout = timeout
+            self._auto_line_ending = line_ending
+
         # No config match or "ask" - use handler's normal behavior
         return self._before_send_impl(pane, command)
-    
+
     def _before_send_impl(self, pane: Pane, command: str) -> str | None:
         """Handler-specific before_send logic. Override this in subclasses.
 
@@ -116,19 +123,30 @@ class ProcessHandler(ABC):
             pane: Target pane.
             command: Command that was sent.
         """
-        # If auto-accepted, handle timeout and skip handler logic
-        if hasattr(self, '_auto_timeout'):
-            import time
-            time.sleep(self._auto_timeout)
+        # If auto-accepted, handle timeout based on action
+        if hasattr(self, "_auto_action"):
+            action = self._auto_action
+            timeout = self._auto_timeout
+
+            if action in ["auto-ask", "ask-ask"]:
+                # Use handler's confirmation logic (show popup)
+                self._after_send_impl(pane, command)
+            else:
+                # Normal auto - just wait timeout
+                import time
+
+                time.sleep(timeout)
+
+            # Clean up attributes
+            del self._auto_action
             del self._auto_timeout
-            # Clean up line ending attribute too
-            if hasattr(self, '_auto_line_ending'):
+            if hasattr(self, "_auto_line_ending"):
                 del self._auto_line_ending
             return
-        
+
         # Use handler's normal behavior
         self._after_send_impl(pane, command)
-    
+
     def _after_send_impl(self, pane: Pane, command: str) -> None:
         """Handler-specific after_send logic. Override this in subclasses.
 
@@ -178,8 +196,8 @@ class ProcessHandler(ABC):
 
         try:
             # Use configured line ending if auto-accepting
-            if hasattr(self, '_auto_line_ending'):
-                line_ending = getattr(self, '_auto_line_ending', 'lf')
+            if hasattr(self, "_auto_line_ending"):
+                line_ending = getattr(self, "_auto_line_ending", "lf")
                 # Convert string to LineEnding enum if needed
                 if isinstance(line_ending, str):
                     line_ending = LineEnding(line_ending) if line_ending else LineEnding.NONE

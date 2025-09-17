@@ -26,7 +26,7 @@ from ...pane import Pane
 
 class _ConfirmationHandler(ProcessHandler):
     """Handler for processes requiring confirmation popups.
-    
+
     Handles:
     - SSH connections (always need confirmation for remote commands)
     - ALL processes on systems without /proc (marked with wait_channel="no_proc")
@@ -41,7 +41,7 @@ class _ConfirmationHandler(ProcessHandler):
         # Check if process has the no_proc marker
         if pane.process and pane.process.wait_channel == "no_proc":
             return True
-            
+
         # With /proc, only handle specific processes (SSH)
         return bool(pane.process and pane.process.name in self._handles)
 
@@ -50,7 +50,7 @@ class _ConfirmationHandler(ProcessHandler):
 
         Args:
             pid: Process ID to check.
-            
+
         Returns:
             Process age in seconds, or 0.0 if unavailable.
         """
@@ -82,22 +82,22 @@ class _ConfirmationHandler(ProcessHandler):
         """
         if not pane.process:
             return True, "no_process"
-        
+
         # Check if we're on a system without /proc
         if pane.process.wait_channel == "no_proc":
             return True, "ready (no /proc)"
-        
+
         # SSH-specific connection detection when /proc available
         if pane.process.name == "ssh":
             return self._check_ssh_connection(pane)
-            
+
         return True, "ready"
-    
+
     def _check_ssh_connection(self, pane: Pane) -> tuple[bool | None, str]:
         """SSH-specific connection detection when /proc available."""
         if not pane.process:
             return True, "no_process"
-        
+
         # Can't detect SSH connection state without /proc
         if pane.process.wait_channel == "no_proc":
             return True, "ready (no /proc)"

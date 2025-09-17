@@ -64,7 +64,7 @@ from .commands import execute  # noqa: E402, F401
 from .commands import pane  # noqa: E402, F401
 from .commands import ls  # noqa: E402, F401
 from .commands import interrupt  # noqa: E402, F401
-from .commands import send_keys  # noqa: E402, F401
+from .commands import send_keystrokes  # noqa: E402, F401
 from .commands import track  # noqa: E402, F401
 from .commands import run  # noqa: E402, F401
 

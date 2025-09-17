@@ -78,11 +78,11 @@ class ProcessNode:
 
 def _create_noproc_process(pid: int, name: str = "unknown") -> ProcessNode:
     """Create process node for systems without /proc.
-    
+
     Args:
         pid: Process ID.
         name: Optional process name if known.
-        
+
     Returns:
         ProcessNode with minimal info and 'no_proc' wait_channel marker.
     """
@@ -93,7 +93,7 @@ def _create_noproc_process(pid: int, name: str = "unknown") -> ProcessNode:
         state="?",  # Unknown state
         ppid=0,
         wait_channel="no_proc",  # Special marker for no /proc
-        fd_count=None
+        fd_count=None,
     )
 
 
@@ -136,7 +136,7 @@ def get_all_processes() -> Dict[int, Dict[str, Any]]:
     if not _HAS_PROC:
         _logger.debug("No /proc filesystem found (likely macOS/BSD)")
         return {}
-    
+
     processes = {}
 
     try:
@@ -261,7 +261,7 @@ def get_process_tree(root_pid: int) -> Optional[ProcessNode]:
     """
     if not _HAS_PROC:
         return _create_noproc_process(root_pid)
-    
+
     processes = get_all_processes()
     return build_tree_from_processes(processes, root_pid)
 
@@ -319,7 +319,7 @@ def _get_process_chains_batch(pids: List[int]) -> Dict[int, List[ProcessNode]]:
     if not _HAS_PROC:
         # Return noproc processes for all PIDs
         return {pid: [_create_noproc_process(pid)] for pid in pids}
-    
+
     all_processes = get_all_processes()
 
     chains = {}
