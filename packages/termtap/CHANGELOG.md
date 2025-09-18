@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.9.1] - 2025-09-18
+
+### Added
+
+### Changed
+
+### Fixed
 - Fixed tmux pane listing when pane titles contain special characters (e.g., Windows paths with backslashes in SSH sessions)
   - Split tmux queries into two calls: one for JSON-safe fields, one for pane titles
   - Resolves issue where panes with Windows paths were silently skipped in `ls()` command
