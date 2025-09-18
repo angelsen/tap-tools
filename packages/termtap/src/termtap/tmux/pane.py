@@ -295,35 +295,36 @@ def list_panes(all: bool = True, session: Optional[str] = None, window: Optional
     elif all:
         cmd.append("-a")
 
-    fields = {
-        "pane_id": "#{pane_id}",
-        "session_name": "#{session_name}",
-        "window_index": "#{window_index}",
-        "window_name": "#{window_name}",
-        "pane_index": "#{pane_index}",
-        "pane_title": "#{pane_title}",
-        "pane_pid": "#{pane_pid}",
-        "pane_active": "#{pane_active}",
-    }
-    format_parts = [f'"{k}":"{v}"' for k, v in fields.items()]
-    format_str = "{" + ",".join(format_parts) + "}"
+    # First run: Get all fields except pane_title as JSON (safe from escaping issues)
+    json_format = '{"pane_id":"#{pane_id}","session_name":"#{session_name}","window_index":"#{window_index}","window_name":"#{window_name}","pane_index":"#{pane_index}","pane_pid":"#{pane_pid}","pane_active":"#{pane_active}"}'
 
-    cmd.extend(["-F", format_str])
-
+    cmd.extend(["-F", json_format])
     code, stdout, _ = run_tmux(cmd)
     if code != 0:
         return []
 
+    # Second run: Get just pane_titles in same order
+    title_cmd = ["list-panes"]
+    if window:
+        title_cmd.extend(["-t", window])
+    elif session:
+        title_cmd.extend(["-t", session])
+    elif all:
+        title_cmd.append("-a")
+
+    title_cmd.extend(["-F", "#{pane_title}"])
+    _, title_stdout, _ = run_tmux(title_cmd)
+
+    titles = title_stdout.strip().split("\n")
     panes = []
     current_pane_id = _get_current_pane()
 
-    for line in stdout.strip().split("\n"):
+    for i, line in enumerate(stdout.strip().split("\n")):
         if not line:
             continue
 
         try:
             data = json.loads(line)
-
             window_idx = int(data["window_index"])
             pane_idx = int(data["pane_index"])
 
@@ -334,14 +335,14 @@ def list_panes(all: bool = True, session: Optional[str] = None, window: Optional
                     window_index=window_idx,
                     window_name=data["window_name"] or str(window_idx),
                     pane_index=pane_idx,
-                    pane_title=data["pane_title"],
+                    pane_title=titles[i] if i < len(titles) else "",  # Get title by index
                     pane_pid=int(data["pane_pid"]),
                     is_active=data["pane_active"] == "1",
                     is_current=data["pane_id"] == current_pane_id,
                     swp=f"{data['session_name']}:{window_idx}.{pane_idx}",
                 )
             )
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except (json.JSONDecodeError, KeyError, ValueError, IndexError):
             continue
 
     panes.sort(key=lambda p: (p.session, p.window_index, p.pane_index))
