@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.2.4] - 2025-09-19
+
+### Added
 - New `server` command for explicit API server management (start/stop/restart/status)
 - Server command implemented as MCP prompt returning markdown status information
 
