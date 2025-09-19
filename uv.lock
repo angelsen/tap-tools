@@ -1383,7 +1383,7 @@ wheels = [
 
 [[package]]
 name = "webtap-tool"
-version = "0.2.4"
+version = "0.3.0"
 source = { editable = "packages/webtap" }
 dependencies = [
     { name = "beautifulsoup4" },
