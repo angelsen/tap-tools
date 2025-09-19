@@ -8,32 +8,10 @@ Execute a complete package release workflow using relkit.
 
 **Your task: Release a package (or the entire project) using relkit's atomic workflow.**
 
-## Step 1: Status Check
-
-```bash
-# For workspace packages
-relkit status --package <package>
-
-# For single package
-relkit status
-```
-
 Review the output to ensure:
 - Git is clean (no uncommitted changes)
 - Changelog has entries
 - Code quality checks pass
-
-## Step 2: Quality Checks
-
-```bash
-# Run all checks with auto-fix
-relkit check all --fix
-
-# Or run specific checks
-relkit check format --fix
-relkit check lint --fix
-relkit check types
-```
 
 ## Step 3: Update CHANGELOG
 
@@ -48,7 +26,7 @@ Ensure CHANGELOG.md has entries in the [Unreleased] section:
 # For workspace packages
 relkit bump <patch|minor|major> --package <package>
 
-# For single package  
+# For single package
 relkit bump <patch|minor|major>
 ```
 
@@ -64,9 +42,6 @@ This atomically:
 ```bash
 # Build distribution files
 relkit build [--package <package>]
-
-# Test the built package
-relkit test [--package <package>]
 ```
 
 ## Step 6: Publish (if public)
@@ -81,7 +56,7 @@ Note: Private packages (with "Private :: Do Not Upload" classifier) are blocked 
 ## Key Points
 
 - **relkit enforces**: Clean git state before operations
-- **relkit blocks**: Building if dist/ has old files  
+- **relkit blocks**: Building if dist/ has old files
 - **relkit requires**: CHANGELOG entries for releases
 - **relkit handles**: Workspace vs single package automatically
 - **relkit protects**: Against accidental public releases
@@ -90,11 +65,7 @@ Note: Private packages (with "Private :: Do Not Upload" classifier) are blocked 
 
 For a full release after changes are ready:
 ```bash
-relkit check all --fix && \
 relkit bump patch [--package <name>] && \
 relkit build [--package <name>] && \
-relkit test [--package <name>] && \
 relkit publish [--package <name>]
 ```
-
-Start by running `relkit status` to see what needs to be done.

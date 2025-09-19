@@ -1,7 +1,7 @@
-// API helper - communicate with WebTap service
+// API helper - communicate with WebTap service on port 8765
 async function api(endpoint, method = "GET", body = null) {
   try {
-    const opts = { 
+    const opts = {
       method,
       // Add timeout to detect unresponsive server faster
       signal: AbortSignal.timeout(3000)
@@ -40,9 +40,6 @@ async function loadPages() {
     return;
   }
 
-  // Update instance info tooltip
-  document.getElementById("switchInstance").title =
-    `PID: ${info.pid} | Events: ${info.events}`;
 
   const pages = info.pages || [];
   const select = document.getElementById("pageList");
@@ -266,26 +263,6 @@ document.getElementById("disableAllFilters").onclick = async () => {
   setTimeout(updateFilters, 100);
 };
 
-// Switch to a different WebTap instance
-document.getElementById("switchInstance").onclick = async () => {
-  const result = await api("/release", "POST");
-  if (!result.error) {
-    document.getElementById("status").innerHTML =
-      '<span style="color: #666">Port released. Start new WebTap.</span>';
-    // Disable controls until reconnected
-    document.getElementById("connect").disabled = true;
-    document.getElementById("disconnect").disabled = true;
-    document.getElementById("fetchToggle").disabled = true;
-    // Try to reconnect after delay
-    setTimeout(() => {
-      loadPages();
-      updateStatus();
-    }, 2000);
-  } else {
-    document.getElementById("status").innerHTML =
-      `<span class="error">Error: ${result.error}</span>`;
-  }
-};
 
 // Update all status from server - single source of truth
 async function updateStatus() {

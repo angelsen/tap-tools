@@ -199,21 +199,6 @@ async def disable_all_filters() -> Dict[str, Any]:
     return {"enabled": [], "total": 0}
 
 
-@api.post("/release")
-async def release_port() -> Dict[str, Any]:
-    """Release API port for another WebTap instance."""
-    logger.info("Releasing API port for another instance")
-
-    # Schedule graceful shutdown after response
-    def shutdown():
-        # Just set the flag to stop uvicorn, don't kill the whole process
-        global _shutdown_requested
-        _shutdown_requested = True
-
-    threading.Timer(0.5, shutdown).start()
-    return {"message": "Releasing port 8765"}
-
-
 # Flag to signal shutdown
 _shutdown_requested = False
 

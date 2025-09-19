@@ -8,12 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- New `server` command for explicit API server management (start/stop/restart/status)
+- Server command implemented as MCP prompt returning markdown status information
 
 ### Changed
+- API server no longer starts automatically - must be started explicitly with `server('start')`
+- API server management is now explicit and user-controlled
 
 ### Fixed
 
 ### Removed
+- Automatic API server startup on webtap launch
+- `/release` endpoint from API (no longer needed with explicit server management)
 
 ## [0.2.3] - 2025-09-12
 

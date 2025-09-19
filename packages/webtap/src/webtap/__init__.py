@@ -9,14 +9,9 @@ PUBLIC API:
   - main: Entry point function for CLI
 """
 
-import atexit
 import sys
-import logging
 
 from webtap.app import app
-from webtap.api import start_api_server
-
-logger = logging.getLogger(__name__)
 
 
 def main():
@@ -27,13 +22,9 @@ def main():
     - MCP mode (with --mcp flag) for Model Context Protocol server
     - REPL mode (default) for interactive shell
 
-    In REPL and MCP modes, the API server is started for Chrome extension
-    integration. The API server runs in background to handle extension requests.
+    The API server for Chrome extension communication must be started
+    explicitly using the server('start') command.
     """
-    # Start API server for Chrome extension (except in CLI mode)
-    if "--cli" not in sys.argv:
-        _start_api_server_safely()
-
     if "--mcp" in sys.argv:
         app.mcp.run()
     elif "--cli" in sys.argv:
@@ -43,22 +34,6 @@ def main():
     else:
         # Run REPL
         app.run(title="WebTap - Chrome DevTools Protocol REPL")
-
-
-def _start_api_server_safely():
-    """Start API server with error handling and cleanup registration."""
-    try:
-        thread = start_api_server(app.state)
-        if thread and app.state:
-            app.state.api_thread = thread
-            logger.info("API server started on port 8765")
-
-            # Register cleanup to shut down API server on exit
-            atexit.register(lambda: app.state.cleanup() if app.state else None)
-        else:
-            logger.info("Port 8765 in use by another instance")
-    except Exception as e:
-        logger.warning(f"Failed to start API server: {e}")
 
 
 __all__ = ["app", "main"]
