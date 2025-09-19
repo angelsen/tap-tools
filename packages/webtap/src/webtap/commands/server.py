@@ -33,6 +33,7 @@ def _stop_server(state) -> tuple[bool, str]:
         return False, "Not running"
 
     import webtap.api
+
     webtap.api._shutdown_requested = True
     state.api_thread.join(timeout=2.0)
     state.api_thread = None
@@ -57,6 +58,7 @@ def _start_server(state) -> tuple[bool, str]:
 
         # Register cleanup
         import atexit
+
         atexit.register(lambda: state.cleanup() if state else None)
 
         return True, f"Server started on port {API_PORT}"
@@ -64,12 +66,13 @@ def _start_server(state) -> tuple[bool, str]:
         return False, "Failed to start server"
 
 
-@app.command(display="markdown", fastmcp={
-    "type": "prompt",
-    "arg_descriptions": {
-        "action": "Server action: status (default), start, stop, or restart"
-    }
-})
+@app.command(
+    display="markdown",
+    fastmcp={
+        "type": "prompt",
+        "arg_descriptions": {"action": "Server action: status (default), start, stop, or restart"},
+    },
+)
 def server(state, action: str = None) -> dict:  # pyright: ignore[reportArgumentType]
     """API server status and management information.
 
@@ -110,7 +113,7 @@ def server(state, action: str = None) -> dict:  # pyright: ignore[reportArgument
             "`server('start')` - Start the API server",
             "`server('stop')` - Stop the API server",
             "`server('restart')` - Restart the API server",
-            "`server('status')` or `server()` - Show this status"
+            "`server('status')` or `server()` - Show this status",
         ]
         elements.append({"type": "list", "items": actions})
 
