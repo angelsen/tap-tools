@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.2.2] - 2025-09-19
+
+### Added
+
+### Changed
+
+### Fixed
 - Filter component now properly displays dict options (only labels, not "label: value")
 
 ### Removed
