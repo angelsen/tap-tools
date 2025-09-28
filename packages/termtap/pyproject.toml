@@ -16,7 +16,7 @@ classifiers = [
     "Topic :: System :: Shells",
 ]
 dependencies = [
-    "replkit2[all]>=0.11.0",
+    "replkit2[all]>=0.12.0",
     "tmux-popup>=0.2.2",
 ]
 
@@ -47,3 +47,13 @@ exclude = [
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
 tmux-popup = { workspace = true }
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+include = ["src/**/*.py"]
+
+[tool.ruff]
+line-length = 120
+include = ["src/**/*.py"]

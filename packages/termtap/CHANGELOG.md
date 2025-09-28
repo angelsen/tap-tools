@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+- **BREAKING**: Updated to ReplKit2 v0.12.0 - using `mcp_config` instead of `fastmcp` parameter
+- Minimum ReplKit2 version requirement updated from 0.11.0 to 0.12.0
 
 ### Fixed
 
