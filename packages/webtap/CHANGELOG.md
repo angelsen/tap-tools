@@ -8,12 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Filter mode support: `include` and `exclude` modes for fine-grained request filtering
+- TypedDict for filter configuration ensuring type safety
+- Filter tip in `network()` command showing example usage
+- Markdown table display for filter categories replacing code blocks
+- CDP resource types documentation in filter command
 
 ### Changed
+- **BREAKING**: Filter categories now require explicit `mode` field ("include" or "exclude")
+- **BREAKING**: Updated to ReplKit2 v0.12.0 - using `mcp_config` instead of `fastmcp` parameter
+- Filter core returns data (`get_categories_summary()`) instead of formatted strings
+- Presentation logic moved from FilterManager to command layer
+- Server command uses assistant prefill to prevent LLM commentary
 
 ### Fixed
+- Alert element in network command now uses correct `message` field instead of `content`
+- Type annotations for optional parameters properly use `str | None`
 
 ### Removed
+- Backward compatibility for filters without mode field
+- Emoji icons in filter display, using plain text indicators instead
 
 ## [0.3.0] - 2025-09-19
 

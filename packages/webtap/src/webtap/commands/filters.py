@@ -7,46 +7,19 @@ from webtap.commands._builders import info_response, error_response
 @app.command(display="markdown", fastmcp={"type": "tool"})
 def filters(state, action: str = "list", config: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
     """
-    Manage network request filters.
+    Manage network request filters with include/exclude modes.
 
-    Filters are managed by the service and can be persisted to .webtap/filters.json.
+    CDP Types: Document, XHR, Fetch, Image, Stylesheet, Script, Font, Media, Other, Ping
+    Domains filter URLs, types filter Chrome's resource loading mechanism.
 
-    Args:
-        action: Filter operation
-            - "list" - List all filter categories (default)
-            - "show" - Show specific category details
-            - "add" - Add patterns to category
-            - "remove" - Remove patterns from category
-            - "update" - Update entire category
-            - "delete" - Delete entire category
-            - "enable" - Enable category
-            - "disable" - Disable category
-            - "save" - Save filters to disk
-            - "load" - Load filters from disk
-        config: Action-specific configuration
-            - For show: {"category": "ads"}
-            - For add: {"category": "ads", "patterns": ["*ad*"], "type": "domain"}
-            - For remove: {"patterns": ["*ad*"], "type": "domain"}
-            - For update: {"category": "ads", "domains": [...], "types": [...]}
-            - For delete/enable/disable: {"category": "ads"}
-
-    Examples:
-        filters()                                          # List all categories
-        filters("list")                                    # Same as above
-        filters("show", {"category": "ads"})              # Show ads category details
-        filters("add", {"category": "ads",
-                "patterns": ["*doubleclick*"]})           # Add domain pattern
-        filters("add", {"category": "tracking",
-                "patterns": ["Ping"], "type": "type"})    # Add type pattern
-        filters("remove", {"patterns": ["*doubleclick*"]}) # Remove pattern
-        filters("update", {"category": "ads",
-                "domains": ["*google*", "*facebook*"]})   # Replace patterns
-        filters("delete", {"category": "ads"})            # Delete category
-        filters("save")                                   # Persist to disk
-        filters("load")                                   # Load from disk
-
-    Returns:
-        Current filter configuration or operation result
+    Actions:
+        list: Show all categories (default)
+        show: Display category - config: {"category": "api"}
+        add: Add patterns - config: {"category": "api", "patterns": ["*api*"], "type": "domain", "mode": "include"}
+        remove: Remove patterns - config: {"patterns": ["*api*"], "type": "domain"}
+        update: Replace category - config: {"category": "api", "mode": "include", "domains": [...], "types": ["XHR", "Fetch"]}
+        delete/enable/disable: Manage category - config: {"category": "api"}
+        save/load: Persist to/from disk
     """
     fm = state.service.filters
     cfg = config or {}
@@ -54,14 +27,35 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
     # Handle load operation
     if action == "load":
         if fm.load():
-            # Convert display info to markdown
-            display_info = fm.get_display_info()
-            return {
-                "elements": [
-                    {"type": "heading", "content": "Filters Loaded", "level": 2},
-                    {"type": "code_block", "content": display_info, "language": ""},
-                ]
-            }
+            # Build table data
+            categories = fm.get_categories_summary()
+            rows = []
+            for cat in categories:
+                mode = cat["mode"] or "exclude"
+                mode_display = "include" if mode == "include" else "exclude"
+                if cat["mode"] is None:
+                    mode_display = "exclude*"  # Asterisk indicates missing mode field
+
+                rows.append(
+                    {
+                        "Category": cat["name"],
+                        "Status": "enabled" if cat["enabled"] else "disabled",
+                        "Mode": mode_display,
+                        "Domains": str(cat["domain_count"]),
+                        "Types": str(cat["type_count"]),
+                    }
+                )
+
+            elements = [
+                {"type": "heading", "content": "Filters Loaded", "level": 2},
+                {"type": "text", "content": f"From: `{fm.filter_path}`"},
+                {"type": "table", "headers": ["Category", "Status", "Mode", "Domains", "Types"], "rows": rows},
+            ]
+
+            if any(cat["mode"] is None for cat in categories):
+                elements.append({"type": "text", "content": "_* Mode not specified, defaulting to exclude_"})
+
+            return {"elements": elements}
         else:
             return error_response(f"No filters found at {fm.filter_path}")
 
@@ -82,6 +76,7 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
         category = cfg.get("category", "custom")
         patterns = cfg.get("patterns", [])
         pattern_type = cfg.get("type", "domain")
+        mode = cfg.get("mode")  # Required, no default
 
         if not patterns:
             # Legacy single pattern support
@@ -94,11 +89,14 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
 
         added = []
         failed = []
-        for pattern in patterns:
-            if fm.add_pattern(pattern, category, pattern_type):
-                added.append(pattern)
-            else:
-                failed.append(pattern)
+        try:
+            for pattern in patterns:
+                if fm.add_pattern(pattern, category, pattern_type, mode):
+                    added.append(pattern)
+                else:
+                    failed.append(pattern)
+        except ValueError as e:
+            return error_response(str(e))
 
         if added and not failed:
             return info_response(
@@ -107,6 +105,7 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
                     "Type": "Domain pattern" if pattern_type == "domain" else "Resource type",
                     "Patterns": ", ".join(added),
                     "Category": category,
+                    "Mode": mode,
                 },
             )
         elif failed:
@@ -149,8 +148,10 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
             return error_response("'category' required for update action")
 
         category = cfg["category"]
-        fm.update_category(category, domains=cfg.get("domains"), types=cfg.get("types"))
-        return info_response(title="Category Updated", fields={"Category": category})
+        fm.update_category(category, domains=cfg.get("domains"), types=cfg.get("types"), mode=cfg.get("mode"))
+        return info_response(
+            title="Category Updated", fields={"Category": category, "Mode": cfg.get("mode", "exclude")}
+        )
 
     # Handle delete operation
     elif action == "delete":
@@ -193,10 +194,12 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
         if category in fm.filters:
             filters = fm.filters[category]
             enabled = "Enabled" if category in fm.enabled_categories else "Disabled"
+            mode = filters.get("mode", "exclude")
 
             elements = [
                 {"type": "heading", "content": f"Category: {category}", "level": 2},
                 {"type": "text", "content": f"**Status:** {enabled}"},
+                {"type": "text", "content": f"**Mode:** {mode}"},
             ]
 
             if filters.get("domains"):
@@ -212,13 +215,43 @@ def filters(state, action: str = "list", config: dict = None) -> dict:  # pyrigh
 
     # Default list action: show all filters
     elif action == "list" or action == "":
-        display_info = fm.get_display_info()
-        return {
-            "elements": [
-                {"type": "heading", "content": "Filter Configuration", "level": 2},
-                {"type": "code_block", "content": display_info, "language": ""},
-            ]
-        }
+        if not fm.filters:
+            return {
+                "elements": [
+                    {"type": "heading", "content": "Filter Configuration", "level": 2},
+                    {"type": "text", "content": f"No filters loaded (would load from `{fm.filter_path}`)"},
+                    {"type": "text", "content": "Use `filters('load')` to load filters from disk"},
+                ]
+            }
+
+        # Build table data
+        categories = fm.get_categories_summary()
+        rows = []
+        for cat in categories:
+            mode = cat["mode"] or "exclude"
+            mode_display = "include" if mode == "include" else "exclude"
+            if cat["mode"] is None:
+                mode_display = "exclude*"
+
+            rows.append(
+                {
+                    "Category": cat["name"],
+                    "Status": "enabled" if cat["enabled"] else "disabled",
+                    "Mode": mode_display,
+                    "Domains": str(cat["domain_count"]),
+                    "Types": str(cat["type_count"]),
+                }
+            )
+
+        elements = [
+            {"type": "heading", "content": "Filter Configuration", "level": 2},
+            {"type": "table", "headers": ["Category", "Status", "Mode", "Domains", "Types"], "rows": rows},
+        ]
+
+        if any(cat["mode"] is None for cat in categories):
+            elements.append({"type": "text", "content": "_* Mode not specified, defaulting to exclude_"})
+
+        return {"elements": elements}
 
     else:
         return error_response(f"Unknown action: {action}")

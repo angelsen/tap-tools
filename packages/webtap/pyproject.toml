@@ -27,7 +27,7 @@ dependencies = [
     "protobuf>=6.32.0",
     "pyjwt>=2.10.1",
     "pyyaml>=6.0.2",
-    "replkit2[all]>=0.11.0",
+    "replkit2[all]>=0.12.0",
     "requests>=2.32.4",
     "uvicorn>=0.35.0",
     "websocket-client>=1.8.0",
@@ -51,3 +51,13 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+include = ["src/**/*.py"]
+
+[tool.ruff]
+line-length = 120
+include = ["src/**/*.py"]

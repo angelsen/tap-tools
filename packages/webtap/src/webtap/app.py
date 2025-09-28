@@ -56,10 +56,9 @@ class WebTapState:
 app = App(
     "webtap",
     WebTapState,
-    uri_scheme="webtap",
-    fastmcp={
-        "description": "Chrome DevTools Protocol debugger",
-        "tags": {"browser", "debugging", "chrome", "cdp"},
+    mcp_config={
+        "uri_scheme": "webtap",
+        "instructions": "Chrome DevTools Protocol debugger",
     },
     typer_config={
         "add_completion": False,  # Hide shell completion options
