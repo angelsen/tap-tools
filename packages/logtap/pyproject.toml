@@ -16,3 +16,13 @@ logtap = "logtap:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+include = ["src/**/*.py"]
+
+[tool.ruff]
+line-length = 120
+include = ["src/**/*.py"]
