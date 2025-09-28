@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.4.0] - 2025-09-28
+
+### Added
 - Filter mode support: `include` and `exclude` modes for fine-grained request filtering
 - TypedDict for filter configuration ensuring type safety
 - Filter tip in `network()` command showing example usage
