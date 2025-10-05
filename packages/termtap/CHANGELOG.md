@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- Python handler now recognizes `poll_schedule_timeout.constprop.0` wait_channel on kernel 6.15+
+  - Newer kernels use different polling function with compiler optimization suffix
+  - Handler detects any `poll_schedule_timeout*` pattern as ready state
+  - Resolves issue where Python REPL appeared stuck on Arch Linux with kernel 6.15.6
 
 ### Removed
 
