@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.5.2] - 2025-10-09
+
+### Added
+
+### Changed
+
+### Fixed
 - **setup-extension**: Update to download new side panel files (content.js, sidepanel.html, sidepanel.js) instead of old popup files
 - **setup-extension --force**: Now properly cleans old extension directory before downloading new files
 - **selections() command**: Updated error message to reference "side panel" instead of "popup"
