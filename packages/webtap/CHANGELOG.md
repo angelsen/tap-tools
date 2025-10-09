@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.0] - 2025-10-09
+
+### Added
 - **Real-time SSE streaming**: API endpoint `/events` for Server-Sent Events broadcasting full state to extension
 - **Element selection**: CDP-native `Overlay.setInspectMode` with visual badges on page
   - New `DOMService` for element inspection via CDP
