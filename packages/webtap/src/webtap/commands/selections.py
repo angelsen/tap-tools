@@ -38,8 +38,8 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
             "No browser selections available",
             suggestions=[
                 "Use the Chrome extension to select elements",
-                "Click 'Start Selection Mode' in the extension popup",
-                "Select elements on the page and submit a prompt",
+                "Click 'Start Selection Mode' in the extension side panel",
+                "Select elements on the page",
             ],
         )
 

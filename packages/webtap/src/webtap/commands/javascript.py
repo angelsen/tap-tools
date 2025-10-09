@@ -18,11 +18,11 @@ mcp_desc = get_mcp_description("js")
 def js(
     state,
     code: str,
-    selection: int = None,
+    selection: int = None,  # pyright: ignore[reportArgumentType]
     persist: bool = False,
     wait_return: bool = True,
     await_promise: bool = False,
-) -> dict:  # pyright: ignore[reportArgumentType]
+) -> dict:
     """Execute JavaScript in the browser with optional element selection.
 
     Args:

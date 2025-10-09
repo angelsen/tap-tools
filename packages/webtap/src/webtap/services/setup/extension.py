@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # GitHub URLs for extension files
 EXTENSION_BASE_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/extension"
-EXTENSION_FILES = ["manifest.json", "popup.html", "popup.js"]
+EXTENSION_FILES = ["manifest.json", "content.js", "sidepanel.html", "sidepanel.js"]
 
 
 class ExtensionSetupService:
@@ -45,6 +45,13 @@ class ExtensionSetupService:
 
         # Ensure base directories exist
         ensure_directories()
+
+        # If force, clean out old extension files first
+        if force and self.extension_dir.exists():
+            import shutil
+
+            shutil.rmtree(self.extension_dir)
+            logger.info(f"Cleaned old extension directory: {self.extension_dir}")
 
         # Create extension directory
         self.extension_dir.mkdir(parents=True, exist_ok=True)
