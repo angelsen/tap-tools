@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **js() persist parameter**: New `persist` parameter to control variable scope across calls (default: False)
 
 ### Changed
+- **js() default scope**: Fresh scope by default (IIFE wrapping) to prevent const/let redeclaration errors
+- **js() selection wrapping**: Selection parameter always uses fresh scope to avoid element redeclaration
 
 ### Fixed
+- **js() redeclaration errors**: Fixed "Identifier 'element' has already been declared" when using selection parameter multiple times
+- **js() const/let errors**: Fixed redeclaration errors when running multiple js() calls with const/let
 
 ### Removed
 

@@ -15,25 +15,38 @@ mcp_desc = get_mcp_description("js")
     },
     fastmcp={"type": "tool", "description": mcp_desc} if mcp_desc else {"type": "tool"},
 )
-def js(state, code: str, selection: int = None, wait_return: bool = True, await_promise: bool = False) -> dict:  # pyright: ignore[reportArgumentType]
+def js(
+    state,
+    code: str,
+    selection: int = None,
+    persist: bool = False,
+    wait_return: bool = True,
+    await_promise: bool = False,
+) -> dict:  # pyright: ignore[reportArgumentType]
     """Execute JavaScript in the browser with optional element selection.
 
     Args:
         code: JavaScript code to execute (use 'element' variable if selection provided)
         selection: Browser element selection number (e.g., 1 for #1) - makes element available
+        persist: Keep variables in global scope across calls (default: False, uses fresh scope)
         wait_return: Wait for and return result (default: True)
         await_promise: Await promises before returning (default: False)
 
     Examples:
+        # Default: fresh scope (no redeclaration errors)
+        js("const x = 1")                              # ✓ x isolated
+        js("const x = 2")                              # ✓ No error, fresh scope
         js("document.title")                           # Get page title
-        js("document.body.innerText.length")           # Get text length
-        js("console.log('test')", wait_return=False)   # Fire and forget
         js("[...document.links].map(a => a.href)")    # Get all links
 
-        # With browser element selection
-        js("element.offsetWidth", selection=1)         # Use element #1 from browser()
+        # With browser element selection (always fresh scope)
+        js("element.offsetWidth", selection=1)         # Use element #1
         js("element.classList", selection=2)           # Use element #2
         js("element.getBoundingClientRect()", selection=1)
+
+        # Persistent scope: keep variables across calls
+        js("var data = fetch('/api')", persist=True)   # data persists
+        js("data.json()", persist=True)                # Access data from previous call
 
         # Async operations
         js("fetch('/api').then(r => r.json())", await_promise=True)
@@ -74,8 +87,13 @@ def js(state, code: str, selection: int = None, wait_return: bool = True, await_
         if not js_path:
             return error_response(f"Selection #{selection} has no jsPath")
 
-        # Wrap code with element variable
-        code = f"const element = {js_path}; {code}"
+        # Wrap code with element variable in fresh scope (IIFE)
+        # Selection always uses fresh scope to avoid element redeclaration errors
+        code = f"(() => {{ const element = {js_path}; return ({code}); }})()"
+    elif not persist:
+        # Default: wrap in IIFE for fresh scope (avoids const/let redeclaration errors)
+        code = f"(() => {{ return ({code}); }})()"
+    # else: persist=True, use code as-is (global scope)
 
     result = state.cdp.execute(
         "Runtime.evaluate", {"expression": code, "returnByValue": wait_return, "awaitPromise": await_promise}
