@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.1] - 2025-10-09
+
+### Added
 - **js() persist parameter**: New `persist` parameter to control variable scope across calls (default: False)
 
 ### Changed
