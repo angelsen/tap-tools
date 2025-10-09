@@ -1,4 +1,36 @@
-"""Response builders using ReplKit2 v0.10.0+ markdown elements."""
+"""Response builders using ReplKit2 v0.10.0+ markdown elements.
+
+USAGE GUIDELINES:
+
+Use builders for:
+  ✅ Simple responses (error, info, success, warning)
+  ✅ Tables with standard format
+  ✅ Code execution results
+  ✅ Repeated patterns across commands
+
+Use manual building for:
+  ❌ Complex multi-section layouts (>20 lines)
+  ❌ Conditional sections with deep nesting
+  ❌ Custom workflows (wizards, dashboards)
+  ❌ Dual-mode resource views with tutorials
+
+Examples:
+  - network() - Simple table → Use table_response()
+  - javascript() - Code result → Use code_result_response()
+  - server() - Custom dashboard → Manual OK
+  - selections() resource mode - Tutorial layout → Manual OK
+
+Available builders:
+  - table_response() - Tables with headers, warnings, tips
+  - info_response() - Key-value pairs with optional heading
+  - error_response() - Errors with suggestions
+  - success_response() - Success messages with details
+  - warning_response() - Warnings with suggestions
+  - check_connection() - Helper for CDP connection validation
+  - check_fetch_enabled() - Helper for fetch interception validation
+  - code_result_response() - Code execution with result display
+  - code_response() - Simple code block display
+"""
 
 from typing import Any
 
@@ -123,5 +155,111 @@ def warning_response(message: str, suggestions: list[str] | None = None) -> dict
     if suggestions:
         elements.append({"type": "text", "content": "**Try:**"})
         elements.append({"type": "list", "items": suggestions})
+
+    return {"elements": elements}
+
+
+# Connection helpers
+
+
+def check_connection(state):
+    """Check CDP connection, return error response if not connected.
+
+    Returns error_response() if not connected, None otherwise.
+    Use pattern: `if error := check_connection(state): return error`
+
+    Args:
+        state: Application state containing CDP session.
+
+    Returns:
+        Error response dict if not connected, None if connected.
+    """
+    if not (state.cdp and state.cdp.is_connected):
+        return error_response(
+            "Not connected to Chrome",
+            suggestions=[
+                "Run `pages()` to see available tabs",
+                "Use `connect(0)` to connect to first tab",
+                "Or `connect(page_id='...')` for specific tab",
+            ],
+        )
+    return None
+
+
+def check_fetch_enabled(state):
+    """Check fetch interception, return error response if not enabled.
+
+    Args:
+        state: Application state containing fetch service.
+
+    Returns:
+        Error response dict if not enabled, None if enabled.
+    """
+    if not state.service.fetch.enabled:
+        return error_response(
+            "Fetch interception not enabled", suggestions=["Enable with `fetch('enable')` to pause requests"]
+        )
+    return None
+
+
+# Code result builders
+
+
+def code_result_response(
+    title: str,
+    code: str,
+    language: str,
+    result: Any = None,
+) -> dict:
+    """Build code execution result display.
+
+    Args:
+        title: Result heading (e.g. "JavaScript Result")
+        code: Source code executed
+        language: Syntax highlighting language
+        result: Execution result (supports dict/list/str/None)
+
+    Returns:
+        Markdown response with code and result
+    """
+    import json
+
+    elements = [
+        {"type": "heading", "content": title, "level": 2},
+        {"type": "code_block", "content": code, "language": language},
+    ]
+
+    if result is not None:
+        if isinstance(result, (dict, list)):
+            elements.append({"type": "code_block", "content": json.dumps(result, indent=2), "language": "json"})
+        else:
+            elements.append({"type": "text", "content": f"**Result:** `{result}`"})
+    else:
+        elements.append({"type": "text", "content": "**Result:** _(no return value)_"})
+
+    return {"elements": elements}
+
+
+def code_response(
+    content: str,
+    language: str = "",
+    title: str | None = None,
+) -> dict:
+    """Build simple code block response.
+
+    Args:
+        content: Code content to display
+        language: Syntax highlighting language
+        title: Optional heading above code block
+
+    Returns:
+        Markdown response with code block
+    """
+    elements = []
+
+    if title:
+        elements.append({"type": "heading", "content": title, "level": 2})
+
+    elements.append({"type": "code_block", "content": content, "language": language})
 
     return {"elements": elements}

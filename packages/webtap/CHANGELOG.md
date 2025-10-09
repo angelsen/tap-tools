@@ -8,12 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Real-time SSE streaming**: API endpoint `/events` for Server-Sent Events broadcasting full state to extension
+- **Element selection**: CDP-native `Overlay.setInspectMode` with visual badges on page
+  - New `DOMService` for element inspection via CDP
+  - `selections()` command for viewing selected elements with preview and data extraction
+  - `content.js` for badge rendering on page
+  - Thread-safe selection processing via background ThreadPoolExecutor
+  - Auto-clear selections on disconnect and frame navigation
+- **Error state management**: Persistent error banner in extension with dismiss endpoint `/errors/dismiss`
+- **Broadcast queue**: Cross-thread signaling from WebSocket thread → FastAPI event loop via `asyncio.Queue`
+- **Progress indicators**: Extension shows pending count during async element selection
+- **Auto-refresh**: Page list updates on tab activate/create/remove/move events
+- **CDP event callbacks**: `register_event_callback()` system for real-time event handling
+- **js() element integration**: New `selection` parameter to run JavaScript on selected elements
 
 ### Changed
-
-### Fixed
+- **Extension architecture**: Migrated from popup (popup.html/popup.js) to side panel (sidepanel.html/sidepanel.js)
+- **State propagation**: Replaced 2-second polling with SSE streaming (<100ms latency vs 2s worst-case)
+- **API server**: Hybrid REST + SSE architecture with broadcast processor and graceful SSE client shutdown
+- **Page list**: Increased size from 6 to 15 rows, auto-highlights connected page
+- **CDP session**: Increased ping timeout from 10s to 20s, added 1-second debounce on event broadcasts
+- **Response builders**: Consolidated `_errors.py` functionality into `_builders.py` with enhanced helpers
+- **Cleanup flow**: `app.cleanup()` now calls `service.disconnect()` for proper state cleanup
+- **Thread safety**: All blocking CDP calls in API endpoints wrapped in `asyncio.to_thread()`
+- **Queue initialization**: Uses `threading.Event` for synchronization instead of sleep
 
 ### Removed
+- **popup.html** and **popup.js**: Replaced by side panel architecture
+- **_errors.py**: Merged into `_builders.py` for cleaner response builder consolidation
+- **2-second polling**: Extension no longer polls `/status` endpoint
 
 ## [0.4.0] - 2025-09-28
 

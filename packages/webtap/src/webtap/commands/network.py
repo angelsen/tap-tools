@@ -3,7 +3,7 @@
 from typing import List
 
 from webtap.app import app
-from webtap.commands._errors import check_connection
+from webtap.commands._builders import check_connection, table_response
 from webtap.commands._tips import get_tips
 
 
@@ -68,40 +68,22 @@ def network(state, limit: int = 20, filters: List[str] = None, no_filters: bool 
     if limit and len(results) == limit:
         warnings.append(f"Showing first {limit} results (use limit parameter to see more)")
 
-    # Get tips from TIPS.md with context
-    tips = None
+    # Get tips from TIPS.md with context, and add filter guidance
+    combined_tips = [
+        "Reduce noise with `filters()` - filter by type (XHR, Fetch) or domain (*/api/*)",
+    ]
+
     if rows:
         example_id = rows[0]["ID"]
-        tips = get_tips("network", context={"id": example_id})
+        context_tips = get_tips("network", context={"id": example_id})
+        if context_tips:
+            combined_tips.extend(context_tips)
 
-    # Build response elements manually to add filter tip
-    elements = []
-    elements.append({"type": "heading", "content": "Network Requests", "level": 2})
-
-    for warning in warnings or []:
-        elements.append({"type": "alert", "message": warning, "level": "warning"})
-
-    if rows:
-        elements.append(
-            {"type": "table", "headers": ["ID", "ReqID", "Method", "Status", "URL", "Type", "Size"], "rows": rows}
-        )
-    else:
-        elements.append({"type": "text", "content": "_No data available_"})
-
-    if f"{len(rows)} requests":
-        elements.append({"type": "text", "content": f"_{len(rows)} requests_"})
-
-    # Always show filter tip demonstrating both type AND domain filtering
-    elements.append(
-        {
-            "type": "alert",
-            "message": "Tip: Reduce noise with filters by type or domain. Example: `filters('update', {'category': 'api-only', 'mode': 'include', 'types': ['XHR', 'Fetch'], 'domains': ['*/api/*', '*/graphql/*']})`",
-            "level": "info",
-        }
+    return table_response(
+        title="Network Requests",
+        headers=["ID", "ReqID", "Method", "Status", "URL", "Type", "Size"],
+        rows=rows,
+        summary=f"{len(rows)} requests" if rows else None,
+        warnings=warnings,
+        tips=combined_tips,
     )
-
-    if tips:
-        elements.append({"type": "heading", "content": "Next Steps", "level": 3})
-        elements.append({"type": "list", "items": tips})
-
-    return {"elements": elements}

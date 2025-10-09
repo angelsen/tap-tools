@@ -62,6 +62,15 @@ class CDPSession:
         # Maps lowercase field names to their full paths with original case
         self.field_paths: dict[str, set[str]] = {}
 
+        # Event callbacks for real-time handling
+        # Maps event method (e.g. "Overlay.inspectNodeRequested") to list of callbacks
+        self._event_callbacks: dict[str, list] = {}
+
+        # Broadcast queue for SSE state updates (set by API server)
+        self._broadcast_queue: "Any | None" = None
+        self._last_broadcast_time = 0.0
+        self._broadcast_debounce = 1.0  # 1 second debounce
+
     def list_pages(self) -> list[dict]:
         """List available Chrome pages via HTTP API.
 
@@ -126,7 +135,7 @@ class CDPSession:
             target=self.ws_app.run_forever,
             kwargs={
                 "ping_interval": 30,  # Ping every 30s
-                "ping_timeout": 10,  # Wait 10s for pong
+                "ping_timeout": 20,  # Wait 20s for pong (increased from 10s for heavy CDP load)
                 "reconnect": 5,  # Auto-reconnect with max 5s delay
                 "skip_utf8_validation": True,  # Faster
             },
@@ -238,6 +247,12 @@ class CDPSession:
             elif "method" in data:
                 self.db.execute("INSERT INTO events VALUES (?)", [json.dumps(data)])
                 self._update_field_lookup(data)
+
+                # Call registered event callbacks
+                self._dispatch_event_callbacks(data)
+
+                # Trigger SSE broadcast (debounced)
+                self._trigger_state_broadcast()
 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
@@ -363,3 +378,88 @@ class CDPSession:
             True if connected to Chrome page.
         """
         return self.connected.is_set()
+
+    def register_event_callback(self, method: str, callback) -> None:
+        """Register callback for specific CDP event.
+
+        Args:
+            method: CDP event method (e.g. "Overlay.inspectNodeRequested")
+            callback: Async function called with event data dict
+
+        Example:
+            async def on_inspect(event):
+                node_id = event.get("params", {}).get("backendNodeId")
+                print(f"User clicked node: {node_id}")
+
+            cdp.register_event_callback("Overlay.inspectNodeRequested", on_inspect)
+        """
+        if method not in self._event_callbacks:
+            self._event_callbacks[method] = []
+        self._event_callbacks[method].append(callback)
+        logger.debug(f"Registered callback for {method}")
+
+    def unregister_event_callback(self, method: str, callback) -> None:
+        """Unregister event callback.
+
+        Args:
+            method: CDP event method
+            callback: Callback function to remove
+        """
+        if method in self._event_callbacks:
+            try:
+                self._event_callbacks[method].remove(callback)
+                logger.debug(f"Unregistered callback for {method}")
+            except ValueError:
+                pass
+
+    def _dispatch_event_callbacks(self, event: dict) -> None:
+        """Dispatch event to registered callbacks.
+
+        All callbacks must be synchronous and should return quickly.
+        Failed callbacks are logged but not retried - WebSocket reconnection
+        is handled by websocket-client library automatically.
+
+        Args:
+            event: CDP event dictionary with 'method' and 'params'
+        """
+        method = event.get("method")
+        if not method or method not in self._event_callbacks:
+            return
+
+        # Call all registered callbacks (must be sync)
+        for callback in self._event_callbacks[method]:
+            try:
+                callback(event)
+            except TimeoutError:
+                logger.warning(f"{method} callback timed out - page may be busy, user can retry")
+            except Exception as e:
+                logger.error(f"Error in {method} callback: {e}")
+
+    def set_broadcast_queue(self, queue: "Any") -> None:
+        """Set queue for broadcasting state changes to SSE clients.
+
+        Args:
+            queue: asyncio.Queue for thread-safe signaling
+        """
+        self._broadcast_queue = queue
+        logger.debug("Broadcast queue set on CDPSession")
+
+    def _trigger_state_broadcast(self) -> None:
+        """Trigger SSE broadcast with 1s debounce.
+
+        Called after CDP events are stored. Debounces rapid-fire events
+        to avoid overwhelming SSE clients during heavy network activity.
+        """
+        if not self._broadcast_queue:
+            return
+
+        import time
+
+        now = time.time()
+        if now - self._last_broadcast_time > self._broadcast_debounce:
+            self._last_broadcast_time = now
+            try:
+                self._broadcast_queue.put_nowait({"type": "cdp_event"})
+                logger.debug("State broadcast triggered")
+            except Exception as e:
+                logger.debug(f"Failed to queue broadcast: {e}")

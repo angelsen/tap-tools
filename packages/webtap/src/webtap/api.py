@@ -4,6 +4,7 @@ PUBLIC API:
   - start_api_server: Start API server in background thread
 """
 
+import asyncio
 import logging
 import os
 import socket
@@ -12,8 +13,10 @@ from typing import Any, Dict
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
+import json as json_module
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +50,14 @@ api.add_middleware(
 
 
 # Global reference to WebTap state (set by start_api_server)
-app_state = None
+app_state: "Any | None" = None
+
+# SSE clients - set of queues for broadcasting state
+_sse_clients: set[asyncio.Queue] = set()
+_sse_clients_lock = asyncio.Lock()
+
+# Broadcast queue for cross-thread communication
+_broadcast_queue: "asyncio.Queue[Dict[str, Any]] | None" = None
 
 
 @api.get("/health")
@@ -62,8 +72,8 @@ async def get_info() -> Dict[str, Any]:
     if not app_state:
         return {"error": "WebTap not initialized", "pages": [], "pid": os.getpid()}
 
-    # Get pages
-    pages_data = app_state.service.list_pages()
+    # Get pages - wrap blocking HTTP call in thread
+    pages_data = await asyncio.to_thread(app_state.service.list_pages)
 
     # Get instance info
     connected_to = None
@@ -106,7 +116,13 @@ async def connect(request: ConnectRequest) -> Dict[str, Any]:
     if not app_state:
         return {"error": "WebTap not initialized"}
 
-    return app_state.service.connect_to_page(page_id=request.page_id)
+    # Wrap blocking CDP calls (connect + enable domains) in thread
+    result = await asyncio.to_thread(app_state.service.connect_to_page, page_id=request.page_id)
+
+    # Broadcast state change
+    await broadcast_state()
+
+    return result
 
 
 @api.post("/disconnect")
@@ -115,7 +131,13 @@ async def disconnect() -> Dict[str, Any]:
     if not app_state:
         return {"error": "WebTap not initialized"}
 
-    return app_state.service.disconnect()
+    # Wrap blocking CDP calls (fetch.disable + disconnect) in thread
+    result = await asyncio.to_thread(app_state.service.disconnect)
+
+    # Broadcast state change
+    await broadcast_state()
+
+    return result
 
 
 @api.post("/clear")
@@ -133,10 +155,17 @@ async def set_fetch_interception(request: FetchRequest) -> Dict[str, Any]:
     if not app_state:
         return {"error": "WebTap not initialized"}
 
+    # Wrap blocking CDP calls (Fetch.enable/disable) in thread
     if request.enabled:
-        result = app_state.service.fetch.enable(app_state.service.cdp, response_stage=request.response_stage)
+        result = await asyncio.to_thread(
+            app_state.service.fetch.enable, app_state.service.cdp, response_stage=request.response_stage
+        )
     else:
-        result = app_state.service.fetch.disable()
+        result = await asyncio.to_thread(app_state.service.fetch.disable)
+
+    # Broadcast state change
+    await broadcast_state()
+
     return result
 
 
@@ -170,6 +199,9 @@ async def toggle_filter_category(category: str) -> Dict[str, Any]:
 
     fm.save()
 
+    # Broadcast state change
+    await broadcast_state()
+
     return {"category": category, "enabled": enabled, "total_enabled": len(fm.enabled_categories)}
 
 
@@ -182,6 +214,9 @@ async def enable_all_filters() -> Dict[str, Any]:
     fm = app_state.service.filters
     fm.set_enabled_categories(None)
     fm.save()
+
+    # Broadcast state change
+    await broadcast_state()
 
     return {"enabled": list(fm.enabled_categories), "total": len(fm.enabled_categories)}
 
@@ -196,11 +231,258 @@ async def disable_all_filters() -> Dict[str, Any]:
     fm.set_enabled_categories([])
     fm.save()
 
+    # Broadcast state change
+    await broadcast_state()
+
     return {"enabled": [], "total": 0}
+
+
+@api.post("/browser/start-inspect")
+async def start_inspect() -> Dict[str, Any]:
+    """Enable CDP element inspection mode."""
+    if not app_state:
+        return {"error": "WebTap not initialized"}
+
+    if not app_state.cdp.is_connected:
+        return {"error": "Not connected to a page"}
+
+    # Wrap blocking CDP calls (DOM.enable, CSS.enable, Overlay.enable, setInspectMode) in thread
+    result = await asyncio.to_thread(app_state.service.dom.start_inspect)
+
+    # Broadcast state change
+    await broadcast_state()
+
+    return result
+
+
+@api.post("/browser/stop-inspect")
+async def stop_inspect() -> Dict[str, Any]:
+    """Disable CDP element inspection mode."""
+    if not app_state:
+        return {"error": "WebTap not initialized"}
+
+    # Wrap blocking CDP call (Overlay.setInspectMode) in thread
+    result = await asyncio.to_thread(app_state.service.dom.stop_inspect)
+
+    # Broadcast state change
+    await broadcast_state()
+
+    return result
+
+
+@api.post("/browser/clear")
+async def clear_selections() -> Dict[str, Any]:
+    """Clear all element selections."""
+    if not app_state:
+        return {"error": "WebTap not initialized"}
+
+    app_state.service.dom.clear_selections()
+
+    # Broadcast state change
+    await broadcast_state()
+
+    return {"success": True, "selections": {}}
+
+
+@api.post("/errors/dismiss")
+async def dismiss_error() -> Dict[str, Any]:
+    """Dismiss the current error."""
+    if not app_state:
+        return {"error": "WebTap not initialized"}
+
+    app_state.error_state = None
+
+    # Broadcast state change
+    await broadcast_state()
+
+    return {"success": True}
+
+
+# Removed /browser/prompt endpoint - selections now accessed via @webtap:webtap://selections resource
+# Selections are captured via CDP in DOMService, no submit flow needed
+
+
+@api.get("/events")
+async def stream_events():
+    """Server-Sent Events stream for real-time WebTap state updates.
+
+    Streams full state object on every change. Extension receives:
+    - Connection status
+    - Event counts
+    - Fetch interception status
+    - Filter status
+    - Element selection state (inspect_active, selections)
+
+    Returns:
+        StreamingResponse with text/event-stream content type
+    """
+
+    async def event_generator():
+        """Generate SSE events with full state."""
+        queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+
+        async with _sse_clients_lock:
+            _sse_clients.add(queue)
+
+        try:
+            # Send initial state on connect
+            initial_state = get_full_state()
+            yield f"data: {json_module.dumps(initial_state)}\n\n"
+
+            # Stream state updates with keepalive
+            while True:
+                try:
+                    state = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    if state is None:  # Shutdown signal
+                        break
+                    yield f"data: {json_module.dumps(state)}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive comment
+                    yield ": keepalive\n\n"
+
+        except asyncio.CancelledError:
+            # Expected during shutdown
+            pass
+        except Exception as e:
+            logger.debug(f"SSE stream error: {e}")
+        finally:
+            async with _sse_clients_lock:
+                _sse_clients.discard(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def get_full_state() -> Dict[str, Any]:
+    """Get complete WebTap state for broadcasting.
+
+    Returns real-time state only (no blocking I/O).
+    Page list excluded - fetch via /info endpoint on-demand.
+
+    Returns:
+        Dictionary with all state information
+    """
+    if not app_state:
+        return {
+            "connected": False,
+            "events": {"total": 0},
+            "fetch": {"enabled": False, "paused_count": 0},
+            "filters": {"enabled": [], "disabled": []},
+            "browser": {"inspect_active": False, "selections": {}, "prompt": ""},
+            "error": None,
+        }
+
+    # Get connection status
+    connected = app_state.cdp.is_connected
+    page_info = app_state.cdp.page_info or {}
+
+    # Get event counts
+    event_count = app_state.service.event_count
+
+    # Get fetch status
+    fetch_enabled = app_state.service.fetch.enabled
+    paused_count = app_state.service.fetch.paused_count if fetch_enabled else 0
+
+    # Get filter status
+    fm = app_state.service.filters
+    filter_categories = list(fm.filters.keys())
+    enabled_filters = list(fm.enabled_categories)
+    disabled_filters = [cat for cat in filter_categories if cat not in enabled_filters]
+
+    # Get browser/DOM state (includes pending_count for progress indicator)
+    browser_state = app_state.service.dom.get_state()
+
+    return {
+        "connected": connected,
+        "page": {"id": page_info.get("id", ""), "title": page_info.get("title", ""), "url": page_info.get("url", "")}
+        if connected
+        else None,
+        "events": {"total": event_count},
+        "fetch": {"enabled": fetch_enabled, "paused_count": paused_count},
+        "filters": {"enabled": enabled_filters, "disabled": disabled_filters},
+        "browser": browser_state,  # Contains inspect_active, selections, prompt, pending_count
+        "error": app_state.error_state,  # Current error or None
+    }
+
+
+async def broadcast_state():
+    """Broadcast current state to all SSE clients."""
+    global _sse_clients
+
+    async with _sse_clients_lock:
+        if not _sse_clients:
+            return
+        clients = list(_sse_clients)
+
+    state = get_full_state()
+    dead_queues = set()
+
+    # Send to all connected clients
+    for queue in clients:
+        try:
+            queue.put_nowait(state)
+        except asyncio.QueueFull:
+            logger.warning("SSE client queue full, skipping broadcast")
+        except Exception as e:
+            logger.debug(f"Failed to broadcast to client: {e}")
+            dead_queues.add(queue)
+
+    # Remove dead queues
+    if dead_queues:
+        async with _sse_clients_lock:
+            _sse_clients -= dead_queues
+
+
+async def broadcast_processor():
+    """Background task that processes broadcast queue.
+
+    This runs in the FastAPI event loop and watches for signals
+    from WebSocket thread (via asyncio.Queue).
+    """
+    global _broadcast_queue
+    _broadcast_queue = asyncio.Queue()
+    _queue_ready.set()  # Signal that queue is ready
+
+    logger.info("Broadcast processor started")
+
+    while not _shutdown_requested:
+        try:
+            # Wait for broadcast signal (with timeout for shutdown check)
+            signal = await asyncio.wait_for(_broadcast_queue.get(), timeout=1.0)
+            logger.debug(f"Broadcast signal received: {signal}")
+
+            # Broadcast to all SSE clients
+            await broadcast_state()
+        except asyncio.TimeoutError:
+            # Normal timeout, continue loop
+            continue
+        except Exception as e:
+            logger.error(f"Error in broadcast processor: {e}")
+
+    # Graceful shutdown: close all SSE clients
+    async with _sse_clients_lock:
+        for queue in list(_sse_clients):
+            try:
+                await queue.put(None)  # Signal shutdown to client
+            except Exception:
+                pass
+        _sse_clients.clear()
+
+    logger.info("Broadcast processor stopped")
 
 
 # Flag to signal shutdown
 _shutdown_requested = False
+
+# Event to signal broadcast queue is ready
+_queue_ready = threading.Event()
 
 
 def start_api_server(state, host: str = "127.0.0.1", port: int = 8765) -> threading.Thread | None:
@@ -215,19 +497,35 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765) -> thread
         Thread instance running the server, or None if port is in use.
     """
     # Check port availability first
+    # Use SO_REUSEADDR to properly test availability even if port in TIME_WAIT
     try:
         with socket.socket() as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
     except OSError:
         logger.info(f"Port {port} already in use")
         return None
 
-    global app_state, _shutdown_requested
+    global app_state, _shutdown_requested, _broadcast_queue
     app_state = state
     _shutdown_requested = False  # Reset flag for new instance
+    _queue_ready.clear()  # Reset event for new instance
 
-    thread = threading.Thread(target=run_server, args=(host, port), daemon=True)
+    # Use daemon thread so REPL can exit immediately
+    # Graceful shutdown handled by atexit → cleanup() → _shutdown_requested
+    thread = threading.Thread(target=run_server, args=(host, port), daemon=True, name="webtap-api")
     thread.start()
+
+    # Wait for broadcast queue to be ready (with timeout)
+    if not _queue_ready.wait(timeout=2.0):
+        logger.error("Broadcast queue initialization timed out")
+        return thread
+
+    # Wire queue to DOM service and CDP session after event loop starts
+    if _broadcast_queue and app_state:
+        app_state.service.dom.set_broadcast_queue(_broadcast_queue)
+        app_state.cdp.set_broadcast_queue(_broadcast_queue)
+        logger.info("Broadcast queue wired to DOMService and CDPSession")
 
     logger.info(f"API server started on http://{host}:{port}")
     return thread
@@ -251,6 +549,9 @@ def run_server(host: str, port: int):
         # Start server in background task
         serve_task = asyncio.create_task(server.serve())
 
+        # Start broadcast processor in background
+        broadcast_task = asyncio.create_task(broadcast_processor())
+
         # Wait for shutdown signal
         while not _shutdown_requested:
             await asyncio.sleep(0.1)
@@ -271,6 +572,14 @@ def run_server(host: str, port: int):
                     await serve_task
                 except asyncio.CancelledError:
                     pass
+
+        # Cancel broadcast processor
+        if not broadcast_task.done():
+            broadcast_task.cancel()
+            try:
+                await broadcast_task
+            except asyncio.CancelledError:
+                pass
 
     try:
         # Use asyncio.run() which properly cleans up

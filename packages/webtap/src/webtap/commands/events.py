@@ -2,8 +2,7 @@
 
 from webtap.app import app
 from webtap.cdp import build_query
-from webtap.commands._errors import check_connection
-from webtap.commands._builders import table_response
+from webtap.commands._builders import check_connection, table_response
 from webtap.commands._tips import get_tips, get_mcp_description
 
 

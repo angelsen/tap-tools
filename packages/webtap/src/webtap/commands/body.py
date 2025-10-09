@@ -3,8 +3,7 @@
 import json
 from webtap.app import app
 from webtap.commands._utils import evaluate_expression, format_expression_result
-from webtap.commands._errors import check_connection
-from webtap.commands._builders import info_response, error_response
+from webtap.commands._builders import check_connection, info_response, error_response
 from webtap.commands._tips import get_mcp_description
 
 

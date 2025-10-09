@@ -31,6 +31,8 @@ class WebTapState:
     cdp: CDPSession = field(default_factory=CDPSession)
     service: WebTapService = field(init=False)
     api_thread: threading.Thread | None = None
+    browser_data: dict | None = None  # Browser element selections with prompt
+    error_state: dict | None = None  # Current error: {"message": str, "timestamp": float}
 
     def __post_init__(self):
         """Initialize service with self reference after dataclass init."""
@@ -38,9 +40,13 @@ class WebTapState:
 
     def cleanup(self):
         """Cleanup resources on exit."""
-        # Disconnect CDP if connected
-        if self.cdp.is_connected:
-            self.cdp.disconnect()
+        # Disconnect through service to ensure full cleanup (clears selections, cache, etc)
+        if hasattr(self, "service") and self.service and self.cdp.is_connected:
+            self.service.disconnect()
+
+        # Stop DOM service cleanup (executor, callbacks)
+        if hasattr(self, "service") and self.service and self.service.dom:
+            self.service.dom.cleanup()
 
         # Stop API server if we own it
         if self.api_thread and self.api_thread.is_alive():
@@ -48,8 +54,8 @@ class WebTapState:
             import webtap.api
 
             webtap.api._shutdown_requested = True
-            # Wait up to 1 second for graceful shutdown
-            self.api_thread.join(timeout=1.0)
+            # Give server 1.5s to close SSE connections and shutdown gracefully
+            self.api_thread.join(timeout=1.5)
 
 
 # Must be created before command imports for decorator registration
@@ -83,6 +89,7 @@ else:
     from webtap.commands import inspect  # noqa: E402, F401
     from webtap.commands import fetch  # noqa: E402, F401
     from webtap.commands import body  # noqa: E402, F401
+    from webtap.commands import selections  # noqa: E402, F401
     from webtap.commands import server  # noqa: E402, F401
     from webtap.commands import setup  # noqa: E402, F401
     from webtap.commands import launch  # noqa: E402, F401

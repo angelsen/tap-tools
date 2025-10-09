@@ -173,7 +173,7 @@ def command(state, param: int = 0)
 @app.command(display="markdown", fastmcp={"type": "resource", "mime_type": "text/markdown"})
 def pages(state) -> dict:
     """List available pages."""
-    return build_table_response(
+    return table_response(
         title="Chrome Pages",
         headers=["Index", "Title", "URL"],
         rows=rows,
@@ -187,7 +187,7 @@ def pages(state) -> dict:
 def navigate(state, url: str) -> dict:
     """Navigate to URL."""
     # Perform action
-    return build_info_response(
+    return info_response(
         title="Navigation Complete",
         fields={"URL": url, "Status": "Success"}
     )
@@ -195,37 +195,75 @@ def navigate(state, url: str) -> dict:
 
 ## Error Handling
 
-Always use the error utilities from `_errors.py`:
+Always use the error utilities from `_builders.py`:
 
 ```python
-from webtap.commands._errors import check_connection, error_response
+from webtap.commands._builders import check_connection, error_response
 
 def my_command(state, ...):
     # Check connection first for commands that need it
     if error := check_connection(state):
         return error
-    
+
     # Validate parameters
     if not valid:
-        return error_response("invalid_param", "Parameter X must be Y")
-    
-    # Custom errors
-    return error_response("custom", custom_message="Specific error message")
+        return error_response("Parameter X must be Y", suggestions=["Try this", "Or that"])
+
+    # Simple errors
+    return error_response("Specific error message")
 ```
 
-## Utility Functions
+## Response Builders
 
-Use helpers from `_utils.py`:
+Use builders from `_builders.py`:
 
 ```python
-from webtap.commands._utils import (
-    build_table_response,    # For tables
-    build_info_response,     # For key-value info
-    parse_options,          # Parse dict with defaults
-    extract_option,         # Extract single option
-    truncate_string,        # Truncate long strings
-    format_size,           # Format byte sizes
-    format_id,             # Format IDs
+from webtap.commands._builders import (
+    # Table responses
+    table_response,         # Tables with headers, warnings, tips
+
+    # Info displays
+    info_response,          # Key-value pairs with optional heading
+
+    # Status responses
+    error_response,         # Errors with suggestions
+    success_response,       # Success messages with details
+    warning_response,       # Warnings with suggestions
+
+    # Code results
+    code_result_response,   # Code execution with result display
+    code_response,          # Simple code block display
+
+    # Connection helpers
+    check_connection,       # Helper for CDP connection validation
+    check_fetch_enabled,    # Helper for fetch interception validation
+)
+```
+
+### Usage Examples
+
+```python
+# Table with tips
+return table_response(
+    title="Network Requests",
+    headers=["ID", "URL", "Status"],
+    rows=rows,
+    summary=f"{len(rows)} requests",
+    tips=["Use body(ID) to fetch response body"]
+)
+
+# Code execution result
+return code_result_response(
+    "JavaScript Result",
+    code="2 + 2",
+    language="javascript",
+    result=4
+)
+
+# Error with suggestions
+return error_response(
+    "Not connected to Chrome",
+    suggestions=["Run pages()", "Use connect(0)"]
 )
 ```
 
@@ -300,15 +338,63 @@ Use explicit text instead of symbols for clarity:
 4. **MCP mode**: Test with `webtap --mcp` command
 5. **Markdown rendering**: Verify output displays correctly
 
+## TIPS.md Integration
+
+All commands should be documented in `TIPS.md` for consistent help and MCP descriptions:
+
+```python
+from webtap.commands._tips import get_tips, get_mcp_description
+
+# Get MCP description (for fastmcp metadata)
+mcp_desc = get_mcp_description("mycommand")
+
+@app.command(
+    display="markdown",
+    fastmcp={"type": "tool", "description": mcp_desc} if mcp_desc else {"type": "tool"}
+)
+def mycommand(state, param: str) -> dict:
+    """My command description."""
+    # ... implementation ...
+
+    # Include tips in response
+    tips = get_tips("mycommand", context={"id": some_id})
+    return table_response(
+        headers=headers,
+        rows=rows,
+        tips=tips  # Automatically shown as "Next Steps"
+    )
+```
+
+### Adding to TIPS.md
+
+Add a section for your command:
+
+```markdown
+### mycommand
+Brief description of what the command does.
+
+#### Examples
+\```python
+mycommand("param1")              # Basic usage
+mycommand("param2", flag=True)   # With options
+\```
+
+#### Tips
+- **Related command:** `other_command()` - does related thing
+- **Advanced usage:** Use with `yet_another()` for X
+- **Context aware:** Tips support {id} placeholders from context dict
+```
+
 ## Checklist for New Commands
 
 - [ ] Use `@app.command()` decorator with `display="markdown"`
 - [ ] Add `fastmcp` metadata (type: "resource" or "tool")
 - [ ] Use simple types only (no unions, no Optional)
 - [ ] Add `# pyright: ignore[reportArgumentType]` for `dict = None`
-- [ ] Import utilities from `_utils.py` and `_errors.py`
-- [ ] Use `build_table_response()` or `build_info_response()`
+- [ ] Import builders from `_builders.py`
+- [ ] Use `table_response()`, `info_response()`, or `code_result_response()`
 - [ ] Check connection with `check_connection()` if needed
+- [ ] Add command section to `TIPS.md` with examples and tips
+- [ ] Use `get_tips()` to show tips in response
 - [ ] Document parameters clearly in docstring
-- [ ] Provide usage examples in docstring
 - [ ] Test in both REPL and MCP modes

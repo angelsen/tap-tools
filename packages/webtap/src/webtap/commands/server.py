@@ -20,6 +20,7 @@ API_PORT = 8765
 def _check_port() -> bool:
     """Check if API port is in use."""
     with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", API_PORT))
             return False  # Port is free

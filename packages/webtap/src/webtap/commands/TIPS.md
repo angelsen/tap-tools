@@ -151,3 +151,26 @@ Show paused requests and responses.
 - **Resume request:** `resume({id})` - continue the request
 - **Modify request:** `resume({id}, modifications={'url': '...'})`
 - **Fail request:** `fail({id}, 'BlockedByClient')` - block the request
+
+### selections
+Browser element selections with prompt and analysis.
+
+Access selected DOM elements and their properties via Python expressions. Elements are selected using the Chrome extension's selection mode.
+
+#### Examples
+```python
+selections()                                    # View all selections
+selections(expr="data['prompt']")              # Get prompt text
+selections(expr="data['selections']['1']")     # Get element #1 data
+selections(expr="data['selections']['1']['styles']")  # Get styles
+selections(expr="len(data['selections'])")     # Count selections
+selections(expr="{k: v['selector'] for k, v in data['selections'].items()}")  # All selectors
+```
+
+#### Tips
+- **Extract HTML:** `selections(expr="data['selections']['1']['outerHTML']")` - get element HTML
+- **Get CSS selector:** `selections(expr="data['selections']['1']['selector']")` - unique selector
+- **Use with js():** `js("element.offsetWidth", selection=1)` - integrate with JavaScript execution
+- **Access styles:** `selections(expr="data['selections']['1']['styles']['display']")` - computed CSS
+- **Get attributes:** `selections(expr="data['selections']['1']['preview']")` - tag, id, classes
+- **Inspect in prompts:** Use `@webtap:webtap://selections` resource in Claude Code for AI analysis

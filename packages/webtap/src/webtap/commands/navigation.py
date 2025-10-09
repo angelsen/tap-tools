@@ -1,8 +1,7 @@
 """Browser page navigation and history commands."""
 
 from webtap.app import app
-from webtap.commands._errors import check_connection
-from webtap.commands._builders import info_response, table_response, error_response
+from webtap.commands._builders import check_connection, info_response, table_response, error_response
 
 
 @app.command(display="markdown", fastmcp={"type": "tool"})

@@ -11,6 +11,7 @@ from webtap.services.fetch import FetchService
 from webtap.services.network import NetworkService
 from webtap.services.console import ConsoleService
 from webtap.services.body import BodyService
+from webtap.services.dom import DOMService
 
 
 REQUIRED_DOMAINS = [
@@ -37,6 +38,7 @@ class WebTapService:
         network: Network monitoring service.
         console: Console message service.
         body: Response body fetching service.
+        dom: DOM inspection and element selection service.
     """
 
     def __init__(self, state):
@@ -55,16 +57,23 @@ class WebTapService:
         self.network = NetworkService()
         self.console = ConsoleService()
         self.body = BodyService()
+        self.dom = DOMService()
 
         self.fetch.cdp = self.cdp
         self.network.cdp = self.cdp
         self.console.cdp = self.cdp
         self.body.cdp = self.cdp
+        self.dom.set_cdp(self.cdp)
+        self.dom.set_state(self.state)
 
         self.fetch.body_service = self.body
 
         # Legacy wiring for CDP event handler
         self.cdp.fetch_service = self.fetch
+
+        # Register DOM event callbacks
+        self.cdp.register_event_callback("Overlay.inspectNodeRequested", self.dom.handle_inspect_node_requested)
+        self.cdp.register_event_callback("Page.frameNavigated", self.dom.handle_frame_navigated)
 
     @property
     def event_count(self) -> int:
@@ -108,6 +117,11 @@ class WebTapService:
             self.fetch.disable()
 
         self.body.clear_cache()
+        self.dom.clear_selections()
+
+        # Clear error state on disconnect
+        if self.state.error_state:
+            self.state.error_state = None
 
         self.cdp.disconnect()
         self.enabled_domains.clear()

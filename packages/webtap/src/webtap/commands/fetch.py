@@ -1,8 +1,7 @@
 """HTTP fetch request interception and debugging commands."""
 
 from webtap.app import app
-from webtap.commands._errors import check_connection
-from webtap.commands._builders import error_response, info_response, table_response
+from webtap.commands._builders import check_connection, error_response, info_response, table_response
 from webtap.commands._tips import get_tips
 
 
