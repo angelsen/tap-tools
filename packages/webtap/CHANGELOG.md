@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [0.7.0] - 2025-10-10
+
+### Added
+
+### Changed
 - **BREAKING**: `to_model()` now requires `model_name` parameter for explicit class naming
   - Old: `to_model(123, "models/product.py", json_path="Data[0]")`
   - New: `to_model(123, "models/product.py", "Product", json_path="Data[0]")`
