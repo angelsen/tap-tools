@@ -8,8 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **to_model command**: Generate Pydantic v2 models from JSON response bodies using datamodel-codegen
+  - Supports `json_path` parameter for extracting nested objects (e.g., `"Data[0]"`)
+  - Auto-applies snake_case fields and modern type hints (`list`, `dict`, `| None`)
+  - Perfect for reverse engineering APIs - inspect with `body()`, generate models with `to_model()`
+- **datamodel-code-generator dependency**: Added for Python-native model generation (no subprocess)
 
 ### Changed
+- **TIPS.md**: Added `to_model` cross-references in `body` and `network` tips
 
 ### Fixed
 

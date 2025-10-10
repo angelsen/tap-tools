@@ -89,6 +89,7 @@ else:
     from webtap.commands import inspect  # noqa: E402, F401
     from webtap.commands import fetch  # noqa: E402, F401
     from webtap.commands import body  # noqa: E402, F401
+    from webtap.commands import to_model  # noqa: E402, F401
     from webtap.commands import selections  # noqa: E402, F401
     from webtap.commands import server  # noqa: E402, F401
     from webtap.commands import setup  # noqa: E402, F401
