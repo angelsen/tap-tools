@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.6.0] - 2025-10-10
+
+### Added
 - **to_model command**: Generate Pydantic v2 models from JSON response bodies using datamodel-codegen
   - Supports `json_path` parameter for extracting nested objects (e.g., `"Data[0]"`)
   - Auto-applies snake_case fields and modern type hints (`list`, `dict`, `| None`)
