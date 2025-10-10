@@ -12,12 +12,13 @@ mcp_desc = get_mcp_description("to_model")
 
 
 @app.command(display="markdown", fastmcp={"type": "tool", "description": mcp_desc} if mcp_desc else {"type": "tool"})
-def to_model(state, response: int, output: str, json_path: str = None) -> dict:  # pyright: ignore[reportArgumentType]
+def to_model(state, response: int, output: str, model_name: str, json_path: str = None) -> dict:  # pyright: ignore[reportArgumentType]
     """Generate Pydantic model from response body using datamodel-codegen.
 
     Args:
         response: Response row ID from network() table
-        output: Output file path for generated model (e.g., "models/product.py")
+        output: Output file path for generated model (e.g., "models/customers/group.py")
+        model_name: Class name for generated model (e.g., "CustomerGroup")
         json_path: Optional JSON path to extract nested data (e.g., "Data[0]")
 
     Returns:
@@ -102,6 +103,7 @@ def to_model(state, response: int, output: str, json_path: str = None) -> dict: 
             input_filename="response.json",
             output=output_path,
             output_model_type=DataModelType.PydanticV2BaseModel,
+            class_name=model_name,  # Set generated class name
             snake_case_field=True,  # Convert to snake_case
             use_standard_collections=True,  # Use list instead of List
             use_union_operator=True,  # Use | instead of Union
@@ -125,5 +127,10 @@ def to_model(state, response: int, output: str, json_path: str = None) -> dict: 
 
     return success_response(
         "Model generated successfully",
-        details={"Output": str(output_path), "Fields": field_count, "Size": f"{output_path.stat().st_size} bytes"},
+        details={
+            "Class": model_name,
+            "Output": str(output_path),
+            "Fields": field_count,
+            "Size": f"{output_path.stat().st_size} bytes",
+        },
     )

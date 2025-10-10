@@ -26,7 +26,7 @@ body(123, "msgpack.unpackb(body)")         # Binary formats
 ```
 
 #### Tips
-- **Generate models:** `to_model({id}, "models/model.py")` - create Pydantic models from JSON
+- **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
 - **Chain requests:** `body({id}, "httpx.get(json.loads(body)['next_url']).text[:100]")`
 - **Parse XML:** `body({id}, "ElementTree.fromstring(body).find('.//title').text")`
 - **Extract forms:** `body({id}, "[f['action'] for f in bs4(body, 'html.parser').find_all('form')]")`
@@ -38,13 +38,14 @@ Generate Pydantic v2 models from JSON response bodies for reverse engineering AP
 
 #### Examples
 ```python
-to_model(123, "models/product.py")                        # Generate from full response
-to_model(123, "models/customer.py", json_path="Data[0]")  # Extract nested object
-to_model(123, "/tmp/model.py", json_path="items")         # Extract array items
+to_model(123, "models/product.py", "Product")                              # Generate from full response
+to_model(123, "models/customers/group.py", "CustomerGroup", "Data[0]")     # Extract nested + domain structure
+to_model(123, "/tmp/item.py", "Item", "items[0]")                          # Extract array items
 ```
 
 #### Tips
 - **Check structure first:** `body({id})` - preview JSON before generating
+- **Domain organization:** Use paths like `"models/customers/group.py"` for structure
 - **Extract nested data:** Use `json_path="Data[0]"` to extract specific objects
 - **Array items:** Extract first item with `json_path="items[0]"` for model generation
 - **Auto-cleanup:** Generated models use snake_case fields and modern type hints (list, dict, | None)
@@ -80,7 +81,7 @@ Show network requests with full data.
 
 #### Tips
 - **Analyze responses:** `body({id})` - fetch response body
-- **Generate models:** `to_model({id}, "models/model.py")` - create Pydantic models from JSON
+- **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
 - **Parse HTML:** `body({id}, "bs4(body, 'html.parser').find('title').text")`
 - **Extract JSON:** `body({id}, "json.loads(body)['data']")`
 - **Find patterns:** `body({id}, "re.findall(r'/api/\\w+', body)")`
