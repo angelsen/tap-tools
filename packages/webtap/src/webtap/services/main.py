@@ -81,8 +81,8 @@ class WebTapService:
         if not self.cdp or not self.cdp.is_connected:
             return 0
         try:
-            result = self.cdp.db.execute("SELECT COUNT(*) FROM events").fetchone()
-            return result[0] if result else 0
+            result = self.cdp.query("SELECT COUNT(*) FROM events")
+            return result[0][0] if result else 0
         except Exception:
             return 0
 

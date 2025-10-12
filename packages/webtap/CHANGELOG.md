@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **CRITICAL: DuckDB thread safety** - Fixed malloc corruption crashes during browsing
+  - Implemented dedicated database thread with queue-based communication pattern
+  - All database operations now serialized through single thread (WebSocket, FastAPI, REPL threads)
+  - Fixed `WebTapService.event_count` property bypassing queue protection
+  - Resolved "malloc(): unaligned tcache chunk detected" segfaults
+  - Pattern: All threads → `_db_execute()` → queue → `_db_worker` thread → DuckDB
 
 ### Removed
 

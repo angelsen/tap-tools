@@ -6,6 +6,7 @@ PUBLIC API:
 
 import json
 import logging
+import queue
 import threading
 from concurrent.futures import Future, TimeoutError
 from typing import Any
@@ -54,9 +55,18 @@ class CDPSession:
         self._lock = threading.Lock()
 
         # DuckDB storage - store events AS-IS
+        # DuckDB connections are NOT thread-safe - use dedicated DB thread
         self.db = duckdb.connect(":memory:")
+        self._db_work_queue: queue.Queue = queue.Queue()
+        self._db_result_queues: dict[int, queue.Queue] = {}
+        self._db_running = True
 
-        self.db.execute("CREATE TABLE events (event JSON)")
+        # Start dedicated database thread
+        self._db_thread = threading.Thread(target=self._db_worker, daemon=True)
+        self._db_thread.start()
+
+        # Initialize schema via queue
+        self._db_execute("CREATE TABLE events (event JSON)", wait_result=False)
 
         # Live field path lookup for fast discovery
         # Maps lowercase field names to their full paths with original case
@@ -70,6 +80,78 @@ class CDPSession:
         self._broadcast_queue: "Any | None" = None
         self._last_broadcast_time = 0.0
         self._broadcast_debounce = 1.0  # 1 second debounce
+
+    def _db_worker(self) -> None:
+        """Dedicated thread for all database operations.
+
+        Ensures thread safety by serializing all DuckDB access through one thread.
+        DuckDB connections are not thread-safe - sharing them causes malloc corruption.
+        """
+        while self._db_running:
+            try:
+                task = self._db_work_queue.get(timeout=1)
+
+                if task is None:  # Shutdown signal
+                    break
+
+                operation_type, sql, params, result_queue_id = task
+
+                try:
+                    if operation_type == "execute":
+                        result = self.db.execute(sql, params or [])
+                        data = result.fetchall() if result else []
+                    elif operation_type == "delete":
+                        self.db.execute(sql, params or [])
+                        data = None
+                    else:
+                        data = None
+
+                    # Send result back if requested
+                    if result_queue_id and result_queue_id in self._db_result_queues:
+                        self._db_result_queues[result_queue_id].put(("success", data))
+
+                except Exception as e:
+                    logger.error(f"Database error: {e}")
+                    if result_queue_id and result_queue_id in self._db_result_queues:
+                        self._db_result_queues[result_queue_id].put(("error", str(e)))
+
+                finally:
+                    self._db_work_queue.task_done()
+
+            except queue.Empty:
+                continue
+
+    def _db_execute(self, sql: str, params: list | None = None, wait_result: bool = True) -> Any:
+        """Submit database operation to dedicated thread.
+
+        Args:
+            sql: SQL query or command
+            params: Optional query parameters
+            wait_result: Block until operation completes and return result
+
+        Returns:
+            Query results if wait_result=True, None otherwise
+        """
+        result_queue_id = None
+        result_queue = None
+
+        if wait_result:
+            result_queue_id = id(threading.current_thread())
+            result_queue = queue.Queue()
+            self._db_result_queues[result_queue_id] = result_queue
+
+        # Submit to work queue
+        self._db_work_queue.put(("execute", sql, params, result_queue_id))
+
+        if wait_result and result_queue and result_queue_id:
+            status, data = result_queue.get()
+            del self._db_result_queues[result_queue_id]
+
+            if status == "error":
+                raise RuntimeError(f"Database error: {data}")
+            return data
+
+        return None
 
     def list_pages(self) -> list[dict]:
         """List available Chrome pages via HTTP API.
@@ -158,6 +240,12 @@ class CDPSession:
             self.ws_thread.join(timeout=2)
             self.ws_thread = None
 
+        # Shutdown database thread
+        self._db_running = False
+        self._db_work_queue.put(None)  # Signal shutdown
+        if self._db_thread.is_alive():
+            self._db_thread.join(timeout=2)
+
         self.connected.clear()
         self.page_info = None
 
@@ -245,7 +333,7 @@ class CDPSession:
 
             # CDP event - store AS-IS in DuckDB and update field lookup
             elif "method" in data:
-                self.db.execute("INSERT INTO events VALUES (?)", [json.dumps(data)])
+                self._db_execute("INSERT INTO events VALUES (?)", [json.dumps(data)], wait_result=False)
                 self._update_field_lookup(data)
 
                 # Call registered event callbacks
@@ -332,7 +420,7 @@ class CDPSession:
 
     def clear_events(self) -> None:
         """Clear all stored events and reset field lookup."""
-        self.db.execute("DELETE FROM events")
+        self._db_execute("DELETE FROM events", wait_result=False)
         self.field_paths.clear()
 
     def query(self, sql: str, params: list | None = None) -> list:
@@ -352,8 +440,7 @@ class CDPSession:
             query("SELECT * FROM events WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'")
             query("SELECT json_extract_string(event, '$.params.request.url') as url FROM events")
         """
-        result = self.db.execute(sql, params or [])
-        return result.fetchall() if result else []
+        return self._db_execute(sql, params)
 
     def fetch_body(self, request_id: str) -> dict | None:
         """Fetch response body via Network.getResponseBody CDP call.
