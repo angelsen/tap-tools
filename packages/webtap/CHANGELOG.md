@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.7.1] - 2025-10-12
+
+### Added
+
+### Changed
+
+### Fixed
 - **CRITICAL: DuckDB thread safety** - Fixed malloc corruption crashes during browsing
   - Implemented dedicated database thread with queue-based communication pattern
   - All database operations now serialized through single thread (WebSocket, FastAPI, REPL threads)
