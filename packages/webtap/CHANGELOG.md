@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.8.0] - 2025-10-16
+
+### Added
 - **quicktype command**: Generate types for TypeScript, Go, Rust, Python, and 10+ languages from request/response bodies
   - Auto-detects language from file extension (.ts, .go, .rs, etc.)
   - Supports all quicktype CLI options via `options` dict parameter
