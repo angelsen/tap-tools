@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.8.1] - 2025-10-16
+
+### Added
+
+### Changed
+
+### Fixed
 - **Extension setup**: Added missing `background.js` to downloaded extension files (setup-extension command now downloads all 5 required files)
 
 ### Removed
