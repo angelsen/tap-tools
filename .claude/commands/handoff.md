@@ -1,10 +1,13 @@
 ---
 description: Create handoff summary and onboard next colleague
 argument-hint: <summary-path> [pre-handoff-instructions]
-allowed-tools: Write, Read, Glob, mcp__termtap__send
+allowed-tools: Write, Read, Glob, mcp__termtap__send, Bash
 ---
 
 Write handoff summary to: $1
+
+Note: Use datetime format for filename (e.g., HANDOFF_2025-10-16_223809.md).
+Get timestamp with: `date +"%Y-%m-%d_%H%M%S"`
 
 ## Pre-Handoff Instructions
 
