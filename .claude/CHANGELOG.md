@@ -1,5 +1,19 @@
 # Claude Agent & Command Changelog
 
+## [2.1.0] - 2025-10-16
+
+### Added
+- **`/handoff` command**: Create handoff summaries and onboard next colleague
+  - Generates structured summary with accomplishments, status, next steps
+  - Sends onboarding message to colleague via `mcp__termtap__send`
+  - Includes critical reminder about searching local resources before coding
+  - Template includes example workflow and available project resources
+
+### Impact
+- Consistent handoff process across sessions
+- Knowledge transfer is structured and complete
+- New colleagues get immediate context and guidance
+
 ## [2.0.0] - 2025-09-05
 
 ### Changed
