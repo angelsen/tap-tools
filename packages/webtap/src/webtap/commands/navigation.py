@@ -2,6 +2,7 @@
 
 from webtap.app import app
 from webtap.commands._builders import check_connection, info_response, table_response, error_response
+from webtap.commands._tips import get_tips
 
 
 @app.command(display="markdown", fastmcp={"type": "tool"})
@@ -146,6 +147,9 @@ def page(state) -> dict:
         except Exception:
             title = current.get("title", "")
 
+        # Get tips from TIPS.md
+        tips = get_tips("page")
+
         # Build formatted response
         return info_response(
             title=title or "Untitled Page",
@@ -154,6 +158,7 @@ def page(state) -> dict:
                 "ID": current.get("id", ""),
                 "Type": current.get("transitionType", ""),
             },
+            tips=tips,
         )
 
     return error_response("No navigation history available")

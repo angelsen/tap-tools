@@ -119,9 +119,6 @@ async def connect(request: ConnectRequest) -> Dict[str, Any]:
     # Wrap blocking CDP calls (connect + enable domains) in thread
     result = await asyncio.to_thread(app_state.service.connect_to_page, page_id=request.page_id)
 
-    # Broadcast state change
-    await broadcast_state()
-
     return result
 
 
@@ -134,9 +131,6 @@ async def disconnect() -> Dict[str, Any]:
     # Wrap blocking CDP calls (fetch.disable + disconnect) in thread
     result = await asyncio.to_thread(app_state.service.disconnect)
 
-    # Broadcast state change
-    await broadcast_state()
-
     return result
 
 
@@ -146,7 +140,10 @@ async def clear_events() -> Dict[str, Any]:
     if not app_state:
         return {"error": "WebTap not initialized"}
 
-    return app_state.service.clear_events()
+    # Wrap blocking DB operation in thread
+    result = await asyncio.to_thread(app_state.service.clear_events)
+
+    return result
 
 
 @api.post("/fetch")
@@ -164,7 +161,7 @@ async def set_fetch_interception(request: FetchRequest) -> Dict[str, Any]:
         result = await asyncio.to_thread(app_state.service.fetch.disable)
 
     # Broadcast state change
-    await broadcast_state()
+    app_state.service._trigger_broadcast()
 
     return result
 
@@ -200,7 +197,7 @@ async def toggle_filter_category(category: str) -> Dict[str, Any]:
     fm.save()
 
     # Broadcast state change
-    await broadcast_state()
+    app_state.service._trigger_broadcast()
 
     return {"category": category, "enabled": enabled, "total_enabled": len(fm.enabled_categories)}
 
@@ -216,7 +213,7 @@ async def enable_all_filters() -> Dict[str, Any]:
     fm.save()
 
     # Broadcast state change
-    await broadcast_state()
+    app_state.service._trigger_broadcast()
 
     return {"enabled": list(fm.enabled_categories), "total": len(fm.enabled_categories)}
 
@@ -232,7 +229,7 @@ async def disable_all_filters() -> Dict[str, Any]:
     fm.save()
 
     # Broadcast state change
-    await broadcast_state()
+    app_state.service._trigger_broadcast()
 
     return {"enabled": [], "total": 0}
 
@@ -249,9 +246,6 @@ async def start_inspect() -> Dict[str, Any]:
     # Wrap blocking CDP calls (DOM.enable, CSS.enable, Overlay.enable, setInspectMode) in thread
     result = await asyncio.to_thread(app_state.service.dom.start_inspect)
 
-    # Broadcast state change
-    await broadcast_state()
-
     return result
 
 
@@ -264,9 +258,6 @@ async def stop_inspect() -> Dict[str, Any]:
     # Wrap blocking CDP call (Overlay.setInspectMode) in thread
     result = await asyncio.to_thread(app_state.service.dom.stop_inspect)
 
-    # Broadcast state change
-    await broadcast_state()
-
     return result
 
 
@@ -277,9 +268,6 @@ async def clear_selections() -> Dict[str, Any]:
         return {"error": "WebTap not initialized"}
 
     app_state.service.dom.clear_selections()
-
-    # Broadcast state change
-    await broadcast_state()
 
     return {"success": True, "selections": {}}
 
@@ -293,7 +281,7 @@ async def dismiss_error() -> Dict[str, Any]:
     app_state.error_state = None
 
     # Broadcast state change
-    await broadcast_state()
+    app_state.service._trigger_broadcast()
 
     return {"success": True}
 
@@ -363,11 +351,11 @@ async def stream_events():
 def get_full_state() -> Dict[str, Any]:
     """Get complete WebTap state for broadcasting.
 
-    Returns real-time state only (no blocking I/O).
-    Page list excluded - fetch via /info endpoint on-demand.
+    Thread-safe, zero-lock reads from immutable snapshot.
+    No blocking I/O - returns cached snapshot immediately.
 
     Returns:
-        Dictionary with all state information
+        Dictionary with all state information for SSE clients
     """
     if not app_state:
         return {
@@ -375,40 +363,35 @@ def get_full_state() -> Dict[str, Any]:
             "events": {"total": 0},
             "fetch": {"enabled": False, "paused_count": 0},
             "filters": {"enabled": [], "disabled": []},
-            "browser": {"inspect_active": False, "selections": {}, "prompt": ""},
+            "browser": {"inspect_active": False, "selections": {}, "prompt": "", "pending_count": 0},
             "error": None,
         }
 
-    # Get connection status
-    connected = app_state.cdp.is_connected
-    page_info = app_state.cdp.page_info or {}
+    # Get immutable snapshot (NO LOCKS NEEDED - inherently thread-safe)
+    snapshot = app_state.service.get_state_snapshot()
 
-    # Get event counts
-    event_count = app_state.service.event_count
-
-    # Get fetch status
-    fetch_enabled = app_state.service.fetch.enabled
-    paused_count = app_state.service.fetch.paused_count if fetch_enabled else 0
-
-    # Get filter status
-    fm = app_state.service.filters
-    filter_categories = list(fm.filters.keys())
-    enabled_filters = list(fm.enabled_categories)
-    disabled_filters = [cat for cat in filter_categories if cat not in enabled_filters]
-
-    # Get browser/DOM state (includes pending_count for progress indicator)
-    browser_state = app_state.service.dom.get_state()
-
+    # Convert snapshot to frontend format
     return {
-        "connected": connected,
-        "page": {"id": page_info.get("id", ""), "title": page_info.get("title", ""), "url": page_info.get("url", "")}
-        if connected
+        "connected": snapshot.connected,
+        "page": {
+            "id": snapshot.page_id,
+            "title": snapshot.page_title,
+            "url": snapshot.page_url,
+        }
+        if snapshot.connected
         else None,
-        "events": {"total": event_count},
-        "fetch": {"enabled": fetch_enabled, "paused_count": paused_count},
-        "filters": {"enabled": enabled_filters, "disabled": disabled_filters},
-        "browser": browser_state,  # Contains inspect_active, selections, prompt, pending_count
-        "error": app_state.error_state,  # Current error or None
+        "events": {"total": snapshot.event_count},
+        "fetch": {"enabled": snapshot.fetch_enabled, "paused_count": snapshot.paused_count},
+        "filters": {"enabled": list(snapshot.enabled_filters), "disabled": list(snapshot.disabled_filters)},
+        "browser": {
+            "inspect_active": snapshot.inspect_active,
+            "selections": snapshot.selections,
+            "prompt": snapshot.prompt,
+            "pending_count": snapshot.pending_count,
+        },
+        "error": {"message": snapshot.error_message, "timestamp": snapshot.error_timestamp}
+        if snapshot.error_message
+        else None,
     }
 
 
@@ -429,7 +412,14 @@ async def broadcast_state():
         try:
             queue.put_nowait(state)
         except asyncio.QueueFull:
-            logger.warning("SSE client queue full, skipping broadcast")
+            # Client is falling behind - discard oldest state and retry with latest
+            logger.warning(f"SSE client queue full ({queue.qsize()}/{queue.maxsize}), discarding oldest state")
+            try:
+                queue.get_nowait()  # Discard oldest
+                queue.put_nowait(state)  # Retry with latest
+            except Exception as retry_err:
+                logger.debug(f"Failed to recover full queue: {retry_err}")
+                dead_queues.add(queue)
         except Exception as e:
             logger.debug(f"Failed to broadcast to client: {e}")
             dead_queues.add(queue)
@@ -470,7 +460,9 @@ async def broadcast_processor():
     async with _sse_clients_lock:
         for queue in list(_sse_clients):
             try:
-                await queue.put(None)  # Signal shutdown to client
+                queue.put_nowait(None)  # Non-blocking shutdown signal
+            except asyncio.QueueFull:
+                pass  # Client is hung, skip
             except Exception:
                 pass
         _sse_clients.clear()
@@ -521,11 +513,12 @@ def start_api_server(state, host: str = "127.0.0.1", port: int = 8765) -> thread
         logger.error("Broadcast queue initialization timed out")
         return thread
 
-    # Wire queue to DOM service and CDP session after event loop starts
+    # Wire queue to service and CDP session after event loop starts
+    # Note: DOMService uses callback to service._trigger_broadcast instead of direct queue access
     if _broadcast_queue and app_state:
-        app_state.service.dom.set_broadcast_queue(_broadcast_queue)
+        app_state.service.set_broadcast_queue(_broadcast_queue)
         app_state.cdp.set_broadcast_queue(_broadcast_queue)
-        logger.info("Broadcast queue wired to DOMService and CDPSession")
+        logger.info("Broadcast queue wired to WebTapService and CDPSession")
 
     logger.info(f"API server started on http://{host}:{port}")
     return thread

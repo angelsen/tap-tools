@@ -2,6 +2,7 @@
 
 from webtap.app import app
 from webtap.commands._builders import check_connection, info_response, table_response, error_response
+from webtap.commands._tips import get_tips
 
 
 @app.command(display="markdown", fastmcp={"type": "tool"})
@@ -132,12 +133,32 @@ def pages(state) -> dict:
         for i, p in enumerate(pages_list)
     ]
 
+    # Get contextual tips
+    tips = None
+    if rows:
+        # Find connected page or first page
+        connected_row = next((r for r in rows if r["Connected"] == "Yes"), rows[0])
+        page_index = connected_row["Index"]
+
+        # Get page_id for the example page
+        connected_page = next((p for p in pages_list if str(pages_list.index(p)) == page_index), None)
+        page_id = connected_page.get("id", "")[:6] if connected_page else ""
+
+        tips = get_tips("pages", context={"index": page_index, "page_id": page_id})
+
+    # Build contextual warnings
+    warnings = []
+    if any(r["Connected"] == "Yes" for r in rows):
+        warnings.append("Already connected - call connect(page=N) to switch pages")
+
     # Build markdown response
     return table_response(
         title="Chrome Pages",
         headers=["Index", "Title", "URL", "ID", "Connected"],
         rows=rows,
         summary=f"{len(pages_list)} page{'s' if len(pages_list) != 1 else ''} available",
+        warnings=warnings if warnings else None,
+        tips=tips,
     )
 
 

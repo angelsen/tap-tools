@@ -23,39 +23,27 @@ def js(
     wait_return: bool = True,
     await_promise: bool = False,
 ) -> dict:
-    """Execute JavaScript in the browser with optional element selection.
+    """Execute JavaScript in the browser.
+
+    Uses fresh scope by default to avoid redeclaration errors. Set persist=True
+    to keep variables across calls. Use selection=N to operate on browser elements.
 
     Args:
-        code: JavaScript code to execute (use 'element' variable if selection provided)
-        selection: Browser element selection number (e.g., 1 for #1) - makes element available
-        persist: Keep variables in global scope across calls (default: False, uses fresh scope)
+        code: JavaScript code to execute
+        selection: Browser element selection number - makes 'element' variable available
+        persist: Keep variables in global scope across calls (default: False)
         wait_return: Wait for and return result (default: True)
         await_promise: Await promises before returning (default: False)
 
     Examples:
-        # Default: fresh scope (no redeclaration errors)
-        js("const x = 1")                              # ✓ x isolated
-        js("const x = 2")                              # ✓ No error, fresh scope
-        js("document.title")                           # Get page title
-        js("[...document.links].map(a => a.href)")    # Get all links
-
-        # With browser element selection (always fresh scope)
-        js("element.offsetWidth", selection=1)         # Use element #1
-        js("element.classList", selection=2)           # Use element #2
-        js("element.getBoundingClientRect()", selection=1)
-
-        # Persistent scope: keep variables across calls
-        js("var data = fetch('/api')", persist=True)   # data persists
-        js("data.json()", persist=True)                # Access data from previous call
-
-        # Async operations
-        js("fetch('/api').then(r => r.json())", await_promise=True)
-
-        # DOM manipulation (no return needed)
-        js("document.querySelectorAll('.ad').forEach(e => e.remove())", wait_return=False)
+        js("document.title")                                # Fresh scope (default)
+        js("var data = {count: 0}", persist=True)           # Persistent state
+        js("element.offsetWidth", selection=1)              # With browser element
+        js("fetch('/api')", await_promise=True)             # Async operation
+        js("element.remove()", selection=1, wait_return=False)  # No return needed
 
     Returns:
-        The evaluated result if wait_return=True, otherwise execution status
+        Evaluated result if wait_return=True, otherwise execution status
     """
     if error := check_connection(state):
         return error

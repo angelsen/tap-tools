@@ -22,7 +22,7 @@ Examples:
 
 Available builders:
   - table_response() - Tables with headers, warnings, tips
-  - info_response() - Key-value pairs with optional heading
+  - info_response() - Key-value pairs with optional heading and tips
   - error_response() - Errors with suggestions
   - success_response() - Success messages with details
   - warning_response() - Warnings with suggestions
@@ -83,6 +83,7 @@ def info_response(
     title: str | None = None,
     fields: dict | None = None,
     extra: str | None = None,
+    tips: list[str] | None = None,
 ) -> dict:
     """Build info display with key-value pairs.
 
@@ -90,6 +91,7 @@ def info_response(
         title: Optional info title
         fields: Dict of field names to values
         extra: Optional extra content (raw markdown)
+        tips: Optional developer tips/guidance
     """
     elements = []
 
@@ -106,6 +108,10 @@ def info_response(
 
     if not elements:
         elements.append({"type": "text", "content": "_No information available_"})
+
+    if tips:
+        elements.append({"type": "heading", "content": "Next Steps", "level": 3})
+        elements.append({"type": "list", "items": tips})
 
     return {"elements": elements}
 

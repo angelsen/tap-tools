@@ -21,6 +21,23 @@ class FetchService:
         self.enable_response_stage = False  # Config option for future
         self.cdp: CDPSession | None = None
         self.body_service: BodyService | None = None
+        self._broadcast_callback: "Any | None" = None  # Callback to service._trigger_broadcast()
+
+    def set_broadcast_callback(self, callback: "Any") -> None:
+        """Set callback for broadcasting state changes.
+
+        Args:
+            callback: Function to call when state changes (service._trigger_broadcast)
+        """
+        self._broadcast_callback = callback
+
+    def _trigger_broadcast(self) -> None:
+        """Trigger SSE broadcast via service callback (ensures snapshot update)."""
+        if self._broadcast_callback:
+            try:
+                self._broadcast_callback()
+            except Exception as e:
+                logger.debug(f"Failed to trigger broadcast: {e}")
 
     # ============= Core State Queries =============
 
@@ -147,6 +164,7 @@ class FetchService:
             stage_msg = "Request and Response stages" if response_stage else "Request stage only"
             logger.info(f"Fetch interception enabled ({stage_msg})")
 
+            self._trigger_broadcast()  # Update snapshot
             return {"enabled": True, "stages": stage_msg, "paused": self.paused_count}
 
         except Exception as e:
@@ -174,6 +192,7 @@ class FetchService:
                 self.body_service.clear_cache()
 
             logger.info("Fetch interception disabled")
+            self._trigger_broadcast()  # Update snapshot
             return {"enabled": False}
 
         except Exception as e:

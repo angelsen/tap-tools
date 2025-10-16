@@ -57,6 +57,10 @@ class WebTapState:
             # Give server 1.5s to close SSE connections and shutdown gracefully
             self.api_thread.join(timeout=1.5)
 
+        # Shutdown DB thread (this is the only place where DB thread should stop)
+        if hasattr(self, "cdp") and self.cdp:
+            self.cdp.cleanup()
+
 
 # Must be created before command imports for decorator registration
 app = App(
@@ -90,6 +94,7 @@ else:
     from webtap.commands import fetch  # noqa: E402, F401
     from webtap.commands import body  # noqa: E402, F401
     from webtap.commands import to_model  # noqa: E402, F401
+    from webtap.commands import quicktype  # noqa: E402, F401
     from webtap.commands import selections  # noqa: E402, F401
     from webtap.commands import server  # noqa: E402, F401
     from webtap.commands import setup  # noqa: E402, F401

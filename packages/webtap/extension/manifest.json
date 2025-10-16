@@ -3,7 +3,16 @@
   "name": "WebTap DevTools",
   "version": "0.2.0",
   "description": "Chrome DevTools Protocol debugger via WebTap",
-  "permissions": ["activeTab", "tabs", "scripting", "sidePanel"],
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "contextMenus"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "side_panel": {
     "default_path": "sidepanel.html"
   },

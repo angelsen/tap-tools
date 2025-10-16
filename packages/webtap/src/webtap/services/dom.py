@@ -46,7 +46,7 @@ class DOMService:
         self.state = state
         self._inspection_active = False
         self._next_id = 1
-        self._broadcast_queue: "Any | None" = None  # asyncio.Queue for thread-safe broadcasts
+        self._broadcast_callback: "Any | None" = None  # Callback to service._trigger_broadcast()
         self._state_lock = threading.Lock()  # Protect state mutations
         self._pending_selections = 0  # Track in-flight selection processing
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
@@ -59,13 +59,13 @@ class DOMService:
         """Set state after initialization."""
         self.state = state
 
-    def set_broadcast_queue(self, queue: "Any") -> None:
-        """Set queue for broadcasting state changes.
+    def set_broadcast_callback(self, callback: "Any") -> None:
+        """Set callback for broadcasting state changes.
 
         Args:
-            queue: asyncio.Queue for thread-safe signaling
+            callback: Function to call when state changes (service._trigger_broadcast)
         """
-        self._broadcast_queue = queue
+        self._broadcast_callback = callback
 
     def start_inspect(self) -> dict[str, Any]:
         """Enable CDP element inspection mode.
@@ -116,6 +116,7 @@ class DOMService:
             self._inspection_active = True
             logger.info("Element inspection mode enabled")
 
+            self._trigger_broadcast()
             return {"success": True, "inspect_active": True}
 
         except Exception as e:
@@ -143,6 +144,7 @@ class DOMService:
             self._inspection_active = False
             logger.info("Element inspection mode disabled")
 
+            self._trigger_broadcast()
             return {"success": True, "inspect_active": False}
 
         except Exception as e:
@@ -244,12 +246,12 @@ class DOMService:
             self._trigger_broadcast()
 
     def _trigger_broadcast(self) -> None:
-        """Trigger SSE broadcast via queue (thread-safe helper)."""
-        if self._broadcast_queue:
+        """Trigger SSE broadcast via service callback (ensures snapshot update)."""
+        if self._broadcast_callback:
             try:
-                self._broadcast_queue.put_nowait({"type": "dom_update"})
+                self._broadcast_callback()
             except Exception as e:
-                logger.debug(f"Failed to queue broadcast: {e}")
+                logger.debug(f"Failed to trigger broadcast: {e}")
 
     def _extract_node_data(self, backend_node_id: int) -> dict[str, Any]:
         """Extract complete element data via CDP.
@@ -486,14 +488,16 @@ class DOMService:
                 self.state.browser_data["selections"] = {}
             self._next_id = 1
         logger.info("Selections cleared")
+        self._trigger_broadcast()
 
     def cleanup(self) -> None:
         """Cleanup resources (executor, callbacks).
 
         Call this before disconnect or app exit.
+        Safe to call multiple times.
         """
         # Shutdown executor - wait=False to avoid blocking on stuck tasks
-        # cancel_futures=True prevents hanging on incomplete selections (Python 3.9+)
+        # cancel_futures=True prevents hanging on incomplete selections
         if hasattr(self, "_executor"):
             try:
                 self._executor.shutdown(wait=False, cancel_futures=True)
@@ -501,12 +505,15 @@ class DOMService:
             except Exception as e:
                 logger.debug(f"Executor shutdown error (non-fatal): {e}")
 
-        # Clear inspection state
-        if self._inspection_active:
+        # Clear inspection state (only if connected)
+        if self._inspection_active and self.cdp and self.cdp.is_connected:
             try:
                 self.stop_inspect()
             except Exception as e:
                 logger.debug(f"Failed to stop inspect on cleanup: {e}")
+
+        # Force clear inspection flag even if CDP call failed
+        self._inspection_active = False
 
 
 __all__ = ["DOMService"]

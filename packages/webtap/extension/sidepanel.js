@@ -21,19 +21,78 @@ function debounce(fn, delay) {
 }
 
 /**
+ * Show error message (safe, auto-escapes HTML)
+ * @param {string} message - Error message to display
+ * @param {Object} opts - Options
+ * @param {string} opts.type - Display type: "status" (temporary, default) or "banner" (persistent)
+ */
+function showError(message, opts = {}) {
+  const { type = "status" } = opts;
+
+  if (type === "banner") {
+    // Persistent error banner (dismissable)
+    const banner = document.getElementById("errorBanner");
+    const messageEl = document.getElementById("errorMessage");
+    messageEl.textContent = message; // Safe, auto-escapes
+    banner.classList.add("visible");
+  } else {
+    // Temporary status div (cleared by SSE updates)
+    const status = document.getElementById("status");
+    status.innerHTML = "";
+    const span = document.createElement("span");
+    span.className = "error";
+    span.textContent = message; // Safe, auto-escapes
+    status.appendChild(span);
+  }
+}
+
+/**
+ * Show general message in status div (safe, auto-escapes HTML)
+ * @param {string} message - Message to display
+ * @param {Object} opts - Options
+ * @param {string} opts.className - CSS class for styling (e.g., "connected", "error")
+ */
+function showMessage(message, opts = {}) {
+  const { className = "" } = opts;
+  const status = document.getElementById("status");
+
+  if (className) {
+    status.innerHTML = "";
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = message; // Safe, auto-escapes
+    status.appendChild(span);
+  } else {
+    status.textContent = message; // Safe, auto-escapes
+  }
+}
+
+// Global lock to prevent concurrent operations
+let globalOperationInProgress = false;
+
+/**
  * Disable button during async operation, re-enable after
+ * Also prevents any other button operations while one is in progress
  */
 async function withButtonLock(buttonId, asyncFn) {
   const btn = document.getElementById(buttonId);
   if (!btn) return;
 
+  // Prevent concurrent operations
+  if (globalOperationInProgress) {
+    console.log(`[WebTap] Operation already in progress, ignoring ${buttonId}`);
+    return;
+  }
+
   const wasDisabled = btn.disabled;
   btn.disabled = true;
+  globalOperationInProgress = true;
 
   try {
     await asyncFn();
   } finally {
     btn.disabled = wasDisabled;
+    globalOperationInProgress = false;
   }
 }
 
@@ -83,10 +142,7 @@ let eventSource = null;
 let webtapAvailable = false;
 
 function connectSSE() {
-  // Don't log if we already know server is down
-  if (webtapAvailable) {
-    console.log("[WebTap] Connecting to SSE stream...");
-  }
+  console.log("[WebTap] Connecting to SSE stream...");
 
   // Close existing connection
   if (eventSource) {
@@ -94,17 +150,12 @@ function connectSSE() {
     eventSource = null;
   }
 
-  // Don't try to connect if server is known to be down
-  if (!webtapAvailable) {
-    return;
-  }
-
   eventSource = new EventSource(`${API_BASE}/events`);
 
   eventSource.onopen = () => {
     console.log("[WebTap] SSE connected");
     webtapAvailable = true;
-    updateConnectionStatus(true);
+    loadPages(); // Load pages when connection established
   };
 
   eventSource.onmessage = (event) => {
@@ -140,12 +191,8 @@ function connectSSE() {
   };
 
   eventSource.onerror = (error) => {
-    // Only log once when connection is lost
-    if (webtapAvailable) {
-      console.log("[WebTap] Server connection lost");
-      webtapAvailable = false;
-      updateConnectionStatus(false);
-    }
+    console.log("[WebTap] Connection failed or lost");
+    webtapAvailable = false;
 
     // Close the connection to stop auto-reconnect
     if (eventSource) {
@@ -154,17 +201,36 @@ function connectSSE() {
     }
 
     state.connected = false;
-    renderUI(state);
-  };
-}
 
-function updateConnectionStatus(connected) {
-  const statusEl = document.getElementById("status");
-  if (connected) {
-    statusEl.innerHTML = "Connected";
-  } else {
-    statusEl.innerHTML = "Disconnected";
-  }
+    // Show error with reconnect button in status
+    const status = document.getElementById("status");
+    status.innerHTML = "";
+
+    const errorSpan = document.createElement("span");
+    errorSpan.className = "error";
+    errorSpan.textContent = "Error: WebTap server not running";
+
+    const reconnectBtn = document.createElement("button");
+    reconnectBtn.id = "reconnectBtn";
+    reconnectBtn.textContent = "Reconnect";
+    reconnectBtn.style.marginLeft = "10px";
+    reconnectBtn.style.padding = "2px 8px";
+    reconnectBtn.style.cursor = "pointer";
+    reconnectBtn.onclick = () => {
+      showMessage("Connecting...");
+      connectSSE();
+    };
+
+    status.appendChild(errorSpan);
+    status.appendChild(document.createTextNode(" "));
+    status.appendChild(reconnectBtn);
+
+    // Clear page list without duplicate error
+    document.getElementById("pageList").innerHTML =
+      "<option disabled>Select a page</option>";
+
+    // Don't call renderUI() - it would overwrite the reconnect button
+  };
 }
 
 // ==================== UI Rendering ====================
@@ -175,10 +241,15 @@ function renderUI(state) {
 
   // Connection status
   if (state.connected && state.page) {
-    document.getElementById("status").innerHTML =
-      `<span class="connected">Connected</span> - Events: ${state.events.total}`;
+    const status = document.getElementById("status");
+    status.innerHTML = "";
+    const connectedSpan = document.createElement("span");
+    connectedSpan.className = "connected";
+    connectedSpan.textContent = "Connected";
+    status.appendChild(connectedSpan);
+    status.appendChild(document.createTextNode(` - Events: ${state.events.total}`));
   } else if (!state.connected) {
-    document.getElementById("status").innerHTML = "Not connected";
+    showMessage("Not connected");
   }
 
   // Fetch interception status
@@ -327,7 +398,7 @@ function updateSelectionUI(browser) {
 async function loadPages() {
   if (!webtapAvailable) {
     document.getElementById("pageList").innerHTML =
-      "<option disabled>Error: WebTap not running</option>";
+      "<option disabled>Select a page</option>";
     return;
   }
 
@@ -335,7 +406,7 @@ async function loadPages() {
 
   if (info.error) {
     document.getElementById("pageList").innerHTML =
-      `<option disabled>${info.error === "WebTap not initialized" ? "Error: WebTap not running" : "Warning: Error loading pages"}</option>`;
+      "<option disabled>Unable to load pages</option>";
     return;
   }
 
@@ -372,14 +443,17 @@ async function loadPages() {
 // Debounced version for automatic refresh on tab events
 const debouncedLoadPages = debounce(loadPages, 500);
 
+document.getElementById("reloadPages").onclick = () => {
+  loadPages();
+};
+
 document.getElementById("connect").onclick = debounce(async () => {
   await withButtonLock("connect", async () => {
     const select = document.getElementById("pageList");
     const selectedPageId = select.value;
 
     if (!selectedPageId) {
-      document.getElementById("status").innerHTML =
-        '<span class="error">Note: Please select a page</span>';
+      showError("Note: Please select a page");
       return;
     }
 
@@ -387,14 +461,12 @@ document.getElementById("connect").onclick = debounce(async () => {
       const result = await api("/connect", "POST", { page_id: selectedPageId });
 
       if (result.error) {
-        document.getElementById("status").innerHTML =
-          `<span class="error">Error: ${result.error}</span>`;
+        showError(`Error: ${result.error}`);
       }
       // State update will come via SSE
     } catch (e) {
       console.error("[WebTap] Connect failed:", e);
-      document.getElementById("status").innerHTML =
-        '<span class="error">Error: Connection failed</span>';
+      showError("Error: Connection failed");
     }
   });
 }, 300);
@@ -406,27 +478,28 @@ document.getElementById("disconnect").onclick = debounce(async () => {
       // State update will come via SSE
     } catch (e) {
       console.error("[WebTap] Disconnect failed:", e);
-      document.getElementById("status").innerHTML =
-        '<span class="error">Error: Disconnect failed</span>';
+      showError("Error: Disconnect failed");
     }
   });
 }, 300);
 
-document.getElementById("clear").onclick = async () => {
-  try {
-    await api("/clear", "POST");
-    // State update will come via SSE
-  } catch (e) {
-    console.error("[WebTap] Clear failed:", e);
-  }
-};
+document.getElementById("clear").onclick = debounce(async () => {
+  await withButtonLock("clear", async () => {
+    try {
+      await api("/clear", "POST");
+      // State update will come via SSE
+    } catch (e) {
+      console.error("[WebTap] Clear failed:", e);
+      showError("Error: Failed to clear events");
+    }
+  });
+}, 300);
 
 // ==================== Fetch Interception ====================
 
 document.getElementById("fetchToggle").onclick = async () => {
   if (!state.connected) {
-    document.getElementById("status").innerHTML =
-      '<span class="error">Required: Connect to a page first</span>';
+    showError("Required: Connect to a page first");
     return;
   }
 
@@ -477,10 +550,13 @@ document.getElementById("disableAllFilters").onclick = async () => {
 
 document.getElementById("startSelection").onclick = debounce(async () => {
   await withButtonLock("startSelection", async () => {
-    // Optimistic update: flip state immediately for instant UI feedback
+    // Check if still connected before CDP operations
+    if (!state.connected) {
+      showError("Error: Not connected to a page");
+      return;
+    }
+
     const previousState = state.browser.inspect_active;
-    state.browser.inspect_active = !previousState;
-    updateSelectionUI(state.browser);
 
     try {
       const result = await api(
@@ -491,26 +567,25 @@ document.getElementById("startSelection").onclick = debounce(async () => {
       if (result.error) {
         throw new Error(result.error);
       }
-      // SSE will confirm the change
+      // SSE will send updated state
     } catch (e) {
       console.error("[WebTap] Selection toggle failed:", e);
-      // Rollback optimistic update on failure
-      state.browser.inspect_active = previousState;
-      updateSelectionUI(state.browser);
-      document.getElementById("status").innerHTML =
-        `<span class="error">Warning: ${e.message}</span>`;
+      showError(`Error: ${e.message}`);
     }
   });
 }, 300);
 
-document.getElementById("clearSelections").onclick = async () => {
-  try {
-    await api("/browser/clear", "POST");
-    // State update will come via SSE
-  } catch (e) {
-    console.error("[WebTap] Clear selections failed:", e);
-  }
-};
+document.getElementById("clearSelections").onclick = debounce(async () => {
+  await withButtonLock("clearSelections", async () => {
+    try {
+      await api("/browser/clear", "POST");
+      // State update will come via SSE
+    } catch (e) {
+      console.error("[WebTap] Clear selections failed:", e);
+      showError("Error: Failed to clear selections");
+    }
+  });
+}, 300);
 
 // Removed submit flow - selections accessed via @webtap:webtap://selections resource
 
@@ -566,37 +641,6 @@ async function updateBadges(selections) {
   }
 }
 
-// ==================== Health Check Polling ====================
-
-async function checkHealth() {
-  try {
-    const response = await fetch(`${API_BASE}/health`, {
-      // Add timeout to fail faster
-      signal: AbortSignal.timeout(1000),
-    });
-    if (response.ok) {
-      // WebTap is alive
-      if (!webtapAvailable) {
-        console.log("[WebTap] Server started - connecting...");
-        webtapAvailable = true;
-        connectSSE();
-        loadPages(); // Refresh page list when server comes online
-      }
-    }
-  } catch (e) {
-    // Server is down - this is expected, not an error
-    // Only update UI if state changed
-    if (webtapAvailable) {
-      console.log("[WebTap] Server stopped");
-      webtapAvailable = false;
-      document.getElementById("status").innerHTML =
-        '<span class="error">Error: WebTap not running</span>';
-      document.getElementById("pageList").innerHTML =
-        "<option disabled>Run: Start WebTap REPL and run server()</option>";
-    }
-  }
-}
-
 // ==================== Tab Event Listeners ====================
 
 // Auto-refresh page list on tab changes (aggressive mode)
@@ -616,10 +660,14 @@ chrome.tabs.onMoved.addListener(() => {
   debouncedLoadPages();
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Refresh when tab finishes loading (title/URL changed)
+  if (changeInfo.status === "complete") {
+    debouncedLoadPages();
+  }
+});
+
 // ==================== Initialization ====================
 
-// Check health first to see if server is running (will auto-load pages when available)
-checkHealth();
-
-// Poll health every 3 seconds (will connect SSE when server starts)
-setInterval(checkHealth, 3000);
+// Connect to SSE stream on load (will show error if server down)
+connectSSE();

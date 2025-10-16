@@ -13,6 +13,7 @@ wheels/
 .context-search.json
 CLAUDE.md
 DEPLOYMENT.md
+packages/webtap/docs/summaries
 
 # External resources
 _resources/

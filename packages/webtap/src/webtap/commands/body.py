@@ -11,11 +11,15 @@ mcp_desc = get_mcp_description("body")
 
 
 @app.command(display="markdown", fastmcp={"type": "tool", "description": mcp_desc} if mcp_desc else {"type": "tool"})
-def body(state, response: int, expr: str = None, decode: bool = True, cache: bool = True) -> dict:  # pyright: ignore[reportArgumentType]
-    """Fetch and analyze response body with Python expressions.
+def body(state, event: int, expr: str = None, decode: bool = True, cache: bool = True) -> dict:  # pyright: ignore[reportArgumentType]
+    """Fetch and analyze request or response body with Python expressions.
+
+    Automatically detects event type and fetches appropriate body:
+    - Request events (Network.requestWillBeSent): POST/PUT/PATCH request body
+    - Response events (Network.responseReceived): response body
 
     Args:
-        response: Response row ID from network() or requests()
+        event: Event row ID from network(), events(), or requests()
         expr: Optional Python expression with 'body' variable
         decode: Auto-decode base64 (default: True)
         cache: Use cached body (default: True)
@@ -28,7 +32,7 @@ def body(state, response: int, expr: str = None, decode: bool = True, cache: boo
 
     # Get body from service (with optional caching)
     body_service = state.service.body
-    result = body_service.get_response_body(response, use_cache=cache)
+    result = body_service.get_body(event, use_cache=cache)
 
     if "error" in result:
         return error_response(result["error"])
@@ -66,7 +70,7 @@ def body(state, response: int, expr: str = None, decode: bool = True, cache: boo
         # Build markdown response with body in code block
         # DATA-LEVEL TRUNCATION for memory/performance (as per refactor plan)
         MAX_BODY_SIZE = 5000  # Keep data-level truncation for large bodies
-        elements = [{"type": "heading", "content": "Response Body", "level": 2}]
+        elements = [{"type": "heading", "content": "Body", "level": 2}]
 
         # Try to detect content type and format appropriately
         content_preview = body_content[:100]

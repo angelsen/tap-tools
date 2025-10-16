@@ -8,10 +8,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **quicktype command**: Generate types for TypeScript, Go, Rust, Python, and 10+ languages from request/response bodies
+  - Auto-detects language from file extension (.ts, .go, .rs, etc.)
+  - Supports all quicktype CLI options via `options` dict parameter
+  - Language-aware header comments with event metadata
+  - Supports `expr` and `json_path` for data transformation
+- **Request body support**: `body()` and `to_model()` now work with POST/PUT/PATCH requests
+  - Auto-detects `Network.requestWillBeSent` events and fetches POST data
+  - Returns event data for `expr` evaluation on any CDP event type
+- **Code generation utilities**: New `_code_generation.py` module with shared transformation functions
+  - `parse_json()`, `extract_json_path()`, `validate_generation_data()`, `ensure_output_directory()`
+- **BodyService.prepare_for_generation()**: Orchestrator method reducing duplication (2 queries → 1, 166 duplicate lines → 0)
+- **Extension reload button**: Manual page list refresh for when auto-refresh doesn't update
+- **Tips system**: Added contextual tips to `page()` and `pages()` commands from TIPS.md
+- **Response builders**: `info_response()` now supports `tips` parameter (matches `table_response()`)
+- **Extension UI**: Context menu for switching between sidepanel and popup window modes
+- **Background service worker**: Manages UI mode switching and sidepanel close functionality
 
 ### Changed
+- **State management**: Immutable snapshot architecture for thread-safe SSE broadcasting
+  - New `StateSnapshot` frozen dataclass with atomic updates
+  - `WebTapService._create_snapshot()` and `_trigger_broadcast()` replace direct broadcasts
+  - All service mutations trigger snapshot updates via RLock-protected operations
+- **CDPSession lifecycle**: DB thread now persists across connections (only dies on app exit)
+  - `disconnect()` preserves DB thread and events for reconnection
+  - New `cleanup()` method for proper app exit (stops DB thread)
+  - Added `atexit` hook for automatic cleanup on process termination
+  - Events persist across disconnect/reconnect cycles (cleared only by Clear button or exit)
+- **Unexpected disconnect handling**: Preserves events for debugging instead of clearing
+  - `_handle_unexpected_disconnect()` no longer calls `clear_events()`
+  - Enhanced error messages for None close codes
+- **Service layer**: Broadcast queue ownership moved to `WebTapService` with callback pattern
+  - `DOMService` and `FetchService` now use `_broadcast_callback` instead of direct queue access
+- **Extension safety**: All dynamic HTML uses safe DOM creation instead of `innerHTML`
+  - New `showError()` and `showMessage()` helpers with auto-escaping
+  - Replaced UTF-8 cross (✕) with pure CSS icon
+- **to_model command**: Refactored to use `body_service.prepare_for_generation()` (170 → 85 lines)
+  - Added `expr` parameter for custom transformations
+  - Parameter renamed from `response` to `event`
+- **body command**: Renamed internal `get_response_body()` to `get_body()` with auto-detection
+  - Parameter renamed from `response` to `event`
 
 ### Fixed
+- **Critical reconnection bug**: Page crashes now allow immediate reconnection
+  - `CDPSession._on_close()` clears `ws_app` and `page_info` state after detecting unexpected disconnect
+  - Previously "Already connected" error prevented reconnection after page kill
+- **Error messages**: Fixed "Connection closed unexpectedly (code None)" → "Connection lost (page closed or crashed)"
+- **Extension concurrency**: Added global operation lock to prevent concurrent button operations
+- **SSE error handling**: Shows reconnect button instead of generic error message
 
 ### Removed
 

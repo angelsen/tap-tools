@@ -78,8 +78,9 @@ class CDPSession:
 
         # Broadcast queue for SSE state updates (set by API server)
         self._broadcast_queue: "Any | None" = None
-        self._last_broadcast_time = 0.0
-        self._broadcast_debounce = 1.0  # 1 second debounce
+
+        # Disconnect callback for service-level cleanup
+        self._disconnect_callback: "Any | None" = None
 
     def _db_worker(self) -> None:
         """Dedicated thread for all database operations.
@@ -218,7 +219,7 @@ class CDPSession:
             kwargs={
                 "ping_interval": 30,  # Ping every 30s
                 "ping_timeout": 20,  # Wait 20s for pong (increased from 10s for heavy CDP load)
-                "reconnect": 5,  # Auto-reconnect with max 5s delay
+                # No auto-reconnect - make disconnects explicit
                 "skip_utf8_validation": True,  # Faster
             },
         )
@@ -231,23 +232,45 @@ class CDPSession:
             raise TimeoutError("Failed to connect to Chrome")
 
     def disconnect(self) -> None:
-        """Disconnect WebSocket and clean up resources."""
-        if self.ws_app:
-            self.ws_app.close()
+        """Disconnect WebSocket while preserving events and DB thread.
+
+        Events and DB thread persist across connection cycles.
+        Use cleanup() on app exit to shutdown DB thread.
+        """
+        # Atomically clear ws_app to signal manual disconnect
+        # This prevents _on_close from triggering service callback
+        with self._lock:
+            ws_app = self.ws_app
             self.ws_app = None
+
+        if ws_app:
+            ws_app.close()
 
         if self.ws_thread and self.ws_thread.is_alive():
             self.ws_thread.join(timeout=2)
             self.ws_thread = None
+
+        # Keep DB thread running - events preserved for reconnection
+        # DB cleanup happens in cleanup() on app exit only
+
+        self.connected.clear()
+        self.page_info = None
+
+    def cleanup(self) -> None:
+        """Shutdown DB thread and disconnect (call on app exit only).
+
+        This is the only place where DB thread should be stopped.
+        Events are lost when DB thread stops (in-memory database).
+        """
+        # Disconnect WebSocket if connected
+        if self.ws_app:
+            self.disconnect()
 
         # Shutdown database thread
         self._db_running = False
         self._db_work_queue.put(None)  # Signal shutdown
         if self._db_thread.is_alive():
             self._db_thread.join(timeout=2)
-
-        self.connected.clear()
-        self.page_info = None
 
     def send(self, method: str, params: dict | None = None) -> Future:
         """Send CDP command asynchronously.
@@ -351,14 +374,38 @@ class CDPSession:
 
     def _on_close(self, ws, code, reason):
         """Handle WebSocket closure and cleanup."""
-        logger.info(f"WebSocket closed: {code} {reason}")
+        logger.info(f"WebSocket closed: code={code} reason={reason}")
+
+        # Mark as disconnected
+        was_connected = self.connected.is_set()
         self.connected.clear()
 
-        # Fail pending commands
+        # Fail pending commands and check if this is unexpected disconnect
+        is_unexpected = False
         with self._lock:
             for future in self._pending.values():
-                future.set_exception(RuntimeError("Connection closed"))
+                future.set_exception(RuntimeError(f"Connection closed: {reason or 'Unknown'}"))
             self._pending.clear()
+
+            # Unexpected disconnect: was connected and ws_app still set (not manual disconnect)
+            is_unexpected = was_connected and self.ws_app is not None
+
+            # Clear state to allow reconnection (DB thread and events preserved)
+            self.ws_app = None
+            self.page_info = None
+
+        # Trigger service-level cleanup if this was unexpected
+        if is_unexpected and self._disconnect_callback:
+            try:
+                # Call in background to avoid blocking WebSocket thread
+                threading.Thread(
+                    target=self._disconnect_callback, args=(code, reason), daemon=True, name="cdp-disconnect-handler"
+                ).start()
+            except Exception as e:
+                logger.error(f"Error calling disconnect callback: {e}")
+
+        # Trigger SSE broadcast immediately
+        self._trigger_state_broadcast()
 
     def _extract_paths(self, obj, parent_key=""):
         """Extract all JSON paths from nested dict structure.
@@ -466,6 +513,18 @@ class CDPSession:
         """
         return self.connected.is_set()
 
+    def set_disconnect_callback(self, callback) -> None:
+        """Register callback for unexpected disconnect events.
+
+        Called when WebSocket closes externally (tab close, crash, etc).
+        NOT called on manual disconnect() to avoid duplicate cleanup.
+
+        Args:
+            callback: Function called with (code: int, reason: str)
+        """
+        self._disconnect_callback = callback
+        logger.debug("Disconnect callback registered")
+
     def register_event_callback(self, method: str, callback) -> None:
         """Register callback for specific CDP event.
 
@@ -532,21 +591,14 @@ class CDPSession:
         logger.debug("Broadcast queue set on CDPSession")
 
     def _trigger_state_broadcast(self) -> None:
-        """Trigger SSE broadcast with 1s debounce.
+        """Trigger SSE broadcast immediately.
 
-        Called after CDP events are stored. Debounces rapid-fire events
-        to avoid overwhelming SSE clients during heavy network activity.
+        Called after CDP events are stored. Queue naturally buffers rapid-fire events.
         """
         if not self._broadcast_queue:
             return
 
-        import time
-
-        now = time.time()
-        if now - self._last_broadcast_time > self._broadcast_debounce:
-            self._last_broadcast_time = now
-            try:
-                self._broadcast_queue.put_nowait({"type": "cdp_event"})
-                logger.debug("State broadcast triggered")
-            except Exception as e:
-                logger.debug(f"Failed to queue broadcast: {e}")
+        try:
+            self._broadcast_queue.put_nowait({"type": "cdp_event"})
+        except Exception as e:
+            logger.debug(f"Failed to queue broadcast: {e}")

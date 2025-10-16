@@ -9,9 +9,13 @@ PUBLIC API:
   - main: Entry point function for CLI
 """
 
+import atexit
 import sys
 
 from webtap.app import app
+
+# Register cleanup on exit to shutdown DB thread
+atexit.register(lambda: app.state.cleanup() if hasattr(app, "state") and app.state else None)
 
 
 def main():
