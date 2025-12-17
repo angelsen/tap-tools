@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.9.1] - 2025-12-17
+
+### Added
+
+### Changed
+
+### Fixed
 - **Stale selection race condition**: Added generation counter to prevent selections from closed pages appearing in new connections
   - `clear_selections()` increments generation to invalidate pending workers
   - Background workers check generation before writing to state
