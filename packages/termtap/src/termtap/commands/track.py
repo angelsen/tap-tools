@@ -171,7 +171,7 @@ def track(
 
             from ..tmux.pane import send_keys as tmux_send_keys
 
-            if not tmux_send_keys(pane.pane_id, commands.strip(), enter=enter):
+            if not tmux_send_keys(pane.pane_id, commands.strip(), enter=enter, literal=True):
                 raise RuntimeError("Failed to send keys")
         except Exception as e:
             return {

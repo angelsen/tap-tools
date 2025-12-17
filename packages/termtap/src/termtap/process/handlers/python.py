@@ -124,7 +124,7 @@ class _PythonHandler(ProcessHandler):
                 command = command + "\n"
 
             # Send the command (with extra newline if needed) plus Enter
-            success = tmux_send_keys(pane.pane_id, command, enter=True)
+            success = tmux_send_keys(pane.pane_id, command, enter=True, literal=True)
 
             # Grace period for single-line commands
             if success:
@@ -161,7 +161,7 @@ class _PythonHandler(ProcessHandler):
                     tmux_send_keys(pane.pane_id, "", enter=True)  # Send blank line
             else:
                 # Single line chunk - just use send_keys
-                success = tmux_send_keys(pane.pane_id, chunk, enter=True)
+                success = tmux_send_keys(pane.pane_id, chunk, enter=True, literal=True)
                 if not success:
                     return False
 

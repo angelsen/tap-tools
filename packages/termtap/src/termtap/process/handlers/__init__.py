@@ -207,7 +207,7 @@ class ProcessHandler(ABC):
             if "\n" in command:
                 return send_via_paste_buffer(pane.pane_id, command, line_ending=line_ending)
             else:
-                return tmux_send_keys(pane.pane_id, command, line_ending=line_ending)
+                return tmux_send_keys(pane.pane_id, command, line_ending=line_ending, literal=True)
         except Exception:
             return False
 

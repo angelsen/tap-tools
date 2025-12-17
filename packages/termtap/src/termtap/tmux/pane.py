@@ -59,6 +59,7 @@ def send_keys(
     enter: bool | None = None,  # Deprecated
     line_ending: LineEnding | str = LineEnding.LF,
     delay: float = 0.05,
+    literal: bool = False,
 ) -> bool:
     """Send keystrokes to a pane.
 
@@ -75,6 +76,8 @@ def send_keys(
             - LineEnding.CR or "cr": Carriage return only
             - LineEnding.NONE or "": No line ending
         delay: Delay in seconds before sending line ending. Defaults to 0.05.
+        literal: If True, send as literal text preserving special characters (;, |, &, etc.).
+                 If False (default), interpret tmux key names (C-c, Enter, Up, etc.).
 
     Returns:
         True if successful.
@@ -101,6 +104,11 @@ def send_keys(
 
     # Send the commands
     args = ["send-keys", "-t", pane_id]
+
+    # Use -l flag for literal mode to preserve special characters
+    if literal:
+        args.append("-l")
+
     args.extend(commands)
 
     code, _, _ = run_tmux(args)

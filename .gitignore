@@ -14,8 +14,8 @@ wheels/
 CLAUDE.md
 DEPLOYMENT.md
 packages/webtap/docs/summaries
-.claude/summaries/
-.claude/specs/
+**/.claude/summaries/
+**/.claude/specs/
 
 # External resources
 _resources/
