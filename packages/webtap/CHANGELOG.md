@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **Stale selection race condition**: Added generation counter to prevent selections from closed pages appearing in new connections
+  - `clear_selections()` increments generation to invalidate pending workers
+  - Background workers check generation before writing to state
+- **Pending futures race**: Clear `ws_app` before pending futures in `_on_close()` to prevent new sends adding to already-cleared dict
+- **DB operation timeout**: Added 30s timeout to `_db_execute()` with proper cleanup in finally block to prevent deadlocks and leaks
 
 ### Removed
 

@@ -51,6 +51,7 @@ class DOMService:
         self._pending_selections = 0  # Track in-flight selection processing
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
         self._shutdown = False  # Prevent executor submissions after cleanup
+        self._generation = 0  # Incremented on clear to invalidate stale pending selections
 
     def set_cdp(self, cdp: "CDPSession") -> None:
         """Set CDP session after initialization."""
@@ -176,13 +177,15 @@ class DOMService:
             logger.debug("Ignoring inspect event - service shutting down")
             return
 
-        # Increment pending counter (thread-safe)
+        # Increment pending counter and capture generation (thread-safe)
         with self._state_lock:
             self._pending_selections += 1
+            current_generation = self._generation
         self._trigger_broadcast()
 
         # Submit to background thread - returns immediately, no blocking
-        self._executor.submit(self._process_node_selection, backend_node_id)
+        # Pass generation to detect stale selections after clear_selections()
+        self._executor.submit(self._process_node_selection, backend_node_id, current_generation)
 
     def handle_frame_navigated(self, event: dict) -> None:
         """Handle Page.frameNavigated event (page navigation).
@@ -204,13 +207,15 @@ class DOMService:
         self.clear_selections()
         self._trigger_broadcast()
 
-    def _process_node_selection(self, backend_node_id: int) -> None:
+    def _process_node_selection(self, backend_node_id: int, expected_generation: int) -> None:
         """Process node selection in background thread.
 
         Safe to make blocking CDP calls here - we're not in WebSocket thread.
 
         Args:
             backend_node_id: CDP backend node ID from inspectNodeRequested event
+            expected_generation: Generation counter when selection was initiated.
+                If current generation differs, selection is dropped (page disconnected).
         """
         try:
             # Make blocking CDP calls (OK in background thread)
@@ -218,6 +223,11 @@ class DOMService:
 
             # Thread-safe state update
             with self._state_lock:
+                # Check generation to drop stale selections from previous connections
+                if self._generation != expected_generation:
+                    logger.debug(f"Dropping stale selection (gen {expected_generation} != {self._generation})")
+                    return
+
                 if not self.state:
                     logger.error("DOMService state not initialized")
                     return
@@ -475,12 +485,18 @@ class DOMService:
         }
 
     def clear_selections(self) -> None:
-        """Clear all selections (thread-safe)."""
+        """Clear all selections (thread-safe).
+
+        Increments generation counter to invalidate any pending selection workers,
+        preventing stale selections from previous connections appearing in new ones.
+        """
         with self._state_lock:
+            # Increment generation FIRST to invalidate all pending workers
+            self._generation += 1
             if self.state is not None and self.state.browser_data:
                 self.state.browser_data["selections"] = {}
             self._next_id = 1
-        logger.info("Selections cleared")
+        logger.info(f"Selections cleared (generation {self._generation})")
         self._trigger_broadcast()
 
     def cleanup(self) -> None:

@@ -153,27 +153,38 @@ class CDPSession:
 
         Returns:
             Query results if wait_result=True, None otherwise
+
+        Raises:
+            TimeoutError: If operation takes longer than 30 seconds
+            RuntimeError: If database operation fails
         """
         result_queue_id = None
         result_queue = None
 
-        if wait_result:
-            result_queue_id = id(threading.current_thread())
-            result_queue = queue.Queue()
-            self._db_result_queues[result_queue_id] = result_queue
+        try:
+            if wait_result:
+                result_queue_id = id(threading.current_thread())
+                result_queue = queue.Queue()
+                self._db_result_queues[result_queue_id] = result_queue
 
-        # Submit to work queue
-        self._db_work_queue.put(("execute", sql, params, result_queue_id))
+            # Submit to work queue
+            self._db_work_queue.put(("execute", sql, params, result_queue_id))
 
-        if wait_result and result_queue and result_queue_id:
-            status, data = result_queue.get()
-            del self._db_result_queues[result_queue_id]
+            if wait_result and result_queue and result_queue_id:
+                try:
+                    status, data = result_queue.get(timeout=30)
+                except queue.Empty:
+                    raise TimeoutError(f"Database operation timed out: {sql[:50]}...")
 
-            if status == "error":
-                raise RuntimeError(f"Database error: {data}")
-            return data
+                if status == "error":
+                    raise RuntimeError(f"Database error: {data}")
+                return data
 
-        return None
+            return None
+        finally:
+            # Always clean up result queue entry to prevent leaks
+            if result_queue_id and result_queue_id in self._db_result_queues:
+                del self._db_result_queues[result_queue_id]
 
     def list_pages(self) -> list[dict]:
         """List available Chrome pages via HTTP API.
@@ -414,15 +425,17 @@ class CDPSession:
         # Fail pending commands and check if this is unexpected disconnect
         is_unexpected = False
         with self._lock:
+            # Capture and clear ws_app FIRST to prevent new sends from adding futures
+            ws_app_was_set = self.ws_app is not None
+            self.ws_app = None
+
+            # Now safe to clear pending - no new futures can be added
             for future in self._pending.values():
                 future.set_exception(RuntimeError(f"Connection closed: {reason or 'Unknown'}"))
             self._pending.clear()
 
-            # Unexpected disconnect: was connected and ws_app still set (not manual disconnect)
-            is_unexpected = was_connected and self.ws_app is not None
-
-            # Clear state to allow reconnection (DB thread and events preserved)
-            self.ws_app = None
+            # Unexpected disconnect: was connected and ws_app was set (not manual disconnect)
+            is_unexpected = was_connected and ws_app_was_set
             self.page_info = None
 
         # Trigger service-level cleanup if this was unexpected
