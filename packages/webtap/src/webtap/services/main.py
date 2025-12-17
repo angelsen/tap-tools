@@ -10,7 +10,6 @@ from webtap.filters import FilterManager
 from webtap.services.fetch import FetchService
 from webtap.services.network import NetworkService
 from webtap.services.console import ConsoleService
-from webtap.services.body import BodyService
 from webtap.services.dom import DOMService
 from webtap.services.state_snapshot import StateSnapshot
 
@@ -38,7 +37,6 @@ class WebTapService:
         fetch: Fetch interception service.
         network: Network monitoring service.
         console: Console message service.
-        body: Response body fetching service.
         dom: DOM inspection and element selection service.
     """
 
@@ -60,18 +58,16 @@ class WebTapService:
         self.fetch = FetchService()
         self.network = NetworkService()
         self.console = ConsoleService()
-        self.body = BodyService()
         self.dom = DOMService()
 
         self.fetch.cdp = self.cdp
         self.network.cdp = self.cdp
+        self.network.filters = self.filters
         self.console.cdp = self.cdp
-        self.body.cdp = self.cdp
         self.dom.set_cdp(self.cdp)
         self.dom.set_state(self.state)
         self.dom.set_broadcast_callback(self._trigger_broadcast)  # DOM calls back for snapshot updates
 
-        self.fetch.body_service = self.body
         self.fetch.set_broadcast_callback(self._trigger_broadcast)  # Fetch calls back for snapshot updates
 
         # Legacy wiring for CDP event handler
@@ -84,8 +80,15 @@ class WebTapService:
         # Register disconnect callback for unexpected disconnects
         self.cdp.set_disconnect_callback(self._handle_unexpected_disconnect)
 
+        # CDPSession calls back here when CDP events arrive
+        self.cdp.set_broadcast_callback(self._trigger_broadcast)
+
         # Broadcast queue for SSE state updates (set by API server)
         self._broadcast_queue: "Any | None" = None
+
+        # Coalescing flag - prevents duplicate broadcasts during rapid CDP events
+        # Service owns coalescing (single source of truth)
+        self._broadcast_pending = threading.Event()
 
         # Immutable state snapshot for thread-safe SSE reads
         # Updated atomically on every state change, read without locks
@@ -123,9 +126,9 @@ class WebTapService:
 
         # Filter state (convert to immutable tuples)
         fm = self.filters
-        filter_categories = list(fm.filters.keys())
-        enabled_filters = tuple(fm.enabled_categories)
-        disabled_filters = tuple(cat for cat in filter_categories if cat not in enabled_filters)
+        filter_groups = list(fm.groups.keys())
+        enabled_filters = tuple(fm.enabled)
+        disabled_filters = tuple(name for name in filter_groups if name not in enabled_filters)
 
         # Browser/DOM state (get_state() is already thread-safe internally)
         browser_state = self.dom.get_state()
@@ -159,40 +162,52 @@ class WebTapService:
         )
 
     def _trigger_broadcast(self) -> None:
-        """Trigger SSE broadcast with updated state snapshot (thread-safe).
+        """Trigger SSE broadcast with coalescing (thread-safe).
 
-        Called after service mutations to:
-        1. Create fresh immutable snapshot (atomic replacement)
-        2. Signal SSE clients to broadcast
+        Called from:
+        - CDPSession (CDP events)
+        - DOMService (selections)
+        - FetchService (interception state)
+        - Service methods (connect, disconnect, clear)
 
-        Uses RLock so same thread can call multiple times safely.
-        asyncio.Queue.put_nowait() is thread-safe for cross-thread communication.
+        Coalescing: Only queues signal if none pending. Prevents 1000s of
+        signals during rapid CDP events. Flag cleared by API after broadcast.
+
+        Uses atomic check-and-set to prevent race where multiple threads
+        queue multiple signals before any sets the flag.
         """
         import logging
 
         logger = logging.getLogger(__name__)
 
-        # Update snapshot atomically
-        # RLock allows same thread to acquire multiple times, blocks other threads
-        try:
-            with self._state_lock:
-                self._state_snapshot = self._create_snapshot()
-        except (TypeError, AttributeError) as e:
-            # Programming errors should propagate for debugging
-            logger.error(f"Programming error in snapshot creation: {e}")
-            raise
-        except Exception as e:
-            # Unexpected errors logged but don't crash the app
-            logger.error(f"Failed to create state snapshot: {e}", exc_info=True)
-            return  # Don't signal broadcast if snapshot creation failed
+        # Early exit if no queue (API not started yet)
+        if not self._broadcast_queue:
+            return
 
-        # Signal broadcast (store reference to avoid TOCTOU race)
-        queue = self._broadcast_queue
-        if queue:
+        # Always update snapshot, but coalesce broadcast signals
+        with self._state_lock:
+            # Update snapshot while holding lock (always, for API responses)
             try:
-                queue.put_nowait({"type": "state_change"})
+                self._state_snapshot = self._create_snapshot()
+            except (TypeError, AttributeError) as e:
+                logger.error(f"Programming error in snapshot creation: {e}")
+                raise
             except Exception as e:
-                logger.warning(f"Failed to queue broadcast: {e}")
+                logger.error(f"Failed to create state snapshot: {e}", exc_info=True)
+                return
+
+            # Skip queue signal if broadcast already pending (coalescing)
+            if self._broadcast_pending.is_set():
+                return
+            self._broadcast_pending.set()
+
+        # Signal broadcast (outside lock - queue.put_nowait is thread-safe)
+        try:
+            self._broadcast_queue.put_nowait({"type": "state_change"})
+        except Exception as e:
+            # Clear flag if queue failed so next trigger can try
+            self._broadcast_pending.clear()
+            logger.warning(f"Failed to queue broadcast: {e}")
 
     def get_state_snapshot(self) -> StateSnapshot:
         """Get current immutable state snapshot (thread-safe, no locks).
@@ -201,6 +216,14 @@ class WebTapService:
             Current StateSnapshot - immutable, safe to read from any thread
         """
         return self._state_snapshot
+
+    def clear_broadcast_pending(self) -> None:
+        """Clear broadcast pending flag (called by API after broadcast).
+
+        Allows next state change to trigger a new broadcast.
+        Thread-safe - Event.clear() is atomic.
+        """
+        self._broadcast_pending.clear()
 
     @property
     def event_count(self) -> int:
@@ -244,7 +267,6 @@ class WebTapService:
         if self.fetch.enabled:
             self.fetch.disable()
 
-        self.body.clear_cache()
         self.dom.clear_selections()
         self.dom.cleanup()  # Shutdown executor properly
 
@@ -272,35 +294,6 @@ class WebTapService:
             except Exception as e:
                 failures[domain] = str(e)
         return failures
-
-    def get_status(self) -> dict[str, Any]:
-        """Get current connection and state status."""
-        if not self.cdp.is_connected:
-            return {
-                "connected": False,
-                "events": 0,
-                "fetch_enabled": self.fetch.enabled,
-                "paused_requests": 0,
-                "network_requests": 0,
-                "console_messages": 0,
-                "console_errors": 0,
-            }
-
-        page_info = self.cdp.page_info or {}
-
-        return {
-            "connected": True,
-            "connected_page_id": page_info.get("id"),  # Stable page ID
-            "url": page_info.get("url"),
-            "title": page_info.get("title"),
-            "events": self.event_count,
-            "fetch_enabled": self.fetch.enabled,
-            "paused_requests": self.fetch.paused_count if self.fetch.enabled else 0,
-            "network_requests": self.network.request_count,
-            "console_messages": self.console.message_count,
-            "console_errors": self.console.error_count,
-            "enabled_domains": list(self.enabled_domains),
-        }
 
     def clear_events(self) -> dict[str, Any]:
         """Clear all stored CDP events."""
@@ -358,7 +351,6 @@ class WebTapService:
                 if self.fetch.enabled:
                     self.fetch.enabled = False  # Direct state update, no CDP disable
 
-                self.body.clear_cache()
                 self.dom.clear_selections()
 
                 # Events preserved for debugging - use Clear button to remove explicitly

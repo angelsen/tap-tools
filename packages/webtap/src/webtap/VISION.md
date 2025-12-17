@@ -189,40 +189,45 @@ ConsoleSummary(
 ```
 webtap/
 ├── VISION.md           # This file
-├── __init__.py         # Module initialization + API server startup
+├── __init__.py         # Module initialization
 ├── app.py              # REPL app with WebTapState
-├── api.py              # FastAPI server for Chrome extension
+├── client.py           # DaemonClient for HTTP communication
+├── daemon.py           # Background daemon process
 ├── filters.py          # Filter management system
+├── api/                # FastAPI server (runs in daemon)
+│   ├── __init__.py
+│   ├── routes/         # API route modules
+│   └── models.py       # Request/response models
 ├── cdp/
 │   ├── __init__.py
 │   ├── session.py      # CDPSession with DuckDB storage
-│   ├── query.py        # Dynamic query builder
+│   ├── har.py          # HAR view aggregation
 │   └── schema/         # CDP protocol reference
-│       ├── README.md
-│       └── cdp_version.json
+│       └── README.md
 ├── services/           # Service layer (business logic)
 │   ├── __init__.py
 │   ├── main.py         # WebTapService orchestrator
 │   ├── network.py      # Network request handling
 │   ├── console.py      # Console message handling
 │   ├── fetch.py        # Request interception
-│   └── body.py         # Response body caching
+│   └── dom.py          # DOM inspection & selection
 └── commands/           # Thin command wrappers
     ├── __init__.py
-    ├── _errors.py      # Unified error handling
-    ├── _markdown.py    # Markdown elements
-    ├── _symbols.py     # ASCII symbol registry
-    ├── _utils.py       # Shared utilities
-    ├── connection.py   # connect, disconnect, pages
+    ├── _builders.py    # Response builders & validators
+    ├── _utils.py       # Shared utilities & expression eval
+    ├── _code_generation.py  # JSON/code generation helpers
+    ├── _tips.py        # Documentation parser (TIPS.md)
+    ├── connection.py   # connect, disconnect, pages, clear
     ├── navigation.py   # navigate, reload, back, forward
     ├── network.py      # network() command
     ├── console.py      # console() command
-    ├── events.py       # events() dynamic querying
-    ├── inspect.py      # inspect() event details
+    ├── request.py      # request() field selection + expr
     ├── javascript.py   # js() execution
-    ├── body.py         # body() response inspection
-    ├── fetch.py        # fetch(), requests(), resume()
-    └── filters.py      # filters() management
+    ├── fetch.py        # fetch(), requests(), resume(), fail()
+    ├── filters.py      # filters() management
+    ├── selections.py   # selections/browser() element selection
+    ├── to_model.py     # to_model() Pydantic generation
+    └── quicktype.py    # quicktype() type generation
 ```
 
 ## Success Metrics

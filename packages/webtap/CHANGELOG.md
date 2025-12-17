@@ -8,12 +8,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Daemon architecture**: Background daemon process manages CDP connection independently of REPL/MCP clients
+  - `webtap --daemon` starts daemon in foreground
+  - `webtap --daemon stop` stops running daemon
+  - `webtap --daemon status` shows daemon status with PID, connected page, event count
+  - Auto-starts daemon for REPL and MCP modes via `ensure_daemon()`
+- **DaemonClient**: HTTP client wrapper (`client.py`) with 20+ convenience methods for daemon communication
+- **API module**: FastAPI server (`api/`) with routes for connection, data, fetch, filters, browser, CDP relay
+- **HAR views**: Pre-aggregated network request views in DuckDB (`har_entries`, `har_summary`) for efficient querying
+- **request() command**: New ES-style field selection command replacing `body()`, `inspect()`, `events()`
+  - Field patterns: `["*"]`, `["request.*"]`, `["response.headers.*"]`, `["response.content"]`
+  - On-demand body fetching when `response.content` requested
+  - Expression evaluation with `expr` parameter
+- **Event pruning**: FIFO deletion when events exceed 50,000 (5k batch pruning)
+- **Method column**: Events table now has indexed `method` column for O(1) filtering
+- **Context-aware display**: Commands detect REPL vs MCP mode for appropriate formatting
+  - REPL: Compact display with `format_size()`, `format_timestamp()` helpers
+  - MCP: Generous truncation with raw values for LLM context
+- **Extension theme toggle**: Auto/light/dark mode support with CSS custom properties
+- **Extension tab navigation**: Intercept and Network tabs with persistence
+- **Extension network inspector**: Request table with detailed HAR entry viewer
+- **fetch_body_content() helper**: Shared utility for body fetching with base64 decoding
 
 ### Changed
+- **BREAKING: Architecture**: Moved from in-process to daemon-based client-server model
+  - `state.cdp` / `state.service` → `state.client.*()` methods
+  - All commands now communicate via HTTP to daemon
+- **BREAKING: Command consolidation**: `body()`, `inspect()`, `events()` merged into `request()`
+- **BREAKING: network() parameters**: Changed from filter-based to inline filters
+  - Old: `network(filters=["ads"], no_filters=False)`
+  - New: `network(status=404, method="POST", type="xhr", url="*api*", all=False)`
+- **BREAKING: to_model()/quicktype() parameters**: `event` renamed to `id`, added `field` parameter
+- **Filter system simplified**: Complex category modes replaced with simple group-based toggles
+  - Groups persist to file, enabled state is in-memory only
+- **Broadcast mechanism**: Queue-based → callback with coalescing to prevent signal floods
+- **Extension architecture**: Removed content script injection, moved badge rendering to backend CDP
+- **Extension manifest**: Removed `scripting` permission and content scripts
+- **Extension styling**: Extracted 673 lines of CSS to `sidepanel.css` with design system
+- **Extension setup**: Now downloads 5 files (added `sidepanel.css`)
+- **SSE endpoint**: `/events` → `/events/stream`
+- **js() expression mode**: Now wraps code in IIFE by default for fresh scope, `persist=True` for global scope
 
 ### Fixed
+- **Error check pattern**: Changed `if "error" in status:` to `if status.get("error"):` in fetch.py (4 locations)
+  - Prevents false positives when daemon returns `{"error": None}`
+- **Shutdown safety**: DOMService now has `_shutdown` flag to prevent executor submissions during cleanup
 
 ### Removed
+- **body.py command**: Replaced by `request()` with field selection
+- **events.py command**: Replaced by `request()` with field selection
+- **inspect.py command**: Replaced by `request()` with field selection
+- **server.py command**: Daemon-only architecture
+- **setup-filters command**: Filter system simplified, no longer downloads from GitHub
+- **services/body.py**: Body fetching moved to command layer
+- **services/setup/filters.py**: FilterSetupService removed
+- **data/filters.json**: Default filters removed (groups now user-defined)
+- **cdp/query.py**: Dynamic query builder no longer needed
+- **extension/content.js**: Badge rendering moved to backend CDP
+- **clear() cache parameter**: Body caching removed in HAR-first refactor
 
 ## [0.8.1] - 2025-10-16
 

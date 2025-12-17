@@ -1,4 +1,8 @@
-"""Desktop/Application launcher setup (cross-platform)."""
+"""Desktop/Application launcher setup (cross-platform).
+
+PUBLIC API:
+  - DesktopSetupService: Desktop entry/app bundle installation
+"""
 
 import logging
 from typing import Dict, Any

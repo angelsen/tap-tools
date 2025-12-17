@@ -1,4 +1,10 @@
-"""Platform detection and path management using platformdirs."""
+"""Platform detection and path management using platformdirs.
+
+PUBLIC API:
+  - get_platform_info: Get platform information dict with paths and Chrome location
+  - ensure_directories: Create required directories with proper permissions
+  - APP_NAME: Application name constant
+"""
 
 import platform
 import shutil

@@ -11,186 +11,137 @@ All commands have these pre-imported (no imports needed!):
 
 ## Commands
 
-### body
-Fetch and analyze HTTP request or response bodies with Python expressions. Automatically detects event type.
+### request
+Get HAR request details with field selection and Python expressions.
 
 #### Examples
 ```python
-# Response bodies
-body(123)                                  # Get response body
-body(123, "json.loads(body)")              # Parse JSON response
-body(123, "bs4(body, 'html.parser').find('title').text")  # HTML title
-
-# Request bodies (POST/PUT/PATCH)
-body(456)                                  # Get request POST data
-body(456, "json.loads(body)")              # Parse JSON request body
-body(456, "json.loads(body)['customerId']")  # Extract request field
-
-# Analysis
-body(123, "jwt.decode(body, options={'verify_signature': False})")  # Decode JWT
-body(123, "re.findall(r'/api/[^\"\\s]+', body)[:10]")  # Find API endpoints
-body(123, "httpx.get(json.loads(body)['next_url']).json()")  # Chain requests
-body(123, "msgpack.unpackb(body)")         # Binary formats
+request(123)                           # Minimal (method, url, status)
+request(123, ["*"])                    # Everything
+request(123, ["request.headers.*"])    # Request headers
+request(123, ["response.content"])     # Fetch response body
+request(123, ["request.postData", "response.content"])  # Both bodies
+request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")  # Parse JSON
 ```
 
 #### Tips
-- **Auto-detect type:** Command automatically detects request vs response events
-- **Find request events:** `events({"method": "Network.requestWillBeSent", "url": "*WsJobCard/Post*"})` - POST requests
-- **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
-- **Generate types:** `quicktype({id}, "types.ts", "Type")` - TypeScript/other languages
-- **Chain requests:** `body({id}, "httpx.get(json.loads(body)['next_url']).text[:100]")`
-- **Parse XML:** `body({id}, "ElementTree.fromstring(body).find('.//title').text")`
-- **Extract forms:** `body({id}, "[f['action'] for f in bs4(body, 'html.parser').find_all('form')]")`
-- **Decode protobuf:** `body({id}, "protobuf_json.Parse(body, YourMessage())")`
-- **Find related:** `events({'requestId': request_id})` - related events
+- **Field patterns:** `["request.*"]`, `["response.headers.*"]`, `["response.content"]`
+- **Expression:** `expr` has access to selected data as `data` variable
+- **Parse JSON:** `expr="json.loads(data['response']['content']['text'])"`
+- **Generate models:** `to_model(id, "models/model.py", "Model")` - create Pydantic from body
+- **Generate types:** `quicktype(id, "types.ts", "Type")` - TypeScript/other languages
 
 ### to_model
 Generate Pydantic v2 models from request or response bodies.
 
+Uses HAR row ID from `network()` output with explicit field selection.
+
 #### Examples
 ```python
-# Response bodies
-to_model(123, "models/product.py", "Product")                              # Full response
-to_model(123, "models/customers/group.py", "CustomerGroup", json_path="data[0]")  # Extract nested
+# Response bodies (default)
+to_model(5, "models/product.py", "Product")
+to_model(5, "models/user.py", "User", json_path="data[0]")
 
 # Request bodies (POST/PUT/PATCH)
-to_model(172, "models/form.py", "JobCardForm", expr="dict(urllib.parse.parse_qsl(body))")  # Form data
-to_model(180, "models/request.py", "CreateOrder")                          # JSON POST body
+to_model(5, "models/form.py", "Form", field="request.postData")
+to_model(5, "models/form.py", "Form", field="request.postData", expr="dict(urllib.parse.parse_qsl(body))")
 
 # Advanced transformations
-to_model(123, "models/clean.py", "Clean", expr="{k: v for k, v in json.loads(body).items() if k != 'meta'}")
-to_model(123, "models/merged.py", "Merged", expr="{**json.loads(body), 'url': event['params']['response']['url']}")
+to_model(5, "models/clean.py", "Clean", expr="{k: v for k, v in json.loads(body).items() if k != 'meta'}")
 ```
 
 #### Tips
-- **Check structure:** `body({id})` - preview body before generating
-- **Find requests:** `events({"method": "Network.requestWillBeSent", "url": "*api/orders*"})` - locate POST events
-- **Form data:** `expr="dict(urllib.parse.parse_qsl(body))"` for application/x-www-form-urlencoded
+- **Preview body:** `request(id, ["response.content"])` - check structure before generating
+- **Find requests:** `network(url="*api*")` - locate API calls
+- **Form data:** `field="request.postData"` with `expr="dict(urllib.parse.parse_qsl(body))"`
 - **Nested extraction:** `json_path="data[0]"` for JSON with wrapper objects
-- **Custom transforms:** `expr` has `body` (str) and `event` (dict) variables available
+- **Custom transforms:** `expr` has `body` (str) variable available
 - **Organization:** Paths like `"models/customers/group.py"` create directory structure automatically
-- **Field mapping:** Add `Field(alias="...")` after generation for API field names
 
 ### quicktype
 Generate types from request or response bodies. Supports TypeScript, Go, Rust, Python, and 10+ other languages.
 
+Uses HAR row ID from `network()` output with explicit field selection.
+
 #### Examples
 ```python
-# Response bodies
-quicktype(123, "types/User.ts", "User")                                    # TypeScript
-quicktype(123, "api.go", "ApiResponse")                                    # Go struct
-quicktype(123, "schema.json", "Schema")                                    # JSON Schema
-quicktype(123, "types.ts", "User", json_path="data[0]")                    # Extract nested
+# Response bodies (default)
+quicktype(5, "types/User.ts", "User")
+quicktype(5, "api.go", "ApiResponse")
+quicktype(5, "schema.json", "Schema")
+quicktype(5, "types.ts", "User", json_path="data[0]")
 
 # Request bodies (POST/PUT/PATCH)
-quicktype(172, "types/JobCard.ts", "JobCardForm", expr="dict(urllib.parse.parse_qsl(body))")  # Form data
-quicktype(180, "types/CreateOrder.ts", "CreateOrderRequest")               # JSON POST body
+quicktype(5, "types/Form.ts", "Form", field="request.postData")
+quicktype(5, "types/Form.ts", "Form", field="request.postData", expr="dict(urllib.parse.parse_qsl(body))")
 
 # Advanced options
-quicktype(123, "types.ts", "User", options={"readonly": True})             # TypeScript readonly
-quicktype(123, "types.ts", "Clean", expr="{k: v for k, v in json.loads(body).items() if k != 'meta'}")
+quicktype(5, "types.ts", "User", options={"readonly": True})
 ```
 
 #### Tips
-- **Check structure:** `body({id})` - preview body before generating
-- **Find requests:** `events({"method": "Network.requestWillBeSent", "url": "*api*"})` - locate POST events
-- **Form data:** `expr="dict(urllib.parse.parse_qsl(body))"` for application/x-www-form-urlencoded
+- **Preview body:** `request(id, ["response.content"])` - check structure before generating
+- **Find requests:** `network(url="*api*")` - locate API calls
+- **Form data:** `field="request.postData"` with `expr="dict(urllib.parse.parse_qsl(body))"`
 - **Nested extraction:** `json_path="data[0]"` for JSON with wrapper objects
 - **Languages:** .ts/.go/.rs/.java/.kt/.swift/.cs/.cpp/.dart/.rb/.json extensions set language
-- **Options:** Dict keys map to CLI flags: `{"readonly": True}` → `--readonly`, `{"nice_property_names": True}` → `--nice-property-names`. See `quicktype --help` for language-specific flags
-- **Common options:** TypeScript: `{"readonly": True, "prefer_types": True}`, Go: `{"omit_empty": True}`, Python: `{"pydantic_base_model": True}`
+- **Options:** Dict keys map to CLI flags: `{"readonly": True}` → `--readonly`
 - **Install:** `npm install -g quicktype` if command not found
-- **Pydantic models:** Use `to_model({id}, "models/model.py", "Model")` for Pydantic v2 instead
-
-### inspect
-Inspect CDP events with full Python debugging.
-
-Available objects: 'data' (when inspecting event), 'cdp' and 'state' (when no event).
-
-#### Examples
-```python
-inspect(456)                               # Full event
-inspect(456, "data['method']")             # Event type
-inspect(456, "list(data.keys())")          # Top-level keys
-inspect(456, "data.get('params', {}).get('response', {}).get('status')")
-inspect(456, "re.findall(r'session=(\\w+)', str(data))")  # Extract patterns
-inspect(456, "base64.b64decode(data['params']['response']['body'])")
-inspect(456, "jwt.decode(auth.replace('Bearer ', ''), options={'verify_signature': False})")
-inspect(expr="len(cdp.events)")           # Direct CDP access
-inspect(expr="[e for e in cdp.events if 'error' in str(e).lower()][:3]")
-```
-
-#### Tips
-- **Find related:** `events({'requestId': data.get('params', {}).get('requestId')})`
-- **Compare events:** `inspect(other_id, "data.get('method')")`
-- **Extract timing:** `inspect({id}, "data['params']['timing']")`
-- **Decode cookies:** `inspect({id}, "[c.split('=') for c in data.get('params', {}).get('cookies', '').split(';')]")`
-- **Get body:** `body({id})` - if this is a response event
+- **Pydantic:** Use `to_model(id, "models/model.py", "Model")` for Pydantic v2 instead
 
 ### network
 Show network requests with full data.
 
 #### Tips
-- **Analyze responses:** `body({id})` - fetch response body
-- **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
-- **Parse HTML:** `body({id}, "bs4(body, 'html.parser').find('title').text")`
-- **Extract JSON:** `body({id}, "json.loads(body)['data']")`
-- **Find patterns:** `body({id}, "re.findall(r'/api/\\w+', body)")`
-- **Decode JWT:** `body({id}, "jwt.decode(body, options={'verify_signature': False})")`
-- **Search events:** `events({'url': '*api*'})` - find all API calls
+- **Analyze responses:** `request(id, ["response.content"])` - fetch response body
+- **Generate models:** `to_model(id, "models/model.py", "Model")` - create Pydantic models from JSON
+- **Parse HTML:** `request(id, ["response.content"], expr="bs4(data['response']['content']['text'], 'html.parser').find('title').text")`
+- **Extract JSON:** `request(id, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
+- **Find patterns:** `network(url="*api*")` - filter by URL pattern
 - **Intercept traffic:** `fetch('enable')` then `requests()` - pause and modify
 
 ### console
 Show console messages with full data.
 
 #### Tips
-- **Inspect error:** `inspect({id})` - view full stack trace
-- **Find all errors:** `events({'level': 'error'})` - filter console errors
-- **Extract stack:** `inspect({id}, "data.get('stackTrace', {})")`
-- **Search messages:** `events({'message': '*failed*'})` - pattern match
+- **Filter errors:** `console(level="error")` - show only errors
 - **Check network:** `network()` - may show failed requests causing errors
-
-### events
-Query CDP events by field values with automatic discovery.
-
-Searches across ALL event types - network, console, page, etc.
-Field names are discovered automatically and case-insensitive.
-
-#### Examples
-```python
-events()                                    # Recent 20 events
-events({"method": "Runtime.*"})            # Runtime events
-events({"requestId": "123"}, limit=100)    # Specific request
-events({"url": "*api*"})                   # Find all API calls
-events({"status": 200})                    # Successful responses
-events({"level": "error"})                # Console errors
-```
-
-#### Tips
-- **Inspect full event:** `inspect({id})` - view complete CDP data
-- **Extract nested data:** `inspect({id}, "data['params']['response']['headers']")`
-- **Find patterns:** `inspect({id}, "re.findall(r'token=(\\w+)', str(data))")`
-- **Get response body:** `body({id})` - if this is a network response
-- **Decode data:** `inspect({id}, "base64.b64decode(data.get('params', {}).get('body', ''))")`
+- **Debug with js:** `js("console.log('debug:', myVar)")` - add console output
 
 ### js
 Execute JavaScript in the browser. Uses fresh scope by default to avoid redeclaration errors.
 
-#### Scope Behavior
-**Default (fresh scope)** - Each call runs in isolation:
+#### Expression Mode (Important!)
+Default mode wraps code as `return (code)`, so **use single expressions only**:
 ```python
-js("const x = 1")    # ✓ x isolated
-js("const x = 2")    # ✓ No error, fresh scope
+js("document.title")                    # ✓ Single expression
+js("1 + 2 + 3")                         # ✓ Single expression
+js("[...document.links].map(a=>a.href)") # ✓ Single expression (chained)
+js("const x = 1; x + 1")               # ✗ Multi-statement fails (semicolon)
+js("let y = 2; return y")              # ✗ Fails - already wrapped in return
 ```
 
-**Persistent scope** - Variables survive across calls:
+For multi-statement code, use `persist=True` (runs in global scope, not wrapped):
+```python
+js("var x = 1; x + 1", persist=True)   # ✓ Multi-statement works
+js("const arr = [1,2,3]; arr.map(x => x*2)", persist=True)  # ✓ Works
+```
+
+#### Scope Behavior
+**Default (fresh scope)** - Each call runs in isolation via IIFE wrapper:
+```python
+js("document.title")     # ✓ Returns title
+js("document.title")     # ✓ No redeclaration issues
+```
+
+**Persistent scope** - Variables survive across calls (global scope):
 ```python
 js("var data = {count: 0}", persist=True)    # data persists
 js("data.count++", persist=True)              # Modifies data
 js("data.count", persist=True)                # Returns 1
 ```
 
-**With browser element** - Always fresh scope:
+**With browser element** - Always fresh scope (element injected):
 ```python
 js("element.offsetWidth", selection=1)       # Use element #1
 js("element.classList", selection=2)         # Use element #2
@@ -198,7 +149,7 @@ js("element.classList", selection=2)         # Use element #2
 
 #### Examples
 ```python
-# Basic queries
+# Basic queries (single expressions)
 js("document.title")                           # Get page title
 js("[...document.links].map(a => a.href)")    # Get all links
 js("document.body.innerText.length")           # Text length
@@ -209,15 +160,16 @@ js("fetch('/api').then(r => r.json())", await_promise=True)
 # DOM manipulation (no return)
 js("document.querySelectorAll('.ad').forEach(e => e.remove())", wait_return=False)
 
-# Persistent state for multi-step operations
+# Multi-statement operations (use persist=True)
 js("var apiData = null", persist=True)
 js("fetch('/api').then(r => r.json()).then(d => apiData = d)", persist=True, await_promise=True)
 js("apiData.users.length", persist=True)
 ```
 
 #### Tips
+- **Expression mode:** Default wraps as `return (code)` - use single expressions or `persist=True`
 - **Fresh scope:** Default behavior prevents const/let redeclaration errors
-- **Persistent state:** Use `persist=True` for multi-step operations or global hooks
+- **Persistent state:** Use `persist=True` for multi-step operations, global hooks, or multi-statement code
 - **No return needed:** Set `wait_return=False` for DOM manipulation or hooks
 - **Browser selections:** Use `selection=N` with browser() to operate on selected elements
 - **Check console:** `console()` - see logged messages from JS execution
@@ -236,8 +188,7 @@ fetch("disable")                          # Disable
 
 #### Tips
 - **View paused:** `requests()` - see all intercepted requests
-- **Inspect request:** `inspect({id})` - view full CDP event data
-- **Analyze body:** `body({id})` - fetch and examine response body
+- **View details:** `request({id})` - view request/response data
 - **Resume request:** `resume({id})` - continue the request
 - **Modify request:** `resume({id}, modifications={'url': '...'})`
 - **Block request:** `fail({id}, 'BlockedByClient')` - reject the request
@@ -246,8 +197,7 @@ fetch("disable")                          # Disable
 Show paused requests and responses.
 
 #### Tips
-- **Inspect request:** `inspect({id})` - view full CDP event data
-- **Analyze body:** `body({id})` - fetch and examine response body
+- **View details:** `request({id})` - view request/response data
 - **Resume request:** `resume({id})` - continue the request
 - **Modify request:** `resume({id}, modifications={'url': '...'})`
 - **Fail request:** `fail({id}, 'BlockedByClient')` - block the request

@@ -1,6 +1,7 @@
 """Shared utilities for WebTap command modules."""
 
 import ast
+import base64
 import json
 import sys
 from io import StringIO
@@ -225,3 +226,46 @@ def extract_nested(options: dict, path: str, default=None):
             return default
 
     return current
+
+
+# ============= Body Content Utilities =============
+
+
+def fetch_body_content(state, har_entry: dict, field: str) -> tuple[str | None, str | None]:
+    """Fetch body content based on field selector.
+
+    Args:
+        state: WebTap state with client.
+        har_entry: HAR entry from request_details().
+        field: Field selector ("response.content" or "request.postData").
+
+    Returns:
+        Tuple of (body_content, error_message).
+    """
+    if field == "response.content":
+        request_id = har_entry.get("request_id")
+        if not request_id:
+            return None, "No request_id in HAR entry"
+
+        result = state.client.fetch_body(request_id)
+        if not result:
+            return None, "Failed to fetch response body"
+
+        body = result.get("body", "")
+        if result.get("base64Encoded"):
+            try:
+                body = base64.b64decode(body).decode("utf-8")
+            except Exception as e:
+                return None, f"Failed to decode base64 body: {e}"
+
+        return body, None
+
+    elif field == "request.postData":
+        post_data = har_entry.get("request", {}).get("postData", {})
+        text = post_data.get("text")
+        if not text:
+            return None, "No POST data in request"
+        return text, None
+
+    else:
+        return None, f"Unknown field: {field}. Use 'response.content' or 'request.postData'"

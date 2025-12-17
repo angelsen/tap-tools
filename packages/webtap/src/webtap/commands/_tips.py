@@ -90,8 +90,8 @@ class TipsParser:
         # Build complete MCP description
         parts = [description]
 
-        # Add libraries section for certain commands
-        if command in ["body", "inspect"]:
+        # Add libraries section for commands with Python expression support
+        if command in ["request", "to_model", "quicktype", "selections"]:
             parts.append("")
             parts.append(self._get_libraries())
 

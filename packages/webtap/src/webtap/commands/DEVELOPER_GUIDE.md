@@ -29,7 +29,7 @@ def reload(state, ignore_cache: bool = False) -> dict:
 
 # Multiple boolean flags
 @app.command(display="markdown", fastmcp={"type": "tool"})
-def clear(state, events: bool = True, console: bool = False, cache: bool = False) -> dict:
+def clear(state, events: bool = True, console: bool = False) -> dict:
     """Clear various data stores."""
     # Implementation
 ```
@@ -69,10 +69,10 @@ def network(state, limit: int = 20, filters: list = None, no_filters: bool = Fal
     """
     # Implementation
 
-# With expression evaluation
+# With field selection and expression evaluation
 @app.command(display="markdown", fastmcp={"type": "tool"})
-def body(state, response: int, expr: str = None, decode: bool = True, cache: bool = True) -> dict:
-    """Get response body for network request."""
+def request(state, id: int, fields: list = None, expr: str = None) -> dict:
+    """Get HAR request details with field selection."""
     # Implementation
 ```
 
@@ -95,21 +95,23 @@ def resume(state, request: int, wait: float = 0.5, modifications: dict = None) -
     # Implementation
 ```
 
-### 7. Dynamic Field Discovery (Keep Dict)
-Use dict when field names are dynamic/unknown:
+### 7. Field Selection Pattern
+Use list for selecting fields from structured data:
 
 ```python
 @app.command(display="markdown", fastmcp={"type": "tool"})
-def events(state, filters: dict = None, limit: int = 20) -> dict:
-    """Query CDP events by field values.
-    
+def request(state, id: int, fields: list = None, expr: str = None) -> dict:
+    """Get HAR request details with field selection.
+
     Args:
-        filters: Field filters (any CDP field name)
-            - {"method": "Network.*"}
-            - {"status": 200}
-            - {"url": "*api*"}
+        id: HAR row ID from network() output
+        fields: Field patterns to include
+            - ["*"] - Everything
+            - ["request.*"] - Request data
+            - ["response.content"] - Response body
+        expr: Python expression to evaluate on data
     """
-    # Fields are discovered dynamically from CDP events
+    # Fields are selected from HAR entry structure
 ```
 
 ### 8. Action + Config Pattern (Complex Operations)
@@ -249,7 +251,7 @@ return table_response(
     headers=["ID", "URL", "Status"],
     rows=rows,
     summary=f"{len(rows)} requests",
-    tips=["Use body(ID) to fetch response body"]
+    tips=["Use request(ID, ['response.content']) to fetch response body"]
 )
 
 # Code execution result
@@ -314,16 +316,15 @@ Use explicit text instead of symbols for clarity:
 - `reload(ignore_cache: bool = False)` - Optional boolean
 - `back()`, `forward()` - No parameters
 
-### Query Commands  
-- `network(limit: int = 20, filters: list = None, no_filters: bool = False)` - Direct params
-- `events(filters: dict = None, limit: int = 20)` - Dict for dynamic fields + limit
-- `inspect(event: int = None, expr: str = None)` - Direct optional params
-- `body(response: int, expr: str = None, decode: bool = True, cache: bool = True)` - Mixed direct params
+### Query Commands
+- `network(limit: int = 20, ...)` - Direct params with filters
+- `request(id: int, fields: list = None, expr: str = None)` - Field selection + expression
+- `console(limit: int = 50, level: str = None)` - Direct optional params
 
 ### Management Commands
 - `connect(page: int = None, page_id: str = None)` - Mutually exclusive direct params
-- `clear(events: bool = True, console: bool = False, cache: bool = False)` - Boolean flags
-- `filters(action: str = "list", config: dict = None)` - Action + config pattern
+- `clear(events: bool = True, console: bool = False)` - Boolean flags
+- `filters(add: str = None, remove: str = None, ...)` - Inline filter management
 
 ### JavaScript & Fetch Commands
 - `js(code: str, wait_return: bool = True, await_promise: bool = False)` - Direct params

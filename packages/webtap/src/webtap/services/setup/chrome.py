@@ -1,4 +1,8 @@
-"""Chrome setup service for installing wrapper scripts (cross-platform)."""
+"""Chrome setup service for installing wrapper scripts (cross-platform).
+
+PUBLIC API:
+  - ChromeSetupService: Chrome wrapper script installation
+"""
 
 import os
 import logging

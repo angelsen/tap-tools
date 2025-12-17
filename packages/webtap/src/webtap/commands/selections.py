@@ -12,7 +12,7 @@ from webtap.commands._tips import get_tips
 
 @app.command(
     display="markdown",
-    fastmcp=[{"type": "resource", "mime_type": "application/json"}, {"type": "tool"}],
+    fastmcp=[{"type": "resource", "mime_type": "text/markdown"}, {"type": "tool", "mime_type": "text/markdown"}],
 )
 def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgumentType]
     """Browser element selections with prompt and analysis.
@@ -32,8 +32,14 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
     Returns:
         Formatted browser data or expression result
     """
-    # Check if browser data exists
-    if not hasattr(state, "browser_data") or not state.browser_data:
+    # Fetch browser data from daemon
+    try:
+        daemon_status = state.client.status()
+    except Exception as e:
+        return error_response(str(e))
+
+    browser = daemon_status.get("browser", {})
+    if not browser.get("selections"):
         return error_response(
             "No browser selections available",
             suggestions=[
@@ -43,7 +49,7 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
             ],
         )
 
-    data = state.browser_data
+    data = {"prompt": browser.get("prompt", ""), "selections": browser.get("selections", {})}
 
     # No expression - RESOURCE MODE: Return formatted view
     if not expr:

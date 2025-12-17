@@ -1,31 +1,47 @@
-"""Generate Pydantic models from HTTP response bodies."""
+"""Generate Pydantic models from HTTP request/response bodies."""
 
 import json
 from datamodel_code_generator import generate, InputFileType, DataModelType
 from webtap.app import app
 from webtap.commands._builders import check_connection, success_response, error_response
-from webtap.commands._code_generation import ensure_output_directory
+from webtap.commands._code_generation import (
+    ensure_output_directory,
+    parse_json,
+    extract_json_path,
+    validate_generation_data,
+)
+from webtap.commands._utils import evaluate_expression, fetch_body_content
 from webtap.commands._tips import get_mcp_description
 
 
 mcp_desc = get_mcp_description("to_model")
 
 
-@app.command(display="markdown", fastmcp={"type": "tool", "description": mcp_desc} if mcp_desc else {"type": "tool"})
-def to_model(state, event: int, output: str, model_name: str, json_path: str = None, expr: str = None) -> dict:  # pyright: ignore[reportArgumentType]
-    """Generate Pydantic model from request or response body using datamodel-codegen.
+@app.command(display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": mcp_desc or ""})
+def to_model(
+    state,
+    id: int,
+    output: str,
+    model_name: str,
+    field: str = "response.content",
+    json_path: str = None,  # pyright: ignore[reportArgumentType]
+    expr: str = None,  # pyright: ignore[reportArgumentType]
+) -> dict:  # pyright: ignore[reportArgumentType]
+    """Generate Pydantic model from request or response body.
 
     Args:
-        event: Event row ID from network() or events()
-        output: Output file path for generated model (e.g., "models/customers/group.py")
-        model_name: Class name for generated model (e.g., "CustomerGroup")
+        id: Row ID from network() output
+        output: Output file path for generated model (e.g., "models/user.py")
+        model_name: Class name for generated model (e.g., "User")
+        field: Body to use - "response.content" (default) or "request.postData"
         json_path: Optional JSON path to extract nested data (e.g., "data[0]")
-        expr: Optional Python expression to transform data (has 'body' and 'event' variables)
+        expr: Optional Python expression to transform data (has 'body' variable)
 
     Examples:
-        to_model(123, "models/user.py", "User", json_path="data[0]")
-        to_model(172, "models/form.py", "Form", expr="dict(urllib.parse.parse_qsl(body))")
-        to_model(123, "models/clean.py", "Clean", expr="{k: v for k, v in json.loads(body).items() if k != 'meta'}")
+        to_model(5, "models/user.py", "User")
+        to_model(5, "models/user.py", "User", json_path="data[0]")
+        to_model(5, "models/form.py", "Form", field="request.postData")
+        to_model(5, "models/clean.py", "Clean", expr="{k: v for k, v in json.loads(body).items() if k != 'meta'}")
 
     Returns:
         Success message with generation details
@@ -33,17 +49,78 @@ def to_model(state, event: int, output: str, model_name: str, json_path: str = N
     if error := check_connection(state):
         return error
 
-    # Prepare data via service layer
-    result = state.service.body.prepare_for_generation(event, json_path, expr)
-    if result.get("error"):
-        return error_response(result["error"], suggestions=result.get("suggestions", []))
+    # Get HAR entry
+    har_entry = state.client.request_details(id)
+    if not har_entry:
+        return error_response(f"Request {id} not found")
 
-    data = result["data"]
+    # Fetch body content
+    body_content, err = fetch_body_content(state, har_entry, field)
+    if err or body_content is None:
+        return error_response(
+            err or "Failed to fetch body",
+            suggestions=[
+                f"Field '{field}' could not be fetched",
+                "For response body: field='response.content'",
+                "For POST data: field='request.postData'",
+            ],
+        )
+
+    # Transform via expression or parse as JSON
+    if expr:
+        try:
+            namespace = {"body": body_content}
+            data, _ = evaluate_expression(expr, namespace)
+        except Exception as e:
+            return error_response(
+                f"Expression failed: {e}",
+                suggestions=[
+                    "Variable available: 'body' (str)",
+                    "Example: json.loads(body)['data'][0]",
+                    "Example: dict(urllib.parse.parse_qsl(body))",
+                ],
+            )
+    else:
+        if not body_content.strip():
+            return error_response("Body is empty")
+
+        data, parse_err = parse_json(body_content)
+        if parse_err:
+            return error_response(
+                parse_err,
+                suggestions=[
+                    "Body must be valid JSON, or use expr to transform it",
+                    'For form data: expr="dict(urllib.parse.parse_qsl(body))"',
+                ],
+            )
+
+    # Extract nested path if specified
+    if json_path:
+        data, err = extract_json_path(data, json_path)
+        if err:
+            return error_response(
+                err,
+                suggestions=[
+                    f"Path '{json_path}' not found in body",
+                    'Try a simpler path like "data" or "data[0]"',
+                ],
+            )
+
+    # Validate structure
+    is_valid, validation_err = validate_generation_data(data)
+    if not is_valid:
+        return error_response(
+            validation_err or "Invalid data structure",
+            suggestions=[
+                "Code generation requires dict or list structure",
+                "Use json_path or expr to extract a complex object",
+            ],
+        )
 
     # Ensure output directory exists
     output_path = ensure_output_directory(output)
 
-    # Generate model using datamodel-codegen Python API
+    # Generate model
     try:
         generate(
             json.dumps(data),
@@ -61,12 +138,12 @@ def to_model(state, event: int, output: str, model_name: str, json_path: str = N
             f"Model generation failed: {e}",
             suggestions=[
                 "Check that the JSON structure is valid",
-                "Try simplifying the JSON path",
+                "Try simplifying with json_path",
                 "Ensure output directory is writable",
             ],
         )
 
-    # Count fields in generated model
+    # Count fields
     try:
         model_content = output_path.read_text()
         field_count = model_content.count(": ")

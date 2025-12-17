@@ -1,65 +1,39 @@
 """Main application entry point for WebTap browser debugger.
 
 PUBLIC API:
-  - WebTapState: Application state class with CDP session and service
+  - WebTapState: Application state class with daemon client
   - app: Main ReplKit2 App instance (imported by commands and __init__)
 """
 
 import sys
-import threading
 from dataclasses import dataclass, field
 
 from replkit2 import App
 
-from webtap.cdp import CDPSession
-from webtap.services import WebTapService
+from webtap.client import DaemonClient
 
 
 @dataclass
 class WebTapState:
     """Application state for WebTap browser debugging.
 
-    Maintains CDP session and connection state for browser interaction.
-    All data is stored in DuckDB via the CDP session - no caching needed.
+    Client-side state that communicates with the daemon via HTTP.
+    All CDP operations and data storage happen in the daemon.
 
     Attributes:
-        cdp: Chrome DevTools Protocol session instance.
-        service: WebTapService orchestrating all domain services.
-        api_thread: Thread running the FastAPI server (if this instance owns the port).
+        client: DaemonClient for HTTP communication with daemon.
     """
 
-    cdp: CDPSession = field(default_factory=CDPSession)
-    service: WebTapService = field(init=False)
-    api_thread: threading.Thread | None = None
-    browser_data: dict | None = None  # Browser element selections with prompt
-    error_state: dict | None = None  # Current error: {"message": str, "timestamp": float}
+    client: DaemonClient = field(init=False)
 
     def __post_init__(self):
-        """Initialize service with self reference after dataclass init."""
-        self.service = WebTapService(self)
+        """Initialize daemon client after dataclass init."""
+        self.client = DaemonClient()
 
     def cleanup(self):
         """Cleanup resources on exit."""
-        # Disconnect through service to ensure full cleanup (clears selections, cache, etc)
-        if hasattr(self, "service") and self.service and self.cdp.is_connected:
-            self.service.disconnect()
-
-        # Stop DOM service cleanup (executor, callbacks)
-        if hasattr(self, "service") and self.service and self.service.dom:
-            self.service.dom.cleanup()
-
-        # Stop API server if we own it
-        if self.api_thread and self.api_thread.is_alive():
-            # Import here to avoid circular dependency
-            import webtap.api
-
-            webtap.api._shutdown_requested = True
-            # Give server 1.5s to close SSE connections and shutdown gracefully
-            self.api_thread.join(timeout=1.5)
-
-        # Shutdown DB thread (this is the only place where DB thread should stop)
-        if hasattr(self, "cdp") and self.cdp:
-            self.cdp.cleanup()
+        if hasattr(self, "client") and self.client:
+            self.client.close()
 
 
 # Must be created before command imports for decorator registration
@@ -87,16 +61,15 @@ else:
     from webtap.commands import navigation  # noqa: E402, F401
     from webtap.commands import javascript  # noqa: E402, F401
     from webtap.commands import network  # noqa: E402, F401
+    from webtap.commands import request  # noqa: E402, F401
     from webtap.commands import console  # noqa: E402, F401
-    from webtap.commands import events  # noqa: E402, F401
     from webtap.commands import filters  # noqa: E402, F401
-    from webtap.commands import inspect  # noqa: E402, F401
     from webtap.commands import fetch  # noqa: E402, F401
-    from webtap.commands import body  # noqa: E402, F401
     from webtap.commands import to_model  # noqa: E402, F401
     from webtap.commands import quicktype  # noqa: E402, F401
     from webtap.commands import selections  # noqa: E402, F401
-    from webtap.commands import server  # noqa: E402, F401
+
+    # from webtap.commands import server  # noqa: E402, F401  # Removed: daemon-only architecture
     from webtap.commands import setup  # noqa: E402, F401
     from webtap.commands import launch  # noqa: E402, F401
 

@@ -1,4 +1,8 @@
-"""Chrome extension setup service (cross-platform)."""
+"""Chrome extension setup service (cross-platform).
+
+PUBLIC API:
+  - ExtensionSetupService: Chrome extension file installation
+"""
 
 import json
 import logging
@@ -12,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # GitHub URLs for extension files
 EXTENSION_BASE_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/extension"
-EXTENSION_FILES = ["manifest.json", "background.js", "content.js", "sidepanel.html", "sidepanel.js"]
+EXTENSION_FILES = ["manifest.json", "background.js", "sidepanel.html", "sidepanel.js", "sidepanel.css"]
 
 
 class ExtensionSetupService:

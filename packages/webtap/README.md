@@ -64,15 +64,15 @@ webtap --cli setup-chrome        # Install Chrome wrapper for debugging
 # 3. Launch Chrome with debugging
 webtap --cli run-chrome          # Or manually: google-chrome-stable --remote-debugging-port=9222
 
-# 4. Start webtap REPL
+# 4. Start webtap REPL (auto-starts daemon)
 webtap
 
 # 5. Connect and explore
 >>> pages()                          # List available Chrome pages
 >>> connect(0)                       # Connect to first page
 >>> network()                        # View network requests (filtered)
->>> console()                        # View console messages
->>> events({"url": "*api*"})         # Query any CDP field dynamically
+>>> network(url="*api*")             # Filter by URL pattern
+>>> request(123, ["response.content"])  # Get response body by row ID
 ```
 
 ## 🔌 MCP Setup for Claude
@@ -113,14 +113,14 @@ webtap --cli --help            # Show all CLI commands
 
 ### Commands
 ```python
->>> pages()                          # List available Chrome pages
->>> connect(0)                       # Connect to first page
->>> network()                        # View network requests (filtered)
->>> console()                        # View console messages
->>> events({"url": "*api*"})         # Query any CDP field dynamically
->>> body(50)                         # Get response body
->>> inspect(49)                      # View event details
->>> js("document.title")             # Execute JavaScript
+>>> pages()                              # List available Chrome pages
+>>> connect(0)                           # Connect to first page
+>>> network()                            # View network requests (filtered)
+>>> network(status=404, url="*api*")     # Filter by status and URL
+>>> console()                            # View console messages
+>>> request(123, ["response.content"])   # Get response body by row ID
+>>> request(123, ["*"])                  # Get full HAR entry
+>>> js("document.title")                 # Execute JavaScript
 ```
 
 ### Command Reference
@@ -131,14 +131,15 @@ webtap --cli --help            # Show all CLI commands
 | `connect(page=0)` | Connect to page by index |
 | `disconnect()` | Disconnect from current page |
 | `navigate(url)` | Navigate to URL |
-| `network(no_filters=False)` | View network requests |
-| `console()` | View console messages |
-| `events(filters)` | Query events dynamically |
-| `inspect(rowid, expr=None)` | Inspect event details |
-| `body(response_id, expr=None)` | Get response body |
-| `js(code, wait_return=True)` | Execute JavaScript |
-| `filters(action="list")` | Manage noise filters |
-| `clear(events=True)` | Clear events/console/cache |
+| `network(status, url, type, method)` | View network requests with filters |
+| `console(level, limit)` | View console messages |
+| `request(id, fields, expr)` | Get HAR request details with field selection |
+| `js(code, await_promise, persist)` | Execute JavaScript |
+| `filters(add, remove, enable, disable)` | Manage noise filters |
+| `fetch(action, options)` | Control request interception |
+| `to_model(id, output, model_name)` | Generate Pydantic models from responses |
+| `quicktype(id, output, type_name)` | Generate TypeScript/Go/Rust types |
+| `clear(events, console)` | Clear events/console |
 
 ## Core Commands
 
@@ -147,139 +148,150 @@ webtap --cli --help            # Show all CLI commands
 pages()                      # List Chrome pages
 connect(0)                   # Connect by index (shorthand)
 connect(page=1)              # Connect by index (explicit)
-connect(page_id="xyz")       # Connect by page ID  
+connect(page_id="xyz")       # Connect by page ID
 disconnect()                 # Disconnect from current page
 navigate("https://...")      # Navigate to URL
 reload(ignore_cache=False)   # Reload page
 back() / forward()           # Navigate history
 page()                       # Show current page info
-```
-
-### Dynamic Event Querying
-```python
-# Query ANY field across ALL event types using dict filters
-events({"url": "*github*"})              # Find GitHub requests
-events({"status": 404})                  # Find all 404s
-events({"type": "xhr", "method": "POST"})   # Find AJAX POSTs  
-events({"headers": "*"})                 # Extract all headers
-
-# Field names are fuzzy-matched and case-insensitive
-events({"URL": "*api*"})     # Works! Finds 'url', 'URL', 'documentURL'
-events({"err": "*"})         # Finds 'error', 'errorText', 'err'
+status()                     # Show connection and daemon status
 ```
 
 ### Network Monitoring
 ```python
 network()                              # Filtered network requests (default)
-network(no_filters=True)               # Show everything (noisy!)
-network(filters=["ads", "tracking"])   # Specific filter categories
+network(all=True)                      # Show everything (bypass filters)
+network(status=404)                    # Filter by HTTP status
+network(method="POST")                 # Filter by HTTP method
+network(type="xhr")                    # Filter by resource type
+network(url="*api*")                   # Filter by URL pattern
+network(status=200, url="*graphql*")   # Combine filters
+```
+
+### Request Inspection
+```python
+# Get HAR request details by row ID from network() output
+request(123)                           # Minimal view (method, url, status)
+request(123, ["*"])                    # Full HAR entry
+request(123, ["request.headers.*"])    # Request headers only
+request(123, ["response.content"])     # Fetch response body
+request(123, ["request.postData", "response.content"])  # Both bodies
+
+# With Python expression evaluation
+request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")
+request(123, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').title")
+```
+
+### Code Generation
+```python
+# Generate Pydantic models from response bodies
+to_model(123, "models/user.py", "User")
+to_model(123, "models/user.py", "User", json_path="data[0]")  # Extract nested
+
+# Generate TypeScript/Go/Rust/etc types
+quicktype(123, "types/user.ts", "User")
+quicktype(123, "api.go", "ApiResponse")
 ```
 
 ### Filter Management
 ```python
-# Manage noise filters
-filters()                                # Show current filters (default action="list")
-filters(action="load")                   # Load from .webtap/filters.json
-filters(action="add", config={"domain": "*doubleclick*", "category": "ads"})
-filters(action="save")                   # Persist to disk
-filters(action="toggle", config={"category": "ads"})  # Toggle category
+filters()                                           # Show all filter groups
+filters(add="myfilter", hide={"urls": ["*ads*"]})  # Create filter group
+filters(enable="myfilter")                          # Enable group
+filters(disable="myfilter")                         # Disable group
+filters(remove="myfilter")                          # Delete group
 
-# Built-in categories: ads, tracking, analytics, telemetry, cdn, fonts, images
+# Built-in groups: ads, tracking, analytics, telemetry, cdn, fonts, images
 ```
 
-### Data Inspection
+### Request Interception
 ```python
-# Inspect events by rowid
-inspect(49)                         # View event details by rowid
-inspect(50, expr="data['params']['response']['headers']")  # Extract field
-
-# Response body inspection with Python expressions
-body(49)                            # Get response body
-body(49, expr="import json; json.loads(body)")  # Parse JSON
-body(49, expr="len(body)")         # Check size
-
-# Request interception
+fetch("status")                     # Check interception status
 fetch("enable")                     # Enable request interception
-fetch("disable")                    # Disable request interception
+fetch("enable", {"response": True}) # Intercept responses too
+fetch("disable")                    # Disable interception
 requests()                          # Show paused requests
-resume(123)                         # Continue paused request by ID
-fail(123)                           # Fail paused request by ID
+resume(123)                         # Continue paused request
+resume(123, modifications={"url": "..."})  # Modify and continue
+fail(123)                           # Block the request
 ```
 
 ### Console & JavaScript
 ```python
 console()                           # View console messages
+console(level="error")              # Filter by level
 js("document.title")                # Evaluate JavaScript (returns value)
-js("console.log('Hello')", wait_return=False)  # Execute without waiting
+js("fetch('/api').then(r=>r.json())", await_promise=True)  # Async operations
+js("var x = 1; x + 1", persist=True)  # Multi-statement (global scope)
+js("element.offsetWidth", selection=1)  # Use browser-selected element
 clear()                             # Clear events (default)
 clear(console=True)                 # Clear browser console
-clear(events=True, console=True, cache=True)  # Clear everything
+clear(events=True, console=True)    # Clear everything
 ```
 
 ## Architecture
 
-### Native CDP Storage Philosophy
+### Daemon-Based Architecture
 
 ```
-Chrome Tab
-    ↓ CDP Events (WebSocket)
-DuckDB Storage (events table)
-    ↓ SQL Queries + Field Discovery
+REPL / MCP Client (webtap)
+    ↓ HTTP (localhost:8765)
+WebTap Daemon (background process)
+    ├── FastAPI Server
+    │   └── /connect /network /request /js /fetch ...
+    ↓
 Service Layer (WebTapService)
     ├── NetworkService - Request filtering
     ├── ConsoleService - Message handling
     ├── FetchService - Request interception
-    └── BodyService - Response caching
+    └── DOMService - Element selection
     ↓
-Commands (Thin Wrappers)
-    ├── events() - Query any field
-    ├── network() - Filtered requests  
-    ├── console() - Messages
-    ├── body() - Response bodies
-    └── js() - JavaScript execution
-    ↓
-API Server (FastAPI on :8765)
-    └── Chrome Extension Integration
+CDPSession + DuckDB
+    ├── events table (method-indexed)
+    └── HAR views (pre-aggregated)
+    ↓ WebSocket
+Chrome Browser (--remote-debugging-port=9222)
 ```
 
 ### How It Works
 
-1. **Events stored as-is** - No transformation, full CDP data preserved
-2. **Field paths indexed** - Every unique path like `params.response.status` tracked
-3. **Dynamic discovery** - Fuzzy matching finds fields without schemas
-4. **SQL generation** - User queries converted to DuckDB JSON queries
-5. **On-demand fetching** - Bodies, cookies fetched only when needed
+1. **Daemon manages CDP** - Background process holds WebSocket connection
+2. **Events stored as-is** - No transformation, full CDP data preserved in DuckDB
+3. **HAR views pre-aggregated** - Network requests correlated for fast querying
+4. **Method-indexed events** - O(1) filtering by CDP event type
+5. **On-demand body fetching** - Response bodies fetched only when requested
+6. **Clients are stateless** - REPL/MCP communicate via HTTP to daemon
 
 ## Advanced Usage
 
-### Direct SQL Queries
-```python
-# Access DuckDB directly
-sql = """
-    SELECT json_extract_string(event, '$.params.response.url') as url,
-           json_extract_string(event, '$.params.response.status') as status
-    FROM events 
-    WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'
-"""
-results = state.cdp.query(sql)
+### Daemon Management
+```bash
+webtap --daemon          # Start daemon in foreground (for debugging)
+webtap --daemon status   # Show daemon status (PID, connected page, events)
+webtap --daemon stop     # Stop running daemon
 ```
 
-### Field Discovery
+### Expression Evaluation
+The `request()` command supports Python expressions with pre-imported libraries:
 ```python
-# See what fields are available
-state.cdp.field_paths.keys()  # All discovered field names
-
-# Find all paths for a field
-state.cdp.discover_field_paths("url")
-# Returns: ['params.request.url', 'params.response.url', 'params.documentURL', ...]
+# Libraries available: json, re, bs4/BeautifulSoup, lxml, jwt, yaml, httpx, etc.
+request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")
+request(123, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').find_all('a')")
+request(123, ["response.content"], expr="jwt.decode(data['response']['content']['text'], options={'verify_signature': False})")
 ```
 
-### Direct CDP Access
+### Browser Element Selection
+Use the Chrome extension to select DOM elements, then access them:
 ```python
-# Send CDP commands directly
-state.cdp.execute("Network.getResponseBody", {"requestId": "123"})
-state.cdp.execute("Storage.getCookies", {})
-state.cdp.execute("Runtime.evaluate", {"expression": "window.location.href"})
+selections()                                    # View all selected elements
+selections(expr="data['selections']['1']")     # Get element #1 data
+js("element.offsetWidth", selection=1)          # Run JS on selected element
+```
+
+### Direct CDP Commands via JavaScript
+```python
+# Execute any CDP operation via js()
+js("await fetch('/api/data').then(r => r.json())", await_promise=True)
 ```
 
 ### Chrome Extension
@@ -304,15 +316,12 @@ Install the extension from `packages/webtap/extension/`:
 | 2     | YouTube Music        | https://music.youtube.com/     | F83... | No        |
 
 _3 pages available_
-<pages: 1 fields>
 
 >>> connect(1)
 ## Connection Established
 
 **Page:** GitHub - angelsen/replkit2
-
 **URL:** https://github.com/angelsen/replkit2
-<connect: 1 fields>
 ```
 
 ### Monitor Network Traffic
@@ -320,24 +329,49 @@ _3 pages available_
 >>> network()
 ## Network Requests
 
-| ID   | ReqID        | Method | Status | URL                                             | Type     | Size |
-|:-----|:-------------|:-------|:-------|:------------------------------------------------|:---------|:-----|
-| 3264 | 682214.9033  | GET    | 200    | https://api.github.com/graphql                  | Fetch    | 22KB |
-| 2315 | 682214.8985  | GET    | 200    | https://api.github.com/repos/angelsen/replkit2  | Fetch    | 16KB |
-| 359  | 682214.8638  | GET    | 200    | https://github.githubassets.com/assets/app.js   | Script   | 21KB |
+| ID   | Method | Status | URL                                             | Type     | Size |
+|:-----|:-------|:-------|:------------------------------------------------|:---------|:-----|
+| 3264 | GET    | 200    | https://api.github.com/graphql                  | Fetch    | 22KB |
+| 2315 | GET    | 200    | https://api.github.com/repos/angelsen/replkit2  | Fetch    | 16KB |
+| 359  | GET    | 200    | https://github.githubassets.com/assets/app.js   | Script   | 21KB |
 
 _3 requests_
 
-### Next Steps
+>>> # Filter by URL pattern
+>>> network(url="*api*")
 
-- **Analyze responses:** `body(3264)` - fetch response body
-- **Parse HTML:** `body(3264, "bs4(body, 'html.parser').find('title').text")`
-- **Extract JSON:** `body(3264, "json.loads(body)['data']")`
-- **Find patterns:** `body(3264, "re.findall(r'/api/\\w+', body)")`
-- **Decode JWT:** `body(3264, "jwt.decode(body, options={'verify_signature': False})")`
-- **Search events:** `events({'url': '*api*'})` - find all API calls
-- **Intercept traffic:** `fetch('enable')` then `requests()` - pause and modify
-<network: 1 fields>
+>>> # Filter by status code
+>>> network(status=404)
+
+>>> # Combine filters
+>>> network(method="POST", url="*graphql*")
+```
+
+### Inspect Request Details
+```python
+>>> # Get response body
+>>> request(3264, ["response.content"])
+
+>>> # Parse JSON response
+>>> request(3264, ["response.content"], expr="json.loads(data['response']['content']['text'])")
+{'viewer': {'login': 'octocat', 'name': 'The Octocat'}}
+
+>>> # Get full HAR entry
+>>> request(3264, ["*"])
+
+>>> # Get just headers
+>>> request(3264, ["request.headers.*", "response.headers.*"])
+```
+
+### Generate Types from API Responses
+```python
+>>> # Generate Pydantic model
+>>> to_model(3264, "models/github_response.py", "GitHubResponse")
+Model written to models/github_response.py
+
+>>> # Generate TypeScript types
+>>> quicktype(3264, "types/github.ts", "GitHubResponse")
+Types written to types/github.ts
 ```
 
 ### View Console Messages
@@ -353,64 +387,31 @@ _3 requests_
 
 _3 messages_
 
-### Next Steps
-
-- **Inspect error:** `inspect(32)` - view full stack trace
-- **Find all errors:** `events({'level': 'error'})` - filter console errors
-- **Extract stack:** `inspect(32, "data.get('stackTrace', {})")`
-- **Search messages:** `events({'message': '*failed*'})` - pattern match
-- **Check network:** `network()` - may show failed requests causing errors
-<console: 1 fields>
+>>> # Filter by level
+>>> console(level="error")
 ```
 
-### Find and Analyze API Calls
+### Intercept and Modify Requests
 ```python
->>> events({"url": "*api*", "method": "POST"})
-## Query Results
+>>> fetch("enable")
+## Fetch Interception Enabled
 
-| RowID | Method                      | URL                             | Status |
-|:------|:----------------------------|:--------------------------------|:-------|
-| 49    | Network.requestWillBeSent   | https://api.github.com/graphql  | -      |
-| 50    | Network.responseReceived    | https://api.github.com/graphql  | 200    |
+>>> # Make a request in the browser - it will pause
+>>> requests()
+## Paused Requests
 
-_2 events_
-<events: 1 fields>
+| ID  | Stage   | Method | URL                    |
+|:----|:--------|:-------|:-----------------------|
+| 47  | Request | GET    | https://api.example.com|
 
->>> body(50, expr="import json; json.loads(body)['data']")
-{'viewer': {'login': 'octocat', 'name': 'The Octocat'}}
+>>> # Resume normally
+>>> resume(47)
 
->>> inspect(49)  # View full request details
-```
+>>> # Or modify the request
+>>> resume(47, modifications={"url": "https://api.example.com/v2"})
 
-### Debug Failed Requests
-```python
->>> events({"status": 404})
-## Query Results
-
-| RowID | Method                   | URL                               | Status |
-|:------|:-------------------------|:----------------------------------|:-------|
-| 32    | Network.responseReceived | https://api.example.com/missing   | 404    |
-| 29    | Network.responseReceived | https://api.example.com/notfound  | 404    |
-
-_2 events_
-<events: 1 fields>
-
->>> events({"errorText": "*"})  # Find network errors
->>> events({"type": "Failed"})  # Find failed resources
-```
-
-### Monitor Specific Domains
-```python
->>> events({"url": "*myapi.com*"})  # Your API
->>> events({"url": "*localhost*"})  # Local development
->>> events({"url": "*stripe*"})     # Payment APIs
-```
-
-### Extract Headers and Cookies
-```python
->>> events({"headers": "*authorization*"})  # Find auth headers
->>> state.cdp.execute("Storage.getCookies", {})  # Get all cookies
->>> events({"setCookie": "*"})  # Find Set-Cookie headers
+>>> # Or block it
+>>> fail(47)
 ```
 
 ## Filter Configuration
@@ -434,33 +435,22 @@ WebTap includes aggressive default filters to reduce noise. Customize in `.webta
 
 1. **Store AS-IS** - No transformation of CDP events
 2. **Query On-Demand** - Extract only what's needed
-3. **Dynamic Discovery** - No predefined schemas
-4. **SQL-First** - Leverage DuckDB's JSON capabilities
+3. **Daemon Architecture** - Background process manages CDP connection
+4. **HAR-First** - Pre-aggregated views for fast network queries
 5. **Minimal Memory** - Store only CDP data
 
 ## Requirements
 
-- Chrome/Chromium with debugging enabled
+- Chrome/Chromium with debugging enabled (`--remote-debugging-port=9222`)
 - Python 3.12+
 - Dependencies: websocket-client, duckdb, replkit2, fastapi, uvicorn, beautifulsoup4
 
-## 🏗️ Architecture
-
-Built on [ReplKit2](https://github.com/angelsen/replkit2) for dual REPL/MCP functionality.
-
-**Key Design:**
-- **Store AS-IS** - No transformation of CDP events
-- **Query On-Demand** - Extract only what's needed
-- **Dynamic Discovery** - No predefined schemas
-- **SQL-First** - Leverage DuckDB's JSON capabilities
-- **Minimal Memory** - Store only CDP data
-
 ## 📚 Documentation
 
-- [Architecture](ARCHITECTURE.md) - System design
 - [Vision](src/webtap/VISION.md) - Design philosophy
-- [Services](src/webtap/services/) - Service layer implementations
-- [Commands](src/webtap/commands/) - Command implementations
+- [CDP Module](src/webtap/cdp/README.md) - CDP integration details
+- [Commands Guide](src/webtap/commands/DEVELOPER_GUIDE.md) - Command development
+- [Tips](src/webtap/commands/TIPS.md) - Command documentation and examples
 
 ## 🛠️ Development
 
@@ -476,24 +466,33 @@ uv sync --package webtap
 uv run --package webtap webtap
 
 # Run tests and checks
-make check-webtap   # Check build
-make format         # Format code
-make lint           # Fix linting
+make check         # Type check
+make format        # Format code
+make lint          # Fix linting
 ```
 
-## API Server
+## Daemon & API
 
-WebTap automatically starts a FastAPI server on port 8765 for Chrome extension integration:
+WebTap uses a daemon architecture. The daemon auto-starts when you run `webtap` and manages:
 
-- `GET /status` - Connection status
-- `GET /pages` - List available Chrome pages
+- CDP WebSocket connection to Chrome
+- DuckDB event storage
+- FastAPI server on port 8765
+
+### Daemon Commands
+```bash
+webtap --daemon          # Start in foreground (debugging)
+webtap --daemon status   # Show status
+webtap --daemon stop     # Stop daemon
+```
+
+### API Endpoints (for extension/tools)
+- `GET /status` - Connection and daemon status
+- `GET /pages` - List Chrome pages
 - `POST /connect` - Connect to a page
-- `POST /disconnect` - Disconnect from current page
-- `POST /clear` - Clear events/console/cache
-- `GET /fetch/paused` - Get paused requests
-- `POST /filters/toggle/{category}` - Toggle filter categories
-
-The API server runs in a background thread and doesn't block the REPL.
+- `GET /data/network` - Network requests
+- `GET /data/har/{id}` - HAR entry details
+- `POST /cdp/relay` - Execute CDP commands
 
 ## 📄 License
 

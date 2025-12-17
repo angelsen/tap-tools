@@ -1,0 +1,672 @@
+/* WebTap Side Panel - Clean Break Refactor */
+
+/* ==================== Theme System ==================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* Spacing */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+
+  /* Border widths */
+  --border-width: 1px;
+  --border-width-thick: 2px;
+
+  /* Typography */
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+
+  /* Border radius */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+
+  /* Semantic colors */
+  --color-bg: light-dark(#ffffff, #1a1a1a);
+  --color-bg-subtle: light-dark(#f5f5f5, #2a2a2a);
+  --color-bg-muted: light-dark(#fafafa, #222222);
+  --color-bg-hover: light-dark(#f0f0f0, #333333);
+
+  --color-text: light-dark(#1a1a1a, #e5e5e5);
+  --color-text-muted: light-dark(#666666, #999999);
+  --color-text-subtle: light-dark(#333333, #cccccc);
+
+  --color-border: light-dark(#dddddd, #444444);
+  --color-border-subtle: light-dark(#eeeeee, #333333);
+
+  /* Status */
+  --color-success: light-dark(#008800, #4caf50);
+  --color-success-bg: light-dark(#4caf50, #2e7d32);
+  --color-error: light-dark(#dd0000, #ff6b6b);
+  --color-error-bg: light-dark(#f44336, #c62828);
+  --color-error-surface: light-dark(#fff5f5, #2a1a1a);
+  --color-warning: light-dark(#ff9800, #ffb74d);
+
+  /* Error banner */
+  --color-error-banner-bg: light-dark(#ffebee, #2d1a1a);
+  --color-error-banner-border: light-dark(#ef5350, #c62828);
+  --color-error-banner-text: light-dark(#c62828, #ff8a80);
+
+  /* Interactive */
+  --color-primary: light-dark(#0066cc, #4dabf7);
+  --color-button-bg: light-dark(#ffffff, #2a2a2a);
+  --color-button-border: light-dark(#cccccc, #555555);
+  --color-toggle-bg: light-dark(#e0e0e0, #444444);
+
+  /* Focus */
+  --color-focus: light-dark(#0066cc, #4dabf7);
+  --focus-offset: -2px;  /* Inset focus ring - never clips */
+
+  /* Animation */
+  --transition-fast: 0.15s ease;
+}
+
+[data-theme="light"] { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
+/* ==================== Base ==================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  padding: var(--space-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ==================== Focus Styles ==================== */
+
+:focus-visible {
+  outline: var(--border-width-thick) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/* ==================== Header ==================== */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block-end: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.theme-toggle {
+  padding: var(--space-xxs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-button-bg);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  transition: background var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  background: var(--color-bg-hover);
+}
+
+/* ==================== Tab Bar ==================== */
+
+.tab-bar {
+  display: flex;
+  gap: var(--space-xs);
+  margin-block-end: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.tab-button {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-bottom: var(--border-width-thick) solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: -1px;
+}
+
+.tab-button:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.tab-button.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* ==================== Tab Content ==================== */
+
+.tab-content {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tab-content.active {
+  display: flex;
+}
+
+/* ==================== Sections ==================== */
+
+.section {
+  flex-shrink: 0;
+}
+
+.section + .section {
+  margin-block-start: var(--space-lg);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-title {
+  margin: var(--space-xs) 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.section-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.divider {
+  border-block-start: 1px solid var(--color-border);
+  margin-block: var(--space-md);
+  flex-shrink: 0;
+}
+
+/* ==================== Form Elements ==================== */
+
+select {
+  inline-size: 100%;
+  padding: var(--space-sm);
+  margin-block-end: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  background: var(--color-button-bg);
+  color: var(--color-text);
+}
+
+button {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-button-border);
+  border-radius: var(--radius-md);
+  background: var(--color-button-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--text-base);
+  transition: background var(--transition-fast);
+}
+
+button:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--color-success-bg);
+}
+
+/* ==================== Layout ==================== */
+
+.button-row {
+  display: flex;
+  gap: var(--space-xs);
+  margin-block-end: var(--space-sm);
+}
+
+.button-row button {
+  flex: 1;
+}
+
+.full-width {
+  inline-size: 100%;
+  margin-block: var(--space-sm);
+}
+
+.hidden {
+  display: none;
+}
+
+/* ==================== Status Box ==================== */
+
+.status-box {
+  padding: var(--space-sm);
+  font-size: var(--text-base);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+  margin-block-end: var(--space-sm);
+}
+
+.error {
+  color: var(--color-error);
+}
+
+.connected {
+  color: var(--color-success);
+  font-weight: bold;
+}
+
+/* ==================== Error Banner ==================== */
+
+.error-banner {
+  display: none;
+  background: var(--color-error-banner-bg);
+  border: 1px solid var(--color-error-banner-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-block-end: var(--space-md);
+  font-size: var(--text-base);
+  flex-shrink: 0;
+}
+
+.error-banner.visible {
+  display: block;
+}
+
+.error-banner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.error-banner-message {
+  color: var(--color-error-banner-text);
+  flex: 1;
+  margin-inline-end: var(--space-sm);
+}
+
+/* ==================== Fetch Intercept ==================== */
+
+.fetch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-xs);
+}
+
+.fetch-status {
+  font-size: var(--text-base);
+}
+
+.fetch-active {
+  color: var(--color-success);
+  font-weight: bold;
+}
+
+.fetch-inactive {
+  color: var(--color-text-muted);
+}
+
+.toggle {
+  background: var(--color-toggle-bg);
+  border: 1px solid var(--color-button-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+}
+
+.toggle.active {
+  background: var(--color-success-bg);
+  color: white;
+}
+
+.response-stage-option {
+  margin-block-start: var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.response-stage-option label {
+  cursor: pointer;
+}
+
+.response-stage-option input {
+  margin-inline-end: var(--space-xs);
+}
+
+/* ==================== Filters ==================== */
+
+.filter-section {
+  flex-shrink: 0;
+}
+
+.filter-section label {
+  display: block;
+  padding-block: var(--space-xs);
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+
+.filter-section input[type="checkbox"] {
+  margin-inline-end: var(--space-sm);
+}
+
+.filter-list {
+  margin-block: var(--space-sm);
+}
+
+.filter-buttons {
+  margin-block-start: var(--space-sm);
+}
+
+.filter-buttons button {
+  font-size: var(--text-sm);
+}
+
+/* ==================== Selection ==================== */
+
+.selection-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.selection-list {
+  max-block-size: 150px;
+  overflow-y: auto;
+  margin-block: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-muted);
+}
+
+.selection-item {
+  display: flex;
+  align-items: center;
+  padding: var(--space-sm);
+  font-size: var(--text-sm);
+  border-block-end: 1px solid var(--color-border-subtle);
+}
+
+.selection-item:last-child {
+  border-block-end: none;
+}
+
+.selection-badge {
+  background: var(--color-success-bg);
+  color: white;
+  padding: var(--space-xxs) var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-weight: bold;
+  margin-inline-end: var(--space-sm);
+  font-size: var(--text-xs);
+}
+
+.selection-preview {
+  flex: 1;
+  color: var(--color-text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block-end: var(--space-xs);
+}
+
+.selection-header span {
+  font-size: var(--text-base);
+}
+
+.selection-header button {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+}
+
+/* Selection button states - no !important needed with proper specificity */
+button.active-selection {
+  background: var(--color-error-bg);
+  color: white;
+  border-color: var(--color-error-bg);
+}
+
+button.active-selection:hover:not(:disabled) {
+  background: var(--color-error-bg);
+  filter: brightness(1.1);
+}
+
+.processing {
+  color: var(--color-warning);
+}
+
+/* ==================== Help Text ==================== */
+
+.help-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-block-start: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.help-text code {
+  background: var(--color-bg-subtle);
+  padding: var(--space-xxs) var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* ==================== Network Section ==================== */
+
+.network-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.network-table {
+  flex: 1;
+  overflow-y: auto;
+  margin-block: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  min-height: 80px;
+}
+
+.network-row {
+  display: flex;
+  padding: var(--space-xs) var(--space-sm);
+  border-block-end: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.network-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.network-row.error {
+  background: var(--color-error-surface);
+}
+
+.network-row.error:hover {
+  background: var(--color-error-surface);
+  filter: brightness(0.95);
+}
+
+.network-method {
+  inline-size: 40px;
+  font-weight: bold;
+  color: var(--color-text-muted);
+}
+
+.network-status {
+  inline-size: 30px;
+  text-align: center;
+}
+
+.network-status.ok {
+  color: var(--color-success);
+}
+
+.network-status.error {
+  color: var(--color-error);
+}
+
+.network-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==================== Request Details ==================== */
+
+.request-details {
+  margin-block-start: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  max-block-size: 150px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.request-details.hidden {
+  display: none;
+}
+
+.request-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block-end: var(--space-xs);
+  padding-block-end: var(--space-xs);
+  border-block-end: 1px solid var(--color-border-subtle);
+}
+
+.request-details pre {
+  font-size: var(--text-xs);
+  margin: var(--space-xs) 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--font-mono);
+  background: var(--color-bg-subtle);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.request-details summary {
+  cursor: pointer;
+  padding: var(--space-xs) 0;
+  color: var(--color-text-muted);
+}
+
+.request-details summary:hover {
+  color: var(--color-text);
+}
+
+/* ==================== Utilities ==================== */
+
+.reconnect-btn {
+  margin-inline-start: var(--space-md);
+  padding: var(--space-xxs) var(--space-sm);
+  cursor: pointer;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  inline-size: 16px;
+  block-size: 16px;
+  position: relative;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.close-btn:hover {
+  opacity: 1;
+}
+
+.close-btn::before,
+.close-btn::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  inline-size: 10px;
+  block-size: 2px;
+  background: var(--color-text);
+  border-radius: 1px;
+}
+
+.close-btn::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.close-btn::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.close-btn--error::before,
+.close-btn--error::after {
+  background: var(--color-error-banner-text);
+}
+
+.url-display {
+  word-break: break-all;
+  margin-block-end: var(--space-xs);
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}

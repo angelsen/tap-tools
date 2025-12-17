@@ -6,25 +6,6 @@ from webtap.services.setup import SetupService
 
 @app.command(
     display="markdown",
-    typer={"name": "setup-filters", "help": "Download filter configuration from GitHub"},
-    fastmcp={"enabled": False},
-)
-def setup_filters(state, force: bool = False) -> dict:
-    """Download filter configuration to ./.webtap/filters.json.
-
-    Args:
-        force: Overwrite existing file (default: False)
-
-    Returns:
-        Markdown-formatted result with success/error messages
-    """
-    service = SetupService()
-    result = service.install_filters(force=force)
-    return _format_setup_result(result, "filters")
-
-
-@app.command(
-    display="markdown",
     typer={"name": "setup-extension", "help": "Download Chrome extension from GitHub"},
     fastmcp={"enabled": False},
 )
@@ -109,18 +90,7 @@ def _format_setup_result(result: dict, component: str) -> dict:
 
     # Component-specific next steps
     if result["success"]:
-        if component == "filters":
-            elements.append({"type": "text", "content": "\n**Next steps:**"})
-            elements.append(
-                {
-                    "type": "list",
-                    "items": [
-                        "Run `filters('load')` to load the filters",
-                        "Run `filters()` to see loaded categories",
-                    ],
-                }
-            )
-        elif component == "extension":
+        if component == "extension":
             elements.append({"type": "text", "content": "\n**To install in Chrome:**"})
             elements.append(
                 {

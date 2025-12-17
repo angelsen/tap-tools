@@ -1,77 +1,105 @@
 """Network request monitoring and display commands."""
 
-from typing import List
+from replkit2.types import ExecutionContext
 
 from webtap.app import app
-from webtap.commands._builders import check_connection, table_response
+from webtap.commands._builders import table_response, error_response, format_size
 from webtap.commands._tips import get_tips
+
+# Truncation values for REPL mode (compact display)
+_REPL_TRUNCATE = {
+    "ReqID": {"max": 12, "mode": "end"},
+    "URL": {"max": 60, "mode": "middle"},
+}
+
+# Truncation values for MCP mode (generous for LLM context)
+_MCP_TRUNCATE = {
+    "ReqID": {"max": 50, "mode": "end"},
+    "URL": {"max": 200, "mode": "middle"},
+}
 
 
 @app.command(
     display="markdown",
-    truncate={"ReqID": {"max": 12, "mode": "end"}, "URL": {"max": 60, "mode": "middle"}},
-    transforms={"Size": "format_size"},
-    fastmcp=[{"type": "resource", "mime_type": "application/json"}, {"type": "tool"}],
+    fastmcp=[{"type": "resource", "mime_type": "text/markdown"}, {"type": "tool", "mime_type": "text/markdown"}],
 )
-def network(state, limit: int = 20, filters: List[str] = None, no_filters: bool = False) -> dict:  # pyright: ignore[reportArgumentType]
-    """Show network requests with full data.
-
-    As Resource (no parameters):
-        network             # Returns last 20 requests with enabled filters
-
-    As Tool (with parameters):
-        network(limit=50)                    # More results
-        network(filters=["ads"])            # Specific filter only
-        network(no_filters=True, limit=50)  # Everything unfiltered
+def network(
+    state,
+    status: int = None,  # type: ignore[reportArgumentType]
+    method: str = None,  # type: ignore[reportArgumentType]
+    type: str = None,  # type: ignore[reportArgumentType]
+    url: str = None,  # type: ignore[reportArgumentType]
+    all: bool = False,
+    limit: int = 20,
+    _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
+) -> dict:
+    """List network requests with inline filters.
 
     Args:
-        limit: Maximum results to show (default: 20)
-        filters: Specific filter categories to apply
-        no_filters: Show everything unfiltered (default: False)
+        status: Filter by HTTP status code (e.g., 404, 500)
+        method: Filter by HTTP method (e.g., "POST", "GET")
+        type: Filter by resource type (e.g., "xhr", "fetch", "websocket")
+        url: Filter by URL pattern (supports * wildcard)
+        all: Bypass noise filter groups
+        limit: Max results (default 20)
 
-    Returns:
-        Table of network requests with full data
+    Examples:
+        network()                    # Default with noise filter
+        network(status=404)          # Only 404s
+        network(method="POST")       # Only POST requests
+        network(type="websocket")    # Only WebSocket
+        network(url="*api*")         # URLs containing "api"
+        network(all=True)            # Show everything
     """
-    # Check connection
-    if error := check_connection(state):
-        return error
+    # Check connection via daemon status
+    try:
+        daemon_status = state.client.status()
+        if not daemon_status.get("connected"):
+            return error_response("Not connected to any page. Use connect() first.")
+    except Exception as e:
+        return error_response(str(e))
 
-    # Get filter SQL from service
-    if no_filters:
-        filter_sql = ""
-    elif filters:
-        filter_sql = state.service.filters.get_filter_sql(use_all=False, categories=filters)
-    else:
-        filter_sql = state.service.filters.get_filter_sql(use_all=True)
-
-    # Get data from service
-    results = state.service.network.get_recent_requests(limit=limit, filter_sql=filter_sql)
-
-    # Build rows with FULL data
-    rows = []
-    for row in results:
-        rowid, request_id, method, status, url, type_val, size = row
-        rows.append(
-            {
-                "ID": str(rowid),
-                "ReqID": request_id or "",  # Full request ID
-                "Method": method or "GET",
-                "Status": str(status) if status else "-",
-                "URL": url or "",  # Full URL
-                "Type": type_val or "-",
-                "Size": size or 0,  # Raw bytes
-            }
+    # Get network requests from daemon with inline filters
+    try:
+        requests = state.client.network(
+            status=status,
+            method=method,
+            type_filter=type,
+            url=url,
+            apply_groups=not all,
+            limit=limit,
         )
+    except Exception as e:
+        return error_response(str(e))
+
+    # Mode-specific configuration
+    is_repl = _ctx and _ctx.is_repl()
+
+    # Build rows with mode-specific formatting
+    rows = [
+        {
+            "ID": str(r["id"]),
+            "ReqID": r["request_id"],
+            "Method": r["method"],
+            "Status": str(r["status"]) if r["status"] else "-",
+            "URL": r["url"],
+            "Type": r["type"] or "-",
+            # REPL: human-friendly format, MCP: raw bytes for LLM
+            "Size": format_size(r["size"]) if is_repl else (r["size"] or 0),
+            "State": r.get("state", "-"),
+        }
+        for r in requests
+    ]
 
     # Build response with developer guidance
     warnings = []
-    if limit and len(results) == limit:
+    if limit and len(requests) == limit:
         warnings.append(f"Showing first {limit} results (use limit parameter to see more)")
 
-    # Get tips from TIPS.md with context, and add filter guidance
-    combined_tips = [
-        "Reduce noise with `filters()` - filter by type (XHR, Fetch) or domain (*/api/*)",
-    ]
+    # Get tips from TIPS.md with context
+    combined_tips = []
+    if not all:
+        combined_tips.append("Use all=True to bypass filter groups")
 
     if rows:
         example_id = rows[0]["ID"]
@@ -79,11 +107,15 @@ def network(state, limit: int = 20, filters: List[str] = None, no_filters: bool 
         if context_tips:
             combined_tips.extend(context_tips)
 
+    # Use mode-specific truncation
+    truncate = _REPL_TRUNCATE if is_repl else _MCP_TRUNCATE
+
     return table_response(
         title="Network Requests",
-        headers=["ID", "ReqID", "Method", "Status", "URL", "Type", "Size"],
+        headers=["ID", "ReqID", "Method", "Status", "URL", "Type", "Size", "State"],
         rows=rows,
         summary=f"{len(rows)} requests" if rows else None,
         warnings=warnings,
-        tips=combined_tips,
+        tips=combined_tips if combined_tips else None,
+        truncate=truncate,
     )

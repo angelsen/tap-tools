@@ -1,239 +1,238 @@
 # WebTap Browser Debugging Guide
 
-WebTap is a Chrome DevTools Protocol (CDP) client for browser debugging via REPL with native event storage and a service-oriented architecture.
+WebTap is a Chrome DevTools Protocol (CDP) client for browser debugging via REPL/MCP with native event storage and daemon-based architecture.
 
 ## Quick Start
 
 ```python
 # Connect to Chrome (must be running with --remote-debugging-port=9222)
-pages()                    # List available tabs with page IDs
-connect("page-id")         # Connect to specific page
-network()                  # View recent network requests (filtered)
-console()                  # View console messages
-disconnect()               # Disconnect from Chrome
+pages()                              # List available tabs
+connect(0)                           # Connect by index
+network()                            # View network requests (filtered)
+network(url="*api*")                 # Filter by URL pattern
+request(123, ["response.content"])   # Get response body by row ID
+console()                            # View console messages
+disconnect()                         # Disconnect from Chrome
 ```
 
-## Core Concepts
+## Architecture
 
-### Native CDP Storage
-All CDP events are stored as-is in DuckDB with zero transformation. The system maintains a dynamic field index for instant discovery and querying.
+WebTap uses a daemon-based architecture:
+- **Daemon** - Background process manages CDP WebSocket + DuckDB storage
+- **REPL/MCP** - Clients communicate with daemon via HTTP (localhost:8765)
+- **HAR Views** - Pre-aggregated network request data for fast queries
 
-### Service Layer Architecture
-Commands are thin wrappers around services that handle business logic:
-- **NetworkService** - Request filtering and analysis
-- **ConsoleService** - Console message handling
-- **FetchService** - Request interception management
-- **BodyService** - Response body caching
-
-### Markdown Output
-All commands return markdown dictionaries for rich display with tables, alerts, and formatted content.
-
-## Dynamic Event Querying
-
-```python
-# Query ANY CDP field - system discovers paths automatically
-events(url="*api*")              # Find API calls
-events(status=404)               # Find all 404s
-events(method="POST")            # Find POST requests
-events(url="*github*", status=200)  # Multiple conditions (AND)
-
-# Field names are fuzzy-matched and case-insensitive
-events(URL="*api*")              # Works! Finds 'url', 'URL', 'documentURL'
-events(err="*")                  # Finds 'error', 'errorText', 'err'
-
-# Extract specific fields
-events(headers="*")              # Show all headers
-events(timing="*")               # Show timing data
+```
+REPL/MCP Client → HTTP → Daemon → WebSocket → Chrome
+                           ↓
+                    DuckDB + HAR Views
 ```
 
-## Common Workflows
+## Core Commands
 
-### Analyze Website Requests
+### Connection & Navigation
 
 ```python
-# Connect to a page
-pages()                          # Shows page IDs like "6B1A2C3D..."
-connect("6B1A2C3D")              # Connect using page ID
+pages()                      # List Chrome pages
+connect(0)                   # Connect by index
+connect(page_id="xyz")       # Connect by page ID
+disconnect()                 # Disconnect
+status()                     # Show daemon/connection status
 
-# View network traffic
-network()                        # Filtered view (no ads/tracking)
-network(limit=50)                # Show more requests
-network(failed=True)             # Show only failed requests
-
-# Search specific requests
-events(url="*api*", method="POST")
-events(url="*finn.no*", headers="*")  # See all headers
-
-# Inspect response bodies
-network()                        # Note the rowid column
-body(49)                         # Get body for rowid 49
-body(49, expr="len(body)")       # Check size
-body(49, expr="import json; json.loads(body)")  # Parse JSON
+navigate("https://...")      # Go to URL
+reload(ignore_cache=True)    # Hard refresh
+back() / forward()           # Navigate history
+page()                       # Current page info
 ```
 
-### Debug JavaScript and Console
+### Network Monitoring
 
 ```python
-console()                        # Recent console messages
-console(limit=100)               # More messages
-console(level="error")           # Only errors
-
-# Execute JavaScript
-js("document.title")             # Get page title (waits for result)
-js("localStorage.length")        # Check localStorage
-js("console.log('test')", wait_promise=False)  # Fire and forget
-
-# Advanced JavaScript
-js("""
-    const data = await fetch('/api/data').then(r => r.json());
-    return data.items.length;
-""")                             # Async operations with await
+network()                              # Filtered requests (default)
+network(all=True)                      # Bypass filters, show everything
+network(status=404)                    # Filter by HTTP status
+network(method="POST")                 # Filter by method
+network(type="xhr")                    # Filter by resource type
+network(url="*api*")                   # Filter by URL pattern
+network(status=200, url="*graphql*")   # Combine filters
+network(limit=50)                      # Show more results
 ```
 
-### Monitor Network Traffic
+### Request Inspection
 
 ```python
-# Find failed requests
-events(status=404)
-events(status=500)
-network(failed=True)             # All failed requests
+# Get HAR request details by row ID from network() output
+request(123)                           # Minimal view (method, url, status)
+request(123, ["*"])                    # Full HAR entry
+request(123, ["request.headers.*"])    # Request headers only
+request(123, ["response.headers.*"])   # Response headers only
+request(123, ["response.content"])     # Fetch response body
+request(123, ["request.postData"])     # Request body (POST/PUT)
+request(123, ["request.postData", "response.content"])  # Both bodies
 
-# Track specific domains
-events(url="*youtube.com*")
-events(url="*googleapis*")
+# With Python expression evaluation (libraries pre-imported)
+request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")
+request(123, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').title")
+request(123, ["response.content"], expr="jwt.decode(data['response']['content']['text'], options={'verify_signature': False})")
+```
 
-# Analyze headers
-events(url="*api*", headers="*")
-inspect(49)                      # View full event details by rowid
+### Code Generation
+
+```python
+# Generate Pydantic models from responses
+to_model(123, "models/user.py", "User")
+to_model(123, "models/user.py", "User", json_path="data[0]")  # Nested extraction
+to_model(123, "models/form.py", "Form", field="request.postData")  # From request body
+
+# Generate TypeScript/Go/Rust/etc types
+quicktype(123, "types/user.ts", "User")
+quicktype(123, "api.go", "ApiResponse")
+quicktype(123, "schema.json", "Schema")
+```
+
+### Console & JavaScript
+
+```python
+console()                           # View console messages
+console(level="error")              # Filter by level
+console(limit=100)                  # Show more messages
+
+# JavaScript execution (fresh scope by default)
+js("document.title")                           # Get value
+js("[...document.links].map(a => a.href)")    # Get all links
+js("fetch('/api').then(r=>r.json())", await_promise=True)  # Async
+js("document.querySelectorAll('.ad').forEach(e => e.remove())", wait_return=False)  # No return
+
+# Multi-statement code (use persist=True for global scope)
+js("var data = null", persist=True)
+js("fetch('/api').then(r => r.json()).then(d => data = d)", persist=True, await_promise=True)
+js("data.users.length", persist=True)
+
+# With browser-selected element
+js("element.offsetWidth", selection=1)  # Use element #1 from selections()
 ```
 
 ### Request Interception
 
 ```python
-# Enable request interception
-fetch()                          # Pause all requests
+fetch("status")                     # Check interception status
+fetch("enable")                     # Enable request interception
+fetch("enable", {"response": True}) # Intercept responses too
+fetch("disable")                    # Disable interception
 
-# Work with paused requests
-requests()                       # Show paused requests
-inspect(49)                      # Examine request details
-resume("123.456")                # Continue specific request
-fail("123.456")                  # Fail specific request
-
-# Disable interception
-fetch(enabled=False)             # Resume normal flow
-```
-
-### Page Navigation
-
-```python
-navigate("https://example.com")  # Go to URL
-reload()                         # Refresh page
-reload(ignore_cache=True)        # Hard refresh
-back()                           # Go back
-forward()                        # Go forward
-page()                           # Current page info
+requests()                          # Show paused requests
+resume(123)                         # Continue request
+resume(123, modifications={"url": "https://..."})  # Modify and continue
+resume(123, modifications={"method": "POST"})      # Change method
+fail(123)                           # Block request
+fail(123, reason="AccessDenied")    # Block with specific reason
 ```
 
 ### Filter Management
 
 ```python
-# View current filters
-filters()                        # Show all filter categories
-filters(status=True)             # Show filter statistics
+filters()                                           # Show all filter groups
+filters(add="myfilter", hide={"urls": ["*ads*"]})  # Create filter
+filters(add="apionly", hide={"types": ["Image", "Font", "Stylesheet"]})
+filters(enable="myfilter")                          # Enable group
+filters(disable="myfilter")                         # Disable group
+filters(remove="myfilter")                          # Delete group
 
-# Toggle filter categories
-filters(toggle="ads")            # Toggle ads filter
-filters(enable=["ads", "tracking"])  # Enable specific filters
-filters(disable=["cdn", "fonts"])    # Disable specific filters
-
-# Manage custom filters
-filters(add={"domain": "*custom-tracker*", "category": "tracking"})
-filters(save=True)               # Save to .webtap/filters.json
+# Built-in groups: ads, tracking, analytics, telemetry, cdn, fonts, images
 ```
 
-## Advanced Features
-
-### Dynamic Field Discovery
-
-The system builds a live field index from CDP events:
+### Browser Element Selection
 
 ```python
-# When CDP sends events, all field paths are indexed
-# Example: Network.responseReceived event contains:
-# - params.response.url
-# - params.response.status
-# - params.response.headers
-# - params.response.timing.receiveHeadersEnd
+# Use Chrome extension to select elements, then:
+selections()                                    # View all selections
+selections(expr="data['selections']['1']")     # Get element #1 data
+selections(expr="data['selections']['1']['selector']")  # CSS selector
+selections(expr="data['selections']['1']['outerHTML']") # Element HTML
 
-# Query discovers all matching paths
-events(url="*")                 # Finds ALL url fields across event types
-events(timing="*")               # Finds all timing data
+# Use with JavaScript
+js("element.offsetWidth", selection=1)          # Run JS on element #1
 ```
 
-### Response Body Analysis
+### Clearing Data
 
 ```python
-# Get response body with Python expressions
-network()                        # Find request rowid
-body(49)                         # Get raw body
+clear()                             # Clear events (default)
+clear(console=True)                 # Clear browser console
+clear(events=True, console=True)    # Clear everything
+```
 
-# Parse JSON responses
-body(49, expr="""
-import json
-data = json.loads(body)
-data['users'][0]['name']
-""")
+## Common Workflows
 
-# Parse HTML with BeautifulSoup
-body(49, expr="""
-from bs4 import BeautifulSoup
-soup = BeautifulSoup(body, 'html.parser')
-soup.title.text
+### Analyze API Responses
+
+```python
+pages()
+connect(0)
+network(url="*api*")                 # Find API calls
+# Note the ID column
+request(3264, ["response.content"])  # Get response body
+request(3264, ["response.content"], expr="json.loads(data['response']['content']['text'])")
+to_model(3264, "models/response.py", "ApiResponse")  # Generate model
+```
+
+### Debug Failed Requests
+
+```python
+network(status=404)                  # Find 404s
+network(status=500)                  # Find 500s
+request(123, ["*"])                  # Full details
+request(123, ["response.content"])   # Error response body
+```
+
+### Intercept and Modify Traffic
+
+```python
+fetch("enable")
+# Make request in browser - it pauses
+requests()                           # See paused requests
+request(47, ["request.*"])           # Examine request
+resume(47, modifications={"url": "https://api.example.com/v2"})  # Modify URL
+# Or block it
+fail(47)
+fetch("disable")
+```
+
+### Parse HTML Responses
+
+```python
+network(type="document")
+request(123, ["response.content"], expr="""
+BeautifulSoup(data['response']['content']['text'], 'html.parser').find_all('a', href=True)
 """)
+```
+
+### Extract Data with Expressions
+
+```python
+# Libraries available: json, re, bs4/BeautifulSoup, lxml, jwt, yaml, httpx, etc.
+
+# Parse JSON
+request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])['users']")
+
+# Decode JWT
+request(123, ["response.content"], expr="jwt.decode(data['response']['content']['text'], options={'verify_signature': False})")
+
+# Parse form data
+request(123, ["request.postData"], expr="dict(urllib.parse.parse_qsl(data['request']['postData']['text']))")
 
 # Extract with regex
-body(49, expr="""
-import re
-matches = re.findall(r'api_key=([^&]+)', body)
-matches
-""")
+request(123, ["response.content"], expr="re.findall(r'api_key=([^&]+)', data['response']['content']['text'])")
 ```
 
-### Direct CDP Access
+## Daemon Management
 
-```python
-# Send CDP commands directly
-state.cdp.execute("Network.getResponseBody", {"requestId": "123.456"})
-state.cdp.execute("Storage.getCookies", {})
-state.cdp.execute("Runtime.evaluate", {"expression": "window.location.href"})
-
-# Query DuckDB directly
-sql = """
-    SELECT rowid, 
-           json_extract_string(event, '$.params.response.url') as url
-    FROM events 
-    WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'
-    LIMIT 10
-"""
-state.cdp.db.execute(sql).fetchall()
-```
-
-### Error Handling
-
-All commands return consistent error responses instead of raising exceptions:
-
-```python
->>> network()  # When not connected
-⚠️ Not Connected
-Not connected to Chrome. Use connect() first.
-
->>> body(999)  # Invalid rowid
-⚠️ Event Not Found
-No event found with rowid 999
-
->>> js("invalid syntax")
-⚠️ JavaScript Error
-SyntaxError: Unexpected identifier
+```bash
+webtap                    # Start REPL (auto-starts daemon)
+webtap --mcp              # Start as MCP server
+webtap --daemon           # Start daemon in foreground
+webtap --daemon status    # Show daemon status
+webtap --daemon stop      # Stop daemon
 ```
 
 ## Tips
@@ -243,68 +242,14 @@ SyntaxError: Unexpected identifier
    google-chrome --remote-debugging-port=9222
    ```
 
-2. **Page IDs are stable** - Unlike indexes, page IDs persist across page list changes
+2. **Row IDs from network()** - Use these with `request()`, `to_model()`, `quicktype()`
 
-3. **All commands return markdown** - Rich display with tables and formatting
+3. **Field selection patterns** - `["*"]` for all, `["request.*"]` for request only, `["response.content"]` for body
 
 4. **Filters reduce noise** - Default filters remove ads, tracking, analytics
 
-5. **API server runs automatically** - Chrome extension connects to localhost:8765
+5. **Expression evaluation** - Pre-imported libraries: json, re, bs4, lxml, jwt, yaml, httpx, urllib, datetime, etc.
 
-6. **Field discovery is automatic** - No need to know CDP schema
+6. **Fresh JS scope** - Default prevents redeclaration errors; use `persist=True` for multi-step operations
 
-7. **Rowids are stable references** - Use them for inspect() and body() commands
-
-## Examples
-
-### Reverse Engineering API Calls
-
-```python
-# Watch login flow
-navigate("https://example.com/login")
-fetch()                          # Enable interception
-# Perform login in browser
-requests()                       # See paused requests
-inspect(49)                      # Examine auth headers
-body(50)                         # Check response
-resume_all()                     # Continue all requests
-```
-
-### Debug Performance Issues
-
-```python
-# Find slow requests
-events(timing="*")               # See all timing data
-events(url="*", timing="*")      # Timing for all requests
-
-# Check caching
-events(headers="*cache*")        # Cache headers
-events(headers="*etag*")         # ETags
-```
-
-### Security Analysis
-
-```python
-# Check security headers
-events(headers="*security*")
-events(headers="*x-frame*")
-events(headers="*csp*")
-
-# Find external requests
-events(url="*")                  # See all domains
-events(url="~https://(?!example.com)")  # Regex for non-example.com
-
-# Check cookies
-state.cdp.execute("Storage.getCookies", {})
-```
-
-## Architecture
-
-WebTap implements a Native CDP Storage architecture:
-- Events stored as-is in DuckDB
-- Service layer handles business logic
-- Commands are thin wrappers
-- API server enables Chrome extension
-- Markdown output for rich display
-
-The system prioritizes simplicity, performance, and preserving full CDP data without transformation.
+7. **MCP integration** - All commands work as MCP tools for Claude/LLMs

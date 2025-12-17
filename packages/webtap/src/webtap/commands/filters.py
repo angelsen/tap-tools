@@ -1,257 +1,121 @@
-"""Network request filtering and categorization management commands."""
+"""Filter group management commands."""
 
 from webtap.app import app
-from webtap.commands._builders import info_response, error_response
+from webtap.commands._builders import info_response, error_response, table_response
+from webtap.commands._tips import get_mcp_description
+
+_filters_desc = get_mcp_description("filters")
 
 
-@app.command(display="markdown", fastmcp={"type": "tool"})
-def filters(state, action: str = "list", config: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
+@app.command(
+    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _filters_desc or ""}
+)
+def filters(
+    state,
+    add: str = None,  # type: ignore[reportArgumentType]
+    remove: str = None,  # type: ignore[reportArgumentType]
+    enable: str = None,  # type: ignore[reportArgumentType]
+    disable: str = None,  # type: ignore[reportArgumentType]
+    hide: dict = None,  # type: ignore[reportArgumentType]
+) -> dict:
+    """Manage filter groups for noise reduction.
+
+    Args:
+        add: Create new group with this name (requires hide=)
+        remove: Delete group by name
+        enable: Enable group by name
+        disable: Disable group by name
+        hide: Filter config for add {"types": [...], "urls": [...]}
+
+    Examples:
+        filters()                                           # Show all groups
+        filters(add="assets", hide={"types": ["Image"]})   # Create group
+        filters(enable="assets")                            # Enable group
+        filters(disable="assets")                           # Disable group
+        filters(remove="assets")                            # Delete group
     """
-    Manage network request filters with include/exclude modes.
+    # Handle add - create new group
+    if add:
+        if not hide:
+            return error_response("hide= required when adding a group")
 
-    CDP Types: Document, XHR, Fetch, Image, Stylesheet, Script, Font, Media, Other, Ping
-    Domains filter URLs, types filter Chrome's resource loading mechanism.
-
-    Actions:
-        list: Show all categories (default)
-        show: Display category - config: {"category": "api"}
-        add: Add patterns - config: {"category": "api", "patterns": ["*api*"], "type": "domain", "mode": "include"}
-        remove: Remove patterns - config: {"patterns": ["*api*"], "type": "domain"}
-        update: Replace category - config: {"category": "api", "mode": "include", "domains": [...], "types": ["XHR", "Fetch"]}
-        delete/enable/disable: Manage category - config: {"category": "api"}
-        save/load: Persist to/from disk
-    """
-    fm = state.service.filters
-    cfg = config or {}
-
-    # Handle load operation
-    if action == "load":
-        if fm.load():
-            # Build table data
-            categories = fm.get_categories_summary()
-            rows = []
-            for cat in categories:
-                mode = cat["mode"] or "exclude"
-                mode_display = "include" if mode == "include" else "exclude"
-                if cat["mode"] is None:
-                    mode_display = "exclude*"  # Asterisk indicates missing mode field
-
-                rows.append(
-                    {
-                        "Category": cat["name"],
-                        "Status": "enabled" if cat["enabled"] else "disabled",
-                        "Mode": mode_display,
-                        "Domains": str(cat["domain_count"]),
-                        "Types": str(cat["type_count"]),
-                    }
-                )
-
-            elements = [
-                {"type": "heading", "content": "Filters Loaded", "level": 2},
-                {"type": "text", "content": f"From: `{fm.filter_path}`"},
-                {"type": "table", "headers": ["Category", "Status", "Mode", "Domains", "Types"], "rows": rows},
-            ]
-
-            if any(cat["mode"] is None for cat in categories):
-                elements.append({"type": "text", "content": "_* Mode not specified, defaulting to exclude_"})
-
-            return {"elements": elements}
-        else:
-            return error_response(f"No filters found at {fm.filter_path}")
-
-    # Handle save operation
-    elif action == "save":
-        if fm.save():
-            return info_response(
-                title="Filters Saved", fields={"Categories": f"{len(fm.filters)}", "Path": str(fm.filter_path)}
-            )
-        else:
-            return error_response("Failed to save filters")
-
-    # Handle add operation
-    elif action == "add":
-        if not cfg:
-            return error_response("Config required for add action")
-
-        category = cfg.get("category", "custom")
-        patterns = cfg.get("patterns", [])
-        pattern_type = cfg.get("type", "domain")
-        mode = cfg.get("mode")  # Required, no default
-
-        if not patterns:
-            # Legacy single pattern support
-            if pattern_type == "domain" and "domain" in cfg:
-                patterns = [cfg["domain"]]
-            elif pattern_type == "type" and "type" in cfg:
-                patterns = [cfg["type"]]
-            else:
-                return error_response("Patterns required for add action")
-
-        added = []
-        failed = []
         try:
-            for pattern in patterns:
-                if fm.add_pattern(pattern, category, pattern_type, mode):
-                    added.append(pattern)
-                else:
-                    failed.append(pattern)
-        except ValueError as e:
+            state.client.filters_add(add, hide)
+            return info_response(
+                title="Group Created",
+                fields={
+                    "Name": add,
+                    "Types": ", ".join(hide.get("types", [])) or "-",
+                    "URLs": ", ".join(hide.get("urls", [])) or "-",
+                },
+            )
+        except Exception as e:
             return error_response(str(e))
 
-        if added and not failed:
-            return info_response(
-                title="Filter(s) Added",
-                fields={
-                    "Type": "Domain pattern" if pattern_type == "domain" else "Resource type",
-                    "Patterns": ", ".join(added),
-                    "Category": category,
-                    "Mode": mode,
-                },
-            )
-        elif failed:
-            return error_response(f"Pattern(s) already exist in category '{category}': {', '.join(failed)}")
-        else:
-            # This shouldn't happen unless patterns list was empty after all
-            return error_response("No valid patterns provided")
+    # Handle remove - delete group
+    if remove:
+        try:
+            result = state.client.filters_remove(remove)
+            if result:
+                return info_response(title="Group Removed", fields={"Name": remove})
+            return error_response(f"Group '{remove}' not found")
+        except Exception as e:
+            return error_response(str(e))
 
-    # Handle remove operation
-    elif action == "remove":
-        if not cfg:
-            return error_response("Config required for remove action")
+    # Handle enable - toggle group on (in-memory)
+    if enable:
+        try:
+            result = state.client.filters_enable(enable)
+            if result:
+                return info_response(title="Group Enabled", fields={"Name": enable})
+            return error_response(f"Group '{enable}' not found")
+        except Exception as e:
+            return error_response(str(e))
 
-        patterns = cfg.get("patterns", [])
-        pattern_type = cfg.get("type", "domain")
+    # Handle disable - toggle group off (in-memory)
+    if disable:
+        try:
+            result = state.client.filters_disable(disable)
+            if result:
+                return info_response(title="Group Disabled", fields={"Name": disable})
+            return error_response(f"Group '{disable}' not found")
+        except Exception as e:
+            return error_response(str(e))
 
-        if not patterns:
-            return error_response("Patterns required for remove action")
+    # Default: list all groups with status
+    try:
+        status = state.client.filters_status()
+    except Exception as e:
+        return error_response(str(e))
 
-        removed = []
-        for pattern in patterns:
-            category = fm.remove_pattern(pattern, pattern_type)
-            if category:
-                removed.append((pattern, category))
+    if not status:
+        return {
+            "elements": [
+                {"type": "heading", "content": "Filter Groups", "level": 2},
+                {"type": "text", "content": "No filter groups configured."},
+                {"type": "text", "content": 'Create one: `filters(add="assets", hide={"types": ["Image", "Font"]})`'},
+            ]
+        }
 
-        if removed:
-            return info_response(
-                title="Filter(s) Removed",
-                fields={
-                    "Type": "Domain pattern" if pattern_type == "domain" else "Resource type",
-                    "Removed": ", ".join(f"{p} from {c}" for p, c in removed),
-                },
-            )
-        else:
-            return error_response("Pattern(s) not found")
-
-    # Handle update operation
-    elif action == "update":
-        if not cfg or "category" not in cfg:
-            return error_response("'category' required for update action")
-
-        category = cfg["category"]
-        fm.update_category(category, domains=cfg.get("domains"), types=cfg.get("types"), mode=cfg.get("mode"))
-        return info_response(
-            title="Category Updated", fields={"Category": category, "Mode": cfg.get("mode", "exclude")}
+    # Build table
+    rows = []
+    for name, group in status.items():
+        hide_cfg = group.get("hide", {})
+        rows.append(
+            {
+                "Group": name,
+                "Status": "enabled" if group.get("enabled") else "disabled",
+                "Types": ", ".join(hide_cfg.get("types", [])) or "-",
+                "URLs": ", ".join(hide_cfg.get("urls", [])) or "-",
+            }
         )
 
-    # Handle delete operation
-    elif action == "delete":
-        if not cfg or "category" not in cfg:
-            return error_response("'category' required for delete action")
+    return table_response(
+        title="Filter Groups",
+        headers=["Group", "Status", "Types", "URLs"],
+        rows=rows,
+        tips=["Enabled groups hide matching requests from network()"],
+    )
 
-        category = cfg["category"]
-        if fm.delete_category(category):
-            return info_response(title="Category Deleted", fields={"Category": category})
-        return error_response(f"Category '{category}' not found")
 
-    # Handle enable operation
-    elif action == "enable":
-        if not cfg or "category" not in cfg:
-            return error_response("'category' required for enable action")
-
-        category = cfg["category"]
-        if category in fm.filters:
-            fm.enabled_categories.add(category)
-            return info_response(title="Category Enabled", fields={"Category": category})
-        return error_response(f"Category '{category}' not found")
-
-    # Handle disable operation
-    elif action == "disable":
-        if not cfg or "category" not in cfg:
-            return error_response("'category' required for disable action")
-
-        category = cfg["category"]
-        if category in fm.filters:
-            fm.enabled_categories.discard(category)
-            return info_response(title="Category Disabled", fields={"Category": category})
-        return error_response(f"Category '{category}' not found")
-
-    # Handle show operation (specific category)
-    elif action == "show":
-        if not cfg or "category" not in cfg:
-            return error_response("'category' required for show action")
-
-        category = cfg["category"]
-        if category in fm.filters:
-            filters = fm.filters[category]
-            enabled = "Enabled" if category in fm.enabled_categories else "Disabled"
-            mode = filters.get("mode", "exclude")
-
-            elements = [
-                {"type": "heading", "content": f"Category: {category}", "level": 2},
-                {"type": "text", "content": f"**Status:** {enabled}"},
-                {"type": "text", "content": f"**Mode:** {mode}"},
-            ]
-
-            if filters.get("domains"):
-                elements.append({"type": "text", "content": "**Domain Patterns:**"})
-                elements.append({"type": "list", "items": filters["domains"]})
-
-            if filters.get("types"):
-                elements.append({"type": "text", "content": "**Resource Types:**"})
-                elements.append({"type": "list", "items": filters["types"]})
-
-            return {"elements": elements}
-        return error_response(f"Category '{category}' not found")
-
-    # Default list action: show all filters
-    elif action == "list" or action == "":
-        if not fm.filters:
-            return {
-                "elements": [
-                    {"type": "heading", "content": "Filter Configuration", "level": 2},
-                    {"type": "text", "content": f"No filters loaded (would load from `{fm.filter_path}`)"},
-                    {"type": "text", "content": "Use `filters('load')` to load filters from disk"},
-                ]
-            }
-
-        # Build table data
-        categories = fm.get_categories_summary()
-        rows = []
-        for cat in categories:
-            mode = cat["mode"] or "exclude"
-            mode_display = "include" if mode == "include" else "exclude"
-            if cat["mode"] is None:
-                mode_display = "exclude*"
-
-            rows.append(
-                {
-                    "Category": cat["name"],
-                    "Status": "enabled" if cat["enabled"] else "disabled",
-                    "Mode": mode_display,
-                    "Domains": str(cat["domain_count"]),
-                    "Types": str(cat["type_count"]),
-                }
-            )
-
-        elements = [
-            {"type": "heading", "content": "Filter Configuration", "level": 2},
-            {"type": "table", "headers": ["Category", "Status", "Mode", "Domains", "Types"], "rows": rows},
-        ]
-
-        if any(cat["mode"] is None for cat in categories):
-            elements.append({"type": "text", "content": "_* Mode not specified, defaulting to exclude_"})
-
-        return {"elements": elements}
-
-    else:
-        return error_response(f"Unknown action: {action}")
+__all__ = ["filters"]

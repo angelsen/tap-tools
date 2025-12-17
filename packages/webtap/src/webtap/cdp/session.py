@@ -15,7 +15,14 @@ import duckdb
 import requests
 import websocket
 
+from webtap.cdp.har import create_har_views
+
 logger = logging.getLogger(__name__)
+
+# Event storage limits
+MAX_EVENTS = 50_000  # FIFO eviction threshold
+PRUNE_BATCH_SIZE = 5_000  # Delete in batches for efficiency
+PRUNE_CHECK_INTERVAL = 1_000  # Check count every N events
 
 
 class CDPSession:
@@ -65,8 +72,22 @@ class CDPSession:
         self._db_thread = threading.Thread(target=self._db_worker, daemon=True)
         self._db_thread.start()
 
-        # Initialize schema via queue
-        self._db_execute("CREATE TABLE events (event JSON)", wait_result=False)
+        # Initialize schema with method column for fast filtering
+        # Must wait for table to exist before any queries can run
+        self._db_execute(
+            "CREATE TABLE IF NOT EXISTS events (event JSON, method VARCHAR)",
+            wait_result=True,
+        )
+        self._db_execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_method ON events(method)",
+            wait_result=True,
+        )
+
+        # Create HAR views for aggregated network request data
+        create_har_views(self._db_execute)
+
+        # Event count for pruning (approximate, updated periodically)
+        self._event_count = 0
 
         # Live field path lookup for fast discovery
         # Maps lowercase field names to their full paths with original case
@@ -76,8 +97,8 @@ class CDPSession:
         # Maps event method (e.g. "Overlay.inspectNodeRequested") to list of callbacks
         self._event_callbacks: dict[str, list] = {}
 
-        # Broadcast queue for SSE state updates (set by API server)
-        self._broadcast_queue: "Any | None" = None
+        # Broadcast callback for SSE state updates (set by service)
+        self._broadcast_callback: "Any | None" = None
 
         # Disconnect callback for service-level cleanup
         self._disconnect_callback: "Any | None" = None
@@ -356,8 +377,18 @@ class CDPSession:
 
             # CDP event - store AS-IS in DuckDB and update field lookup
             elif "method" in data:
-                self._db_execute("INSERT INTO events VALUES (?)", [json.dumps(data)], wait_result=False)
+                method = data.get("method", "")
+                self._db_execute(
+                    "INSERT INTO events (event, method) VALUES (?, ?)",
+                    [json.dumps(data), method],
+                    wait_result=False,
+                )
+                self._event_count += 1
                 self._update_field_lookup(data)
+
+                # Prune old events periodically to prevent unbounded growth
+                if self._event_count % PRUNE_CHECK_INTERVAL == 0:
+                    self._maybe_prune_events()
 
                 # Call registered event callbacks
                 self._dispatch_event_callbacks(data)
@@ -406,6 +437,28 @@ class CDPSession:
 
         # Trigger SSE broadcast immediately
         self._trigger_state_broadcast()
+
+    def _maybe_prune_events(self) -> None:
+        """Prune oldest events if count exceeds MAX_EVENTS.
+
+        Uses FIFO deletion - removes oldest events first (by rowid).
+        Non-blocking: queues delete operation to DB thread.
+        """
+        if self._event_count <= MAX_EVENTS:
+            return
+
+        excess = self._event_count - MAX_EVENTS
+        # Delete in batches, but at least the excess
+        delete_count = max(excess, PRUNE_BATCH_SIZE)
+
+        self._db_execute(
+            "DELETE FROM events WHERE rowid IN (SELECT rowid FROM events ORDER BY rowid LIMIT ?)",
+            [delete_count],
+            wait_result=False,
+        )
+
+        self._event_count -= delete_count
+        logger.debug(f"Pruned {delete_count} old events, ~{self._event_count} remaining")
 
     def _extract_paths(self, obj, parent_key=""):
         """Extract all JSON paths from nested dict structure.
@@ -469,6 +522,7 @@ class CDPSession:
         """Clear all stored events and reset field lookup."""
         self._db_execute("DELETE FROM events", wait_result=False)
         self.field_paths.clear()
+        self._event_count = 0
 
     def query(self, sql: str, params: list | None = None) -> list:
         """Query stored CDP events using DuckDB SQL.
@@ -581,24 +635,24 @@ class CDPSession:
             except Exception as e:
                 logger.error(f"Error in {method} callback: {e}")
 
-    def set_broadcast_queue(self, queue: "Any") -> None:
-        """Set queue for broadcasting state changes to SSE clients.
+    def set_broadcast_callback(self, callback: "Any") -> None:
+        """Set callback for broadcasting state changes.
+
+        Service owns coalescing - CDPSession just signals that state changed.
 
         Args:
-            queue: asyncio.Queue for thread-safe signaling
+            callback: Function to call when state changes (service._trigger_broadcast)
         """
-        self._broadcast_queue = queue
-        logger.debug("Broadcast queue set on CDPSession")
+        self._broadcast_callback = callback
+        logger.debug("Broadcast callback set on CDPSession")
 
     def _trigger_state_broadcast(self) -> None:
-        """Trigger SSE broadcast immediately.
+        """Signal that state changed (service handles coalescing).
 
-        Called after CDP events are stored. Queue naturally buffers rapid-fire events.
+        Called after CDP events. Service decides whether to actually broadcast.
         """
-        if not self._broadcast_queue:
-            return
-
-        try:
-            self._broadcast_queue.put_nowait({"type": "cdp_event"})
-        except Exception as e:
-            logger.debug(f"Failed to queue broadcast: {e}")
+        if self._broadcast_callback:
+            try:
+                self._broadcast_callback()
+            except Exception as e:
+                logger.debug(f"Failed to trigger broadcast: {e}")

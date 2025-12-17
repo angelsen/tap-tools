@@ -1,4 +1,8 @@
-"""Console monitoring service for browser messages."""
+"""Console monitoring service for browser messages.
+
+PUBLIC API:
+  - ConsoleService: Console event queries and monitoring
+"""
 
 import logging
 from typing import TYPE_CHECKING
@@ -10,7 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 class ConsoleService:
-    """Console event queries and monitoring."""
+    """Console event queries and monitoring.
+
+    Provides access to browser console messages captured via CDP.
+    Supports filtering by level (error, warning, log, info) and
+    querying message counts.
+
+    Attributes:
+        cdp: CDP session for querying events
+    """
 
     def __init__(self):
         """Initialize console service."""
@@ -22,7 +34,7 @@ class ConsoleService:
         if not self.cdp:
             return 0
         result = self.cdp.query(
-            "SELECT COUNT(*) FROM events WHERE json_extract_string(event, '$.method') IN ('Runtime.consoleAPICalled', 'Log.entryAdded')"
+            "SELECT COUNT(*) FROM events WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded')"
         )
         return result[0][0] if result else 0
 
@@ -32,10 +44,10 @@ class ConsoleService:
         if not self.cdp:
             return 0
         result = self.cdp.query("""
-            SELECT COUNT(*) FROM events 
-            WHERE json_extract_string(event, '$.method') IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
+            SELECT COUNT(*) FROM events
+            WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
             AND (
-                json_extract_string(event, '$.params.type') = 'error' 
+                json_extract_string(event, '$.params.type') = 'error'
                 OR json_extract_string(event, '$.params.entry.level') = 'error'
             )
         """)
@@ -71,8 +83,8 @@ class ConsoleService:
                 json_extract_string(event, '$.params.timestamp'),
                 json_extract_string(event, '$.params.entry.timestamp')
             ) as Time
-        FROM events 
-        WHERE json_extract_string(event, '$.method') IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
+        FROM events
+        WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
         """
 
         if level:

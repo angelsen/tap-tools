@@ -6,7 +6,6 @@ PUBLIC API:
 
 from typing import Dict, Any
 
-from .filters import FilterSetupService
 from .extension import ExtensionSetupService
 from .chrome import ChromeSetupService
 from .desktop import DesktopSetupService
@@ -44,21 +43,9 @@ class SetupService:
         ensure_directories()
 
         # Initialize component services
-        self.filters_service = FilterSetupService()
         self.extension_service = ExtensionSetupService()
         self.chrome_service = ChromeSetupService()
         self.desktop_service = DesktopSetupService()
-
-    def install_filters(self, force: bool = False) -> Dict[str, Any]:
-        """Install filter configuration.
-
-        Args:
-            force: Overwrite existing file
-
-        Returns:
-            Dict with success, message, path, details
-        """
-        return self.filters_service.install_filters(force=force)
 
     def install_extension(self, force: bool = False) -> Dict[str, Any]:
         """Install Chrome extension files.

@@ -17,13 +17,10 @@ Chrome Browser
     ↓ (WebSocket)
 CDPSession (session.py)
     ├── WebSocketApp (connection management)
-    ├── DuckDB (event storage)
-    └── Field Discovery (dynamic paths)
+    ├── DuckDB (event storage + HAR views)
+    └── Method-indexed events for O(1) filtering
          ↓
-Query Builder (query.py)
-    └── SQL Generation
-         ↓
-WebTap Commands
+WebTap Commands (via DaemonClient HTTP)
 ```
 
 ## Core Components
@@ -35,11 +32,11 @@ The main CDP session manager:
 - Discovers field paths dynamically
 - Handles CDP command execution
 
-### query.py
-Dynamic query builder:
-- Fuzzy field matching
-- SQL generation for JSON queries
-- Cross-event correlation
+### har.py
+HAR view aggregation:
+- Pre-aggregated network request views (`har_entries`, `har_summary`)
+- Efficient querying without JSON extraction at query time
+- Request/response correlation by requestId
 
 ### schema/
 CDP protocol reference:
@@ -100,9 +97,17 @@ Currently capturing events from:
 ```sql
 CREATE TABLE events (
     rowid INTEGER PRIMARY KEY,
+    method VARCHAR,           -- Indexed for O(1) event type filtering
     event JSON,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
+CREATE INDEX idx_events_method ON events(method)
+```
+
+### HAR views (pre-aggregated)
+```sql
+-- har_entries: Full request/response pairs
+-- har_summary: Minimal data for table display (id, method, url, status, type, size)
 ```
 
 ### Query Examples
@@ -147,9 +152,10 @@ The system automatically discovers all field paths:
 # - params.response.status
 # - params.response.url
 
-# Users can then query with fuzzy matching:
-events(status=200)  # Finds params.response.status
-events(url="example")  # Finds params.response.url
+# Users can query via commands:
+network(status=200)  # Filter by HTTP status
+network(url="*example*")  # Filter by URL pattern
+request(123, ["response.*"])  # Get specific request details
 ```
 
 ## Connection Management
@@ -199,11 +205,12 @@ To capture events from additional CDP domains:
 cdp.execute("DOMStorage.enable")
 ```
 
-2. Events automatically captured and stored
+2. Events automatically captured and stored with indexed `method` column
 
-3. Query them:
+3. Query via SQL or implement a new command:
 ```python
-events(method="DOMStorage.*")
+# Events are stored with method for fast filtering
+SELECT * FROM events WHERE method LIKE 'DOMStorage.%'
 ```
 
 ### Custom Event Processing

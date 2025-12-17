@@ -1,232 +1,21 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
-    <style>
-      body {
-        margin: 0;
-        padding: 12px;
-        font-family:
-          system-ui,
-          -apple-system,
-          sans-serif;
-        font-size: 13px;
-      }
-      h3 {
-        margin: 0 0 12px 0;
-        font-size: 15px;
-      }
-      h4 {
-        margin: 12px 0 8px 0;
-        font-size: 13px;
-      }
-      select {
-        width: 100%;
-        padding: 6px;
-        margin-bottom: 8px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        font-size: 12px;
-      }
-      button {
-        padding: 8px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        background: white;
-        cursor: pointer;
-        font-size: 12px;
-      }
-      button:hover {
-        background: #f0f0f0;
-      }
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-      .button-row {
-        display: flex;
-        gap: 5px;
-        margin-bottom: 8px;
-      }
-      .button-row button {
-        flex: 1;
-      }
-      #status {
-        padding: 8px;
-        font-size: 12px;
-        background: #f5f5f5;
-        border-radius: 4px;
-        margin-bottom: 8px;
-      }
-      .error {
-        color: #d00;
-      }
-      .connected {
-        color: #080;
-        font-weight: bold;
-      }
-      .divider {
-        border-top: 1px solid #ddd;
-        margin: 12px 0;
-      }
-      .fetch-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 5px 0;
-      }
-      .fetch-status {
-        font-size: 12px;
-      }
-      .toggle {
-        background: #e0e0e0;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        padding: 4px 12px;
-        cursor: pointer;
-      }
-      .toggle.on {
-        background: #4caf50;
-        color: white;
-      }
-      .filter-section label {
-        display: block;
-        padding: 4px 0;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      .filter-section input[type="checkbox"] {
-        margin-right: 6px;
-      }
-      .filter-count {
-        color: #666;
-        font-size: 11px;
-        margin-left: 4px;
-      }
-      .selection-list {
-        max-height: 150px;
-        overflow-y: auto;
-        margin: 8px 0;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        background: #fafafa;
-      }
-      .selection-item {
-        display: flex;
-        align-items: center;
-        padding: 6px 8px;
-        font-size: 11px;
-        border-bottom: 1px solid #eee;
-      }
-      .selection-item:last-child {
-        border-bottom: none;
-      }
-      .selection-badge {
-        background: #4caf50;
-        color: white;
-        padding: 2px 5px;
-        border-radius: 3px;
-        font-weight: bold;
-        margin-right: 8px;
-        font-size: 10px;
-      }
-      .selection-preview {
-        flex: 1;
-        color: #333;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .selection-remove {
-        background: #f44336;
-        color: white;
-        border: none;
-        padding: 2px 6px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 10px;
-      }
-      .selection-remove:hover {
-        background: #d32f2f;
-      }
-      .help-text {
-        font-size: 11px;
-        color: #666;
-        margin-top: 8px;
-        padding: 8px;
-        background: #f9f9f9;
-        border-radius: 4px;
-        border: 1px solid #e0e0e0;
-      }
-      .help-text code {
-        background: #e8e8e8;
-        padding: 2px 4px;
-        border-radius: 2px;
-        font-family: monospace;
-        font-size: 10px;
-      }
-      .error-banner {
-        display: none;
-        background: #ffebee;
-        border: 1px solid #ef5350;
-        border-radius: 4px;
-        padding: 10px;
-        margin-bottom: 12px;
-        font-size: 12px;
-      }
-      .error-banner.visible {
-        display: block;
-      }
-      .error-banner-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-      }
-      .error-banner-message {
-        color: #c62828;
-        flex: 1;
-        margin-right: 8px;
-      }
-      .error-banner-dismiss {
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        padding: 0;
-        width: 16px;
-        height: 16px;
-        position: relative;
-        flex-shrink: 0;
-      }
-      .error-banner-dismiss::before,
-      .error-banner-dismiss::after {
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 12px;
-        height: 2px;
-        background: #c62828;
-        transition: background 0.2s;
-      }
-      .error-banner-dismiss::before {
-        transform: translate(-50%, -50%) rotate(45deg);
-      }
-      .error-banner-dismiss::after {
-        transform: translate(-50%, -50%) rotate(-45deg);
-      }
-      .error-banner-dismiss:hover::before,
-      .error-banner-dismiss:hover::after {
-        background: #b71c1c;
-      }
-    </style>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
-    <h3>WebTap DevTools</h3>
+    <header class="header">
+      <h1>WebTap</h1>
+      <button id="themeToggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme"></button>
+    </header>
 
     <div id="errorBanner" class="error-banner">
       <div class="error-banner-header">
         <div class="error-banner-message" id="errorMessage"></div>
         <button
-          class="error-banner-dismiss"
+          class="close-btn close-btn--error"
           id="dismissError"
           title="Dismiss error"
           aria-label="Dismiss error"
@@ -234,104 +23,101 @@
       </div>
     </div>
 
-    <select id="pageList" size="15">
-      <option disabled>Loading pages...</option>
-    </select>
+    <!-- Tab Bar -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-button active" data-tab="intercept" role="tab" aria-selected="true">Intercept</button>
+      <button class="tab-button" data-tab="network" role="tab" aria-selected="false">Network</button>
+    </nav>
 
-    <div class="button-row">
-      <button id="reloadPages">Reload Pages</button>
-    </div>
+    <!-- Tab 1: Intercept & Selection -->
+    <main class="tab-content active" data-tab="intercept" role="tabpanel">
+      <section class="section">
+        <select id="pageList" size="15" aria-label="Available pages">
+          <option disabled>Loading pages...</option>
+        </select>
 
-    <div class="button-row">
-      <button id="connect">Connect</button>
-      <button id="disconnect">Disconnect</button>
-    </div>
-
-    <div id="status">Not connected</div>
-
-    <div class="divider"></div>
-
-    <div class="fetch-row">
-      <span class="fetch-status"
-        >Intercept: <span id="fetchStatus">OFF</span></span
-      >
-      <button id="fetchToggle" class="toggle">Toggle</button>
-    </div>
-
-    <div style="margin-top: 5px; font-size: 11px">
-      <label style="cursor: pointer">
-        <input type="checkbox" id="responseStage" style="margin-right: 4px" />
-        Also pause at Response stage
-      </label>
-    </div>
-
-    <div class="button-row" style="margin-top: 8px">
-      <button id="clear" style="width: 100%">Clear Events</button>
-    </div>
-
-    <div class="divider"></div>
-
-    <div class="filter-section">
-      <div
-        style="
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        "
-      >
-        <h4 style="margin: 5px 0">Filters</h4>
-        <span id="filterStats" style="font-size: 11px; color: #666"
-          >Loading...</span
-        >
-      </div>
-      <div id="filterList" style="margin: 8px 0"></div>
-      <div class="button-row" style="margin-top: 8px">
-        <button id="enableAllFilters" style="font-size: 11px">
-          Enable All
-        </button>
-        <button id="disableAllFilters" style="font-size: 11px">
-          Disable All
-        </button>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <div class="filter-section">
-      <h4 style="margin: 5px 0">Element Selection</h4>
-
-      <button id="startSelection" style="width: 100%; margin: 8px 0">
-        Start Selection Mode
-      </button>
-
-      <div id="selectionStatus" style="display: none">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 4px;
-          "
-        >
-          <span style="font-size: 12px"
-            >Selected: <strong id="selectionCount">0</strong> elements</span
-          >
-          <button
-            id="clearSelections"
-            style="padding: 4px 8px; font-size: 11px"
-          >
-            Clear
-          </button>
+        <div class="button-row">
+          <button id="reloadPages">Reload Pages</button>
         </div>
 
-        <div id="selectionList" class="selection-list"></div>
-
-        <div class="help-text">
-          Use <code>@webtap:webtap://selections</code> in Claude Code prompts to
-          analyze selected elements. Reference elements as #1, #2, etc.
+        <div class="button-row">
+          <button id="connect">Connect</button>
+          <button id="disconnect">Disconnect</button>
         </div>
-      </div>
-    </div>
+
+        <div id="status" class="status-box">Not connected</div>
+      </section>
+
+      <div class="divider"></div>
+
+      <section class="section">
+        <div class="fetch-row">
+          <span class="fetch-status">Intercept: <span id="fetchStatus">OFF</span></span>
+          <button id="fetchToggle" class="toggle">Toggle</button>
+        </div>
+
+        <div class="response-stage-option">
+          <label>
+            <input type="checkbox" id="responseStage" />
+            Also pause at Response stage
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="clear" class="full-width">Clear Events</button>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <section class="section selection-section">
+        <h2 class="section-title">Element Selection</h2>
+
+        <button id="startSelection" class="full-width">Start Selection Mode</button>
+
+        <div id="selectionStatus" class="hidden">
+          <div class="selection-header">
+            <span>Selected: <strong id="selectionCount">0</strong> elements</span>
+            <button id="clearSelections">Clear</button>
+          </div>
+
+          <div id="selectionList" class="selection-list"></div>
+
+          <div class="help-text">
+            Use <code>@webtap:webtap://selections</code> in Claude Code prompts to
+            analyze selected elements. Reference elements as #1, #2, etc.
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Tab 2: Network & Filters -->
+    <main class="tab-content" data-tab="network" role="tabpanel">
+      <section class="section filter-section">
+        <div class="section-header">
+          <h2 class="section-title">Filters</h2>
+          <span id="filterStats" class="section-meta">Loading...</span>
+        </div>
+        <div id="filterList" class="filter-list"></div>
+        <div class="button-row filter-buttons">
+          <button id="enableAllFilters">Enable All</button>
+          <button id="disableAllFilters">Disable All</button>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <section class="network-section">
+        <div class="section-header">
+          <h2 class="section-title">Network Requests</h2>
+          <span id="networkCount" class="section-meta">0 requests</span>
+        </div>
+
+        <div id="networkTable" class="network-table"></div>
+
+        <div id="requestDetails" class="request-details hidden"></div>
+      </section>
+    </main>
 
     <script src="sidepanel.js"></script>
   </body>

@@ -12,7 +12,7 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from webtap.cdp.session import CDPSession
-    from webtap.app import WebTapState
+    from webtap.daemon_state import DaemonState
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class DOMService:
         _next_id: Counter for assigning selection IDs
     """
 
-    def __init__(self, cdp: "CDPSession | None" = None, state: "WebTapState | None" = None):
+    def __init__(self, cdp: "CDPSession | None" = None, state: "DaemonState | None" = None):
         """Initialize DOM service.
 
         Args:
@@ -50,12 +50,13 @@ class DOMService:
         self._state_lock = threading.Lock()  # Protect state mutations
         self._pending_selections = 0  # Track in-flight selection processing
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
+        self._shutdown = False  # Prevent executor submissions after cleanup
 
     def set_cdp(self, cdp: "CDPSession") -> None:
         """Set CDP session after initialization."""
         self.cdp = cdp
 
-    def set_state(self, state: "WebTapState") -> None:
+    def set_state(self, state: "DaemonState") -> None:
         """Set state after initialization."""
         self.state = state
 
@@ -168,6 +169,11 @@ class DOMService:
         backend_node_id = params.get("backendNodeId")
         if not backend_node_id:
             logger.warning("inspectNodeRequested event missing backendNodeId")
+            return
+
+        # Check if shutdown before submitting to executor
+        if self._shutdown:
+            logger.debug("Ignoring inspect event - service shutting down")
             return
 
         # Increment pending counter (thread-safe)
@@ -295,18 +301,6 @@ class DOMService:
             for prop in styles_result.get("computedStyle", []):
                 styles[prop["name"]] = prop["value"]
 
-            # Get box model for badge positioning
-            try:
-                box_result = self.cdp.execute("DOM.getBoxModel", {"nodeId": node_id}, timeout=timeout)
-                # Use top-left corner of content box
-                content_box = box_result["model"]["content"]
-                badge_x = int(content_box[0])  # Top-left x
-                badge_y = int(content_box[1])  # Top-left y
-            except Exception:
-                # Fallback if element has no box model (display: none, etc.)
-                badge_x = 0
-                badge_y = 0
-
         except TimeoutError as e:
             logger.warning(f"Timeout extracting node {backend_node_id}: {e}")
             raise RuntimeError("Element selection timed out - page may be busy or unresponsive") from e
@@ -344,7 +338,6 @@ class DOMService:
             "xpath": xpath,
             "fullXpath": xpath,  # CDP doesn't distinguish, use same
             "preview": preview,
-            "badge": {"x": badge_x, "y": badge_y},
             "nodeId": node_id,
             "backendNodeId": backend_node_id,
         }
@@ -496,6 +489,9 @@ class DOMService:
         Call this before disconnect or app exit.
         Safe to call multiple times.
         """
+        # Set shutdown flag first to prevent new submissions
+        self._shutdown = True
+
         # Shutdown executor - wait=False to avoid blocking on stuck tasks
         # cancel_futures=True prevents hanging on incomplete selections
         if hasattr(self, "_executor"):

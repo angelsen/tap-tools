@@ -1,4 +1,8 @@
-"""Fetch interception service for request/response debugging."""
+"""Fetch interception service for request/response debugging.
+
+PUBLIC API:
+  - FetchService: Request/response interception with pause and modify capabilities
+"""
 
 import json
 import logging
@@ -7,20 +11,27 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from webtap.cdp import CDPSession
-    from webtap.services.body import BodyService
 
 logger = logging.getLogger(__name__)
 
 
 class FetchService:
-    """Fetch interception with explicit actions."""
+    """Fetch interception with explicit actions.
+
+    Provides request/response interception via CDP Fetch domain.
+    Paused requests must be explicitly resumed, failed, or modified.
+    State is stored in memory and cleared on disable.
+
+    Attributes:
+        enabled: Whether fetch interception is currently enabled
+        cdp: CDP session for executing commands
+    """
 
     def __init__(self):
         """Initialize fetch service."""
         self.enabled = False
         self.enable_response_stage = False  # Config option for future
         self.cdp: CDPSession | None = None
-        self.body_service: BodyService | None = None
         self._broadcast_callback: "Any | None" = None  # Callback to service._trigger_broadcast()
 
     def set_broadcast_callback(self, callback: "Any") -> None:
@@ -63,12 +74,12 @@ class FetchService:
                     CASE WHEN json_extract_string(event, '$.params.responseStatusCode') IS NOT NULL 
                          THEN 'Response' ELSE 'Request' END as stage
                 FROM events
-                WHERE json_extract_string(event, '$.method') = 'Fetch.requestPaused'
+                WHERE method = 'Fetch.requestPaused'
             ),
             completed_networks AS (
                 SELECT DISTINCT json_extract_string(event, '$.params.requestId') as network_id
                 FROM events
-                WHERE json_extract_string(event, '$.method') = 'Network.loadingFinished'
+                WHERE method = 'Network.loadingFinished'
             ),
             latest_per_request AS (
                 SELECT request_id, MAX(rowid) as max_rowid
@@ -122,10 +133,10 @@ class FetchService:
 
         result = self.cdp.query(
             """
-            SELECT event 
-            FROM events 
-            WHERE rowid = ? 
-              AND json_extract_string(event, '$.method') = 'Fetch.requestPaused'
+            SELECT event
+            FROM events
+            WHERE rowid = ?
+              AND method = 'Fetch.requestPaused'
         """,
             [rowid],
         )
@@ -186,10 +197,6 @@ class FetchService:
         try:
             self.cdp.execute("Fetch.disable")
             self.enabled = False
-
-            # Clear body cache when fetch is disabled
-            if self.body_service:
-                self.body_service.clear_cache()
 
             logger.info("Fetch interception disabled")
             self._trigger_broadcast()  # Update snapshot
@@ -283,7 +290,7 @@ class FetchService:
                         rowid,
                         json_extract_string(event, '$.params.responseStatusCode') as status
                     FROM events
-                    WHERE json_extract_string(event, '$.method') = 'Fetch.requestPaused'
+                    WHERE method = 'Fetch.requestPaused'
                       AND json_extract_string(event, '$.params.requestId') = ?
                       AND json_extract_string(event, '$.params.responseStatusCode') IS NOT NULL
                       AND rowid > ?
@@ -308,7 +315,7 @@ class FetchService:
                         json_extract_string(event, '$.params.requestId') as new_request_id,
                         json_extract_string(event, '$.params.request.url') as url
                     FROM events
-                    WHERE json_extract_string(event, '$.method') = 'Fetch.requestPaused'
+                    WHERE method = 'Fetch.requestPaused'
                       AND json_extract_string(event, '$.params.networkId') = ?
                       AND json_extract_string(event, '$.params.redirectedRequestId') = ?
                       AND rowid > ?

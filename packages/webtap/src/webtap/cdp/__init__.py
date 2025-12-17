@@ -5,10 +5,8 @@ Built on WebSocketApp + DuckDB for minimal overhead.
 
 PUBLIC API:
   - CDPSession: Main CDP client with WebSocket connection and event storage
-  - build_query: Dynamic query builder with field discovery
 """
 
-from webtap.cdp.query import build_query
 from webtap.cdp.session import CDPSession
 
-__all__ = ["CDPSession", "build_query"]
+__all__ = ["CDPSession"]

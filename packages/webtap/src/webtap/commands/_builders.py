@@ -30,9 +30,53 @@ Available builders:
   - check_fetch_enabled() - Helper for fetch interception validation
   - code_result_response() - Code execution with result display
   - code_response() - Simple code block display
+
+Format helpers (for REPL display):
+  - format_size() - Convert bytes to human-readable (e.g., "1.5M")
+  - format_timestamp() - Convert epoch ms to time string (e.g., "12:34:56")
 """
 
+from datetime import datetime
 from typing import Any
+
+
+def format_size(size_bytes: int | None) -> str:
+    """Format bytes as human-readable size string.
+
+    Args:
+        size_bytes: Size in bytes, or None/0
+
+    Returns:
+        Human-readable string like "1.5M", "234K", "56B", or "-" for None/0
+    """
+    if not size_bytes:
+        return "-"
+
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.1f}M"
+    elif size_bytes >= 1_000:
+        return f"{size_bytes / 1_000:.1f}K"
+    else:
+        return f"{size_bytes}B"
+
+
+def format_timestamp(epoch_ms: float | None) -> str:
+    """Format epoch milliseconds as time string.
+
+    Args:
+        epoch_ms: Unix timestamp in milliseconds, or None/0
+
+    Returns:
+        Time string like "12:34:56", or "-" for None/0
+    """
+    if not epoch_ms:
+        return "-"
+
+    try:
+        dt = datetime.fromtimestamp(epoch_ms / 1000)
+        return dt.strftime("%H:%M:%S")
+    except (ValueError, OSError):
+        return "-"
 
 
 def table_response(
@@ -42,6 +86,7 @@ def table_response(
     summary: str | None = None,
     warnings: list[str] | None = None,
     tips: list[str] | None = None,
+    truncate: dict | None = None,
 ) -> dict:
     """Build table response with full data.
 
@@ -52,6 +97,7 @@ def table_response(
         summary: Optional summary text
         warnings: Optional warning messages
         tips: Optional developer tips/guidance
+        truncate: Element-level truncation config (e.g., {"URL": {"max": 60, "mode": "middle"}})
     """
     elements = []
 
@@ -63,9 +109,15 @@ def table_response(
             elements.append({"type": "alert", "message": warning, "level": "warning"})
 
     if headers and rows:
-        elements.append({"type": "table", "headers": headers, "rows": rows})
+        table_element: dict[str, Any] = {"type": "table", "headers": headers, "rows": rows}
+        if truncate:
+            table_element["truncate"] = truncate
+        elements.append(table_element)
     elif rows:  # Headers can be inferred from row keys
-        elements.append({"type": "table", "rows": rows})
+        table_element = {"type": "table", "rows": rows}
+        if truncate:
+            table_element["truncate"] = truncate
+        elements.append(table_element)
     else:
         elements.append({"type": "text", "content": "_No data available_"})
 
@@ -169,42 +221,50 @@ def warning_response(message: str, suggestions: list[str] | None = None) -> dict
 
 
 def check_connection(state):
-    """Check CDP connection, return error response if not connected.
+    """Check CDP connection via daemon, return error response if not connected.
 
     Returns error_response() if not connected, None otherwise.
     Use pattern: `if error := check_connection(state): return error`
 
     Args:
-        state: Application state containing CDP session.
+        state: Application state containing daemon client.
 
     Returns:
         Error response dict if not connected, None if connected.
     """
-    if not (state.cdp and state.cdp.is_connected):
-        return error_response(
-            "Not connected to Chrome",
-            suggestions=[
-                "Run `pages()` to see available tabs",
-                "Use `connect(0)` to connect to first tab",
-                "Or `connect(page_id='...')` for specific tab",
-            ],
-        )
+    try:
+        status = state.client.status()
+        if not status.get("connected"):
+            return error_response(
+                "Not connected to Chrome",
+                suggestions=[
+                    "Run `pages()` to see available tabs",
+                    "Use `connect(0)` to connect to first tab",
+                    "Or `connect(page_id='...')` for specific tab",
+                ],
+            )
+    except Exception as e:
+        return error_response(f"Failed to check connection: {e}")
     return None
 
 
 def check_fetch_enabled(state):
-    """Check fetch interception, return error response if not enabled.
+    """Check fetch interception via daemon, return error response if not enabled.
 
     Args:
-        state: Application state containing fetch service.
+        state: Application state containing daemon client.
 
     Returns:
         Error response dict if not enabled, None if enabled.
     """
-    if not state.service.fetch.enabled:
-        return error_response(
-            "Fetch interception not enabled", suggestions=["Enable with `fetch('enable')` to pause requests"]
-        )
+    try:
+        status = state.client.status()
+        if not status.get("fetch", {}).get("enabled"):
+            return error_response(
+                "Fetch interception not enabled", suggestions=["Enable with `fetch('enable')` to pause requests"]
+            )
+    except Exception as e:
+        return error_response(f"Failed to check fetch status: {e}")
     return None
 
 
