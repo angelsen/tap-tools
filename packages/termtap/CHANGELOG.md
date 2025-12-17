@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.10.2] - 2025-12-17
+
+### Added
+
+### Changed
+
+### Fixed
 - Added `literal=True` to tmux send-keys calls to preserve special characters
   - Prevents shell metacharacters (`;`, `|`, `&`, etc.) from being interpreted as tmux key sequences
   - Applied to Python handler, base handler `before_send()`, and track command
