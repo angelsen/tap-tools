@@ -1,6 +1,6 @@
 [project]
 name = "webtap-tool"
-version = "0.9.1"
+version = "0.10.0"
 description = "Terminal-based web page inspector for AI debugging sessions"
 readme = "README.md"
 authors = [

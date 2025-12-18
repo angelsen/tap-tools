@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.10.0] - 2025-12-19
+
+### Added
 - **RPC Framework**: JSON-RPC 2.0 implementation replacing REST API routes
   - `rpc/framework.py`: Core request/response handler with state validation
   - `rpc/handlers.py`: 22 thin RPC method handlers delegating to services
