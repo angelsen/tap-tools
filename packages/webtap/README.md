@@ -235,10 +235,11 @@ clear(events=True, console=True)    # Clear everything
 
 ```
 REPL / MCP Client (webtap)
-    ↓ HTTP (localhost:8765)
+    ↓ JSON-RPC 2.0 (localhost:8765/rpc)
 WebTap Daemon (background process)
-    ├── FastAPI Server
-    │   └── /connect /network /request /js /fetch ...
+    ├── FastAPI Server + RPCFramework
+    │   └── Single /rpc endpoint (22 methods)
+    ├── ConnectionMachine (state lifecycle)
     ↓
 Service Layer (WebTapService)
     ├── NetworkService - Request filtering
@@ -486,13 +487,16 @@ webtap --daemon status   # Show status
 webtap --daemon stop     # Stop daemon
 ```
 
-### API Endpoints (for extension/tools)
-- `GET /status` - Connection and daemon status
-- `GET /pages` - List Chrome pages
-- `POST /connect` - Connect to a page
-- `GET /data/network` - Network requests
-- `GET /data/har/{id}` - HAR entry details
-- `POST /cdp/relay` - Execute CDP commands
+### API Endpoint (JSON-RPC 2.0)
+Single endpoint: `POST /rpc`
+
+```json
+{"jsonrpc": "2.0", "method": "connect", "params": {"page": 0}, "id": 1}
+{"jsonrpc": "2.0", "method": "network", "params": {"limit": 50}, "id": 2}
+{"jsonrpc": "2.0", "method": "request", "params": {"id": 123}, "id": 3}
+```
+
+Methods: `connect`, `disconnect`, `pages`, `status`, `network`, `request`, `console`, `js`, `navigate`, `reload`, `fetch.enable`, `fetch.disable`, `fetch.resume`, `filters.*`, etc.
 
 ## 📄 License
 

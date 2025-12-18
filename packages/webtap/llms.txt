@@ -17,15 +17,16 @@ disconnect()                         # Disconnect from Chrome
 
 ## Architecture
 
-WebTap uses a daemon-based architecture:
+WebTap uses a daemon-based architecture with JSON-RPC 2.0:
 - **Daemon** - Background process manages CDP WebSocket + DuckDB storage
-- **REPL/MCP** - Clients communicate with daemon via HTTP (localhost:8765)
+- **REPL/MCP** - Clients communicate via JSON-RPC 2.0 (single `/rpc` endpoint)
+- **RPCFramework** - Handles method dispatch, state validation, epoch tracking
 - **HAR Views** - Pre-aggregated network request data for fast queries
 
 ```
-REPL/MCP Client → HTTP → Daemon → WebSocket → Chrome
-                           ↓
-                    DuckDB + HAR Views
+REPL/MCP Client → RPCClient.call() → POST /rpc → RPCFramework → Services → DuckDB
+                                                      ↓                        ↓
+                                              ConnectionMachine          WebSocket → Chrome
 ```
 
 ## Core Commands

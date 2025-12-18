@@ -5,9 +5,9 @@ The services layer provides clean, reusable interfaces for querying and managing
 ## Architecture
 
 ```
-commands/ → services/ → cdp/session → DuckDB
-    ↓          ↓
-   API    Properties/Methods
+commands/ → RPCClient → /rpc endpoint → RPCFramework → services/ → cdp/session → DuckDB
+                              ↓
+                     rpc/handlers.py (thin wrappers)
 ```
 
 ## Services
@@ -70,14 +70,14 @@ Queries console messages and browser logs.
 Services are accessed through the WebTapState:
 
 ```python
-# In commands
+# In commands (via RPC)
 @app.command()
-def network(state):
-    results = state.service.network.get_recent_requests(limit=20)
-    count = state.service.network.request_count
-    
-# In API
-@api.get("/status")
-async def status():
-    return app_state.service.get_status()
+def network(state, limit: int = 50):
+    result = state.client.call("network", limit=limit)
+    return table_response(result["requests"], ...)
+
+# In RPC handlers (thin wrappers)
+def network(ctx: RPCContext, limit: int = 50) -> dict:
+    requests = ctx.service.network.get_requests(limit=limit)
+    return {"requests": requests}
 ```

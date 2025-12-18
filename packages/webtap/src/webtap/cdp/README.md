@@ -20,7 +20,7 @@ CDPSession (session.py)
     ├── DuckDB (event storage + HAR views)
     └── Method-indexed events for O(1) filtering
          ↓
-WebTap Commands (via DaemonClient HTTP)
+WebTap Commands (via RPCClient JSON-RPC 2.0)
 ```
 
 ## Core Components

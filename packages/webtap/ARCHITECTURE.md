@@ -1,150 +1,161 @@
 # WebTap Architecture
 
-Implementation guide for WebTap commands following the VISION.
+Implementation guide for WebTap's RPC-based daemon architecture.
 
 ## Core Components
 
-### CDPSession (cdp/session.py)
-- WebSocket connection to Chrome
-- DuckDB in-memory storage: `CREATE TABLE events (event JSON)`
-- Events stored AS-IS: `INSERT INTO events VALUES (?)`
-- Query interface: `query(sql)` - returns result rows
-- Body fetching: `fetch_body(request_id)` - CDP call on-demand
+### RPCFramework (rpc/framework.py)
+- JSON-RPC 2.0 request/response handler
+- State validation via `requires_state` decorator
+- Epoch tracking for stale request detection
+- Thread-safe execution via `asyncio.to_thread()`
 
-### Command Pattern
+### ConnectionMachine (rpc/machine.py)
+- Thread-safe state machine using `transitions.LockedMachine`
+- States: `disconnected` → `connecting` → `connected` → `inspecting`
+- Epoch incremented on successful connection
 
-Commands query DuckDB and return data for Replkit2 display.
+### RPCClient (client.py)
+- Single `call(method, **params)` interface
+- Automatic epoch synchronization
+- `RPCError` exception for structured errors
+
+## Request Flow
+
+```
+Command Layer           RPC Layer              Service Layer
+─────────────────────────────────────────────────────────────
+network(state)    →  client.call("network")  →  RPCFramework.handle()
+                                                      ↓
+                                             handlers.network(ctx)
+                                                      ↓
+                                             ctx.service.network.get_requests()
+                                                      ↓
+                                             DuckDB query + HAR views
+```
+
+## RPC Handler Pattern
+
+Handlers in `rpc/handlers.py` are thin wrappers:
 
 ```python
-@app.command
-def network(state, query: dict = None):
-    """Query network events with flexible filtering."""
-    
-    # Default query
-    default = {
-        'limit': 20,
-        'exclude_static': True,  # Skip images/fonts
-        'exclude_tracking': True  # Skip analytics
-    }
-    q = {**default, **(query or {})}
-    
-    # Build SQL from query dict
-    sql = build_network_sql(q)
-    
-    # Return for Replkit2 display
-    return state.cdp.query(sql)
+def network(ctx: RPCContext, limit: int = 50, status: int = None) -> dict:
+    """Query network requests - delegates to NetworkService."""
+    requests = ctx.service.network.get_requests(
+        limit=limit,
+        status=status,
+    )
+    return {"requests": requests}
+
+def connect(ctx: RPCContext, page: int = None, page_id: str = None) -> dict:
+    """Connect to Chrome page - manages state transitions."""
+    # Validate params
+    if page is None and page_id is None:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Must specify page or page_id")
+
+    # State transition
+    ctx.machine.start_connect()
+    try:
+        result = ctx.service.connect_to_page(page_index=page, page_id=page_id)
+        ctx.machine.connect_success()  # Increments epoch
+        return {"connected": True, **result}
+    except Exception as e:
+        ctx.machine.connect_failed()
+        raise RPCError(ErrorCode.NOT_CONNECTED, str(e))
 ```
 
-## Command Implementation Guide
+## Handler Registration
 
-### network(query: dict)
 ```python
-# Query dict can contain:
-# - id: Single request detail
-# - status: Filter by status code
-# - method: Filter by HTTP method
-# - url_contains: Substring match
-# - limit: Result limit
-# - exclude_static: Hide images/css/fonts
-# - exclude_tracking: Hide analytics
-
-# Build SQL:
-SELECT 
-    json_extract_string(event, '$.params.requestId') as id,
-    json_extract_string(event, '$.params.response.status') as status,
-    json_extract_string(event, '$.params.response.url') as url
-FROM events
-WHERE json_extract_string(event, '$.method') = 'Network.responseReceived'
-    AND [additional filters from query dict]
-LIMIT 20
+# In rpc/handlers.py
+def register_handlers(rpc: RPCFramework) -> None:
+    rpc.method("connect")(connect)
+    rpc.method("disconnect", requires_state=["connected", "inspecting"])(disconnect)
+    rpc.method("network", requires_state=["connected", "inspecting"])(network)
+    rpc.method("js", requires_state=["connected", "inspecting"])(js)
+    # ... 22 methods total
 ```
 
-### console(query: dict)
+## Command Layer Pattern
+
+Commands are display wrappers around RPC calls:
+
 ```python
-# Query dict can contain:
-# - level: 'error', 'warn', 'log'
-# - source: 'console', 'network', 'security'
-# - contains: Text search in message
-# - limit: Result limit
-
-# Build SQL:
-SELECT 
-    json_extract_string(event, '$.params.type') as level,
-    json_extract_string(event, '$.params.args[0].value') as message,
-    json_extract_string(event, '$.params.timestamp') as time
-FROM events
-WHERE json_extract_string(event, '$.method') IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
-    AND [additional filters]
+@app.command(display="table")
+def network(state, limit: int = 50, status: int = None):
+    """View network requests."""
+    try:
+        result = state.client.call("network", limit=limit, status=status)
+        return table_response(
+            data=result["requests"],
+            headers=["ID", "Method", "Status", "URL"],
+        )
+    except RPCError as e:
+        return error_response(e.message)
 ```
 
-### body(id: str, expr: str = None)
+## State Machine
+
+```
+                    ┌─────────────────┐
+                    │  disconnected   │ ←─────────────────┐
+                    └────────┬────────┘                   │
+                             │ start_connect              │
+                    ┌────────▼────────┐                   │
+                    │   connecting    │──connect_failed───┘
+                    └────────┬────────┘
+                             │ connect_success (epoch++)
+                    ┌────────▼────────┐
+           ┌───────→│    connected    │←───────┐
+           │        └────────┬────────┘        │
+           │                 │ start_inspect   │ stop_inspect
+           │        ┌────────▼────────┐        │
+           │        │   inspecting    │────────┘
+           │        └────────┬────────┘
+           │                 │ start_disconnect
+           │        ┌────────▼────────┐
+           └────────│  disconnecting  │
+                    └─────────────────┘
+```
+
+## Epoch Tracking
+
+Prevents stale requests after reconnection:
+
+1. Client sends `epoch` with requests (after first sync)
+2. Server validates epoch matches current state
+3. Stale requests rejected with `STALE_EPOCH` error
+4. Epoch incremented only on `connect_success`
+
+## File Structure
+
+```
+rpc/
+├── __init__.py      # Exports: RPCFramework, RPCError, ErrorCode, ConnectionState
+├── framework.py     # RPCFramework, RPCContext, HandlerMeta
+├── handlers.py      # 22 RPC method handlers
+├── machine.py       # ConnectionMachine, ConnectionState
+└── errors.py        # ErrorCode, RPCError
+```
+
+## Adding New RPC Methods
+
+1. Add handler function in `handlers.py`:
 ```python
-# Fetch body on-demand
-result = state.cdp.fetch_body(id)
-
-if not expr:
-    return result['body']  # Raw body
-
-# Evaluate Python expression on body (like inspect command)
-context = {
-    'data': result['body'],
-    'json': json.loads(result['body']) if parseable,
-    're': __import__('re')
-}
-return eval(expr, {}, context)
+def my_method(ctx: RPCContext, param: str) -> dict:
+    result = ctx.service.do_something(param)
+    return {"data": result}
 ```
 
-### inspect(query: dict, expr: str)
+2. Register in `register_handlers()`:
 ```python
-# Query events then apply Python expression
-events = state.cdp.query(build_sql(query))
-
-# Apply expression to each event
-results = []
-for event in events:
-    context = {'event': json.loads(event[0])}
-    results.append(eval(expr, {}, context))
-return results
+rpc.method("my_method", requires_state=["connected"])(my_method)
 ```
 
-## SQL Patterns
-
-### Fuzzy field matching
-```sql
--- Find any field containing 'status'
-SELECT * FROM events 
-WHERE json_extract_string(event, '$.params.response.status') = '404'
-   OR json_extract_string(event, '$.params.status') = '404'
+3. Add command wrapper (optional, for REPL):
+```python
+@app.command()
+def my_command(state, param: str):
+    result = state.client.call("my_method", param=param)
+    return format_response(result)
 ```
-
-### Correlation by requestId
-```sql
--- Get all events for a request
-SELECT event FROM events
-WHERE json_extract_string(event, '$.params.requestId') = ?
-ORDER BY rowid
-```
-
-### Exclude noise
-```sql
--- Skip tracking/analytics
-WHERE json_extract_string(event, '$.params.request.url') NOT LIKE '%google-analytics%'
-  AND json_extract_string(event, '$.params.request.url') NOT LIKE '%doubleclick%'
-  AND json_extract_string(event, '$.params.type') NOT IN ('Image', 'Font', 'Stylesheet')
-```
-
-## Display Strategy
-
-- **Lists**: Return list of dicts for Replkit2 table display
-- **Details**: Return single dict for box display
-- **Raw**: Return JSON strings for inspect/debug
-
-Commands should NOT format output - let Replkit2 handle display based on `@app.command(display="table"|"markdown"|"raw")`.
-
-## Future Commands
-
-- `storage()` - Query cookies/localStorage via CDP
-- `api()` - Discover API endpoints from traffic
-- `har()` - Export to HAR format
-- `intercept()` - Modify requests (requires Fetch domain)
-- `timeline()` - Request/response correlation view
