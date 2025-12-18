@@ -227,13 +227,13 @@ def check_connection(state):
     Use pattern: `if error := check_connection(state): return error`
 
     Args:
-        state: Application state containing daemon client.
+        state: Application state containing RPC client.
 
     Returns:
         Error response dict if not connected, None if connected.
     """
     try:
-        status = state.client.status()
+        status = state.client.call("status")
         if not status.get("connected"):
             return error_response(
                 "Not connected to Chrome",
@@ -252,13 +252,13 @@ def check_fetch_enabled(state):
     """Check fetch interception via daemon, return error response if not enabled.
 
     Args:
-        state: Application state containing daemon client.
+        state: Application state containing RPC client.
 
     Returns:
         Error response dict if not enabled, None if enabled.
     """
     try:
-        status = state.client.status()
+        status = state.client.call("status")
         if not status.get("fetch", {}).get("enabled"):
             return error_response(
                 "Fetch interception not enabled", suggestions=["Enable with `fetch('enable')` to pause requests"]

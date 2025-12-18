@@ -1,8 +1,4 @@
-"""Fetch interception service for request/response debugging.
-
-PUBLIC API:
-  - FetchService: Request/response interception with pause and modify capabilities
-"""
+"""Fetch interception service for request/response debugging."""
 
 import json
 import logging
@@ -52,72 +48,62 @@ class FetchService:
 
     # ============= Core State Queries =============
 
-    def get_paused_list(self) -> list[dict[str, Any]]:
-        """Get list of currently paused requests for display.
+    def get_paused_by_network_id(self, network_id: str) -> dict | None:
+        """Get paused Fetch event by networkId.
+
+        Args:
+            network_id: Network request ID to lookup.
 
         Returns:
-            List with ID, Stage, Method, Status, URL for each paused request
+            Dict with rowid, requestId, stage or None if not found/resolved.
         """
         if not self.cdp:
-            return []
+            return None
 
         results = self.cdp.query(
             """
-            WITH fetch_events AS (
-                SELECT 
+            WITH paused_fetch AS (
+                SELECT
                     rowid,
                     json_extract_string(event, '$.params.requestId') as request_id,
                     json_extract_string(event, '$.params.networkId') as network_id,
                     json_extract_string(event, '$.params.responseStatusCode') as response_status,
-                    json_extract_string(event, '$.params.request.url') as url,
-                    json_extract_string(event, '$.params.request.method') as method,
-                    CASE WHEN json_extract_string(event, '$.params.responseStatusCode') IS NOT NULL 
+                    CASE WHEN json_extract_string(event, '$.params.responseStatusCode') IS NOT NULL
                          THEN 'Response' ELSE 'Request' END as stage
                 FROM events
                 WHERE method = 'Fetch.requestPaused'
+                  AND json_extract_string(event, '$.params.networkId') = ?
             ),
-            completed_networks AS (
+            resolved_fetch AS (
                 SELECT DISTINCT json_extract_string(event, '$.params.requestId') as network_id
                 FROM events
-                WHERE method = 'Network.loadingFinished'
-            ),
-            latest_per_request AS (
-                SELECT request_id, MAX(rowid) as max_rowid
-                FROM fetch_events
-                GROUP BY request_id
+                WHERE method IN ('Network.loadingFinished', 'Network.loadingFailed')
             )
-            SELECT 
-                f.rowid,
-                f.stage,
-                f.method,
-                f.response_status,
-                f.url,
-                f.network_id,
-                f.request_id
-            FROM fetch_events f
-            INNER JOIN latest_per_request l ON f.rowid = l.max_rowid
-            WHERE f.network_id NOT IN (SELECT network_id FROM completed_networks)
-            ORDER BY f.rowid DESC
-        """
+            SELECT
+                pf.rowid,
+                pf.request_id,
+                pf.stage
+            FROM paused_fetch pf
+            WHERE pf.network_id NOT IN (SELECT network_id FROM resolved_fetch WHERE network_id IS NOT NULL)
+            ORDER BY pf.rowid DESC
+            LIMIT 1
+        """,
+            [network_id],
         )
 
-        return [
-            {
-                "ID": row[0],
-                "Stage": row[1],
-                "Method": row[2] or "GET",
-                "Status": row[3] or "-",
-                "URL": row[4][:60] if row[4] else "-",
-                "_network_id": row[5],
-                "_request_id": row[6],
-            }
-            for row in results
-        ]
+        if not results:
+            return None
+
+        row = results[0]
+        return {"rowid": row[0], "requestId": row[1], "stage": row[2]}
 
     @property
     def paused_count(self) -> int:
-        """Count of actually paused requests (not completed)."""
-        return len(self.get_paused_list())
+        """Count of paused requests from HAR view."""
+        if not self.cdp or not self.enabled:
+            return 0
+        result = self.cdp.query("SELECT COUNT(*) FROM har_summary WHERE state = 'paused'")
+        return result[0][0] if result else 0
 
     def get_paused_event(self, rowid: int) -> dict | None:
         """Get full event data for a paused request.
@@ -249,17 +235,23 @@ class FetchService:
             self.cdp.execute("Fetch.continueRequest", cdp_params)
             stage = "request"
 
-        result = {"continued": rowid, "stage": stage, "request_id": request_id}
+        result = {"resumed_from": stage, "network_id": network_id}
 
         # Wait for follow-up if requested
         if wait_for_next > 0 and network_id:
             next_event = self._wait_for_next_event(request_id, network_id, rowid, wait_for_next)
             if next_event:
-                result["next_event"] = next_event
+                result["outcome"] = next_event["type"]  # "response", "redirect", or "complete"
+                if next_event.get("status"):
+                    result["status"] = next_event["status"]
+                if next_event.get("request_id"):
+                    result["redirect_request_id"] = next_event["request_id"]
+            else:
+                result["outcome"] = "complete"
+        else:
+            result["outcome"] = "unknown"
 
-        # Add remaining count
         result["remaining"] = self.paused_count
-
         return result
 
     def _wait_for_next_event(

@@ -1,8 +1,4 @@
-"""Network request filter management for WebTap.
-
-PUBLIC API:
-  - FilterManager: Named filter groups with in-memory toggle state
-"""
+"""Network request filter management for WebTap."""
 
 import json
 import logging

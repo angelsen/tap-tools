@@ -1,8 +1,4 @@
-"""Immutable state snapshots for thread-safe SSE broadcasting.
-
-PUBLIC API:
-  - StateSnapshot: Frozen dataclass for zero-lock state reads
-"""
+"""Immutable state snapshots for thread-safe SSE broadcasting."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -47,6 +43,7 @@ class StateSnapshot:
 
     # Fetch interception state
     fetch_enabled: bool
+    response_stage: bool
     paused_count: int
 
     # Filter state (immutable tuples)
@@ -73,6 +70,7 @@ class StateSnapshot:
             page_url="",
             event_count=0,
             fetch_enabled=False,
+            response_stage=False,
             paused_count=0,
             enabled_filters=(),
             disabled_filters=(),

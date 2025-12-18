@@ -191,13 +191,20 @@ webtap/
 ├── VISION.md           # This file
 ├── __init__.py         # Module initialization
 ├── app.py              # REPL app with WebTapState
-├── client.py           # DaemonClient for HTTP communication
+├── client.py           # RPCClient for JSON-RPC communication
 ├── daemon.py           # Background daemon process
 ├── filters.py          # Filter management system
 ├── api/                # FastAPI server (runs in daemon)
 │   ├── __init__.py
-│   ├── routes/         # API route modules
-│   └── models.py       # Request/response models
+│   ├── server.py       # Server initialization & RPC wiring
+│   ├── state.py        # State snapshot for SSE broadcasts
+│   └── sse.py          # Server-sent events for live updates
+├── rpc/                # JSON-RPC 2.0 framework
+│   ├── __init__.py
+│   ├── framework.py    # RPCFramework class & method registration
+│   ├── machine.py      # ConnectionMachine (state transitions)
+│   ├── handlers.py     # All RPC method handlers
+│   └── errors.py       # RPCError and error codes
 ├── cdp/
 │   ├── __init__.py
 │   ├── session.py      # CDPSession with DuckDB storage

@@ -141,10 +141,7 @@ def format_expression_result(result: Any, output: str, max_length: int = 2000) -
 # ============= MCP Dict Parameter Utilities =============
 
 
-# ============= MCP Dict Parameter Utilities =============
-
-
-def parse_options(options: dict = None, defaults: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
+def parse_options(options: dict | None = None, defaults: dict | None = None) -> dict:
     """Parse options dict with defaults.
 
     Args:
@@ -161,7 +158,7 @@ def parse_options(options: dict = None, defaults: dict = None) -> dict:  # pyrig
     return result
 
 
-def extract_option(options: dict, key: str, default=None, required: bool = False):
+def extract_option(options: dict | None, key: str, default: object = None, required: bool = False) -> object:
     """Extract single option from dict with validation.
 
     Args:
@@ -181,7 +178,7 @@ def extract_option(options: dict, key: str, default=None, required: bool = False
     return options.get(key, default)
 
 
-def validate_dict_keys(options: dict, allowed: set, required: set = None) -> dict:  # pyright: ignore[reportArgumentType]
+def validate_dict_keys(options: dict | None, allowed: set, required: set | None = None) -> dict:
     """Validate dict has only allowed keys and all required keys.
 
     Args:
@@ -206,7 +203,7 @@ def validate_dict_keys(options: dict, allowed: set, required: set = None) -> dic
     return options
 
 
-def extract_nested(options: dict, path: str, default=None):
+def extract_nested(options: dict | None, path: str, default: object = None) -> object:
     """Extract nested value from dict using dot notation.
 
     Args:
@@ -235,7 +232,7 @@ def fetch_body_content(state, har_entry: dict, field: str) -> tuple[str | None, 
     """Fetch body content based on field selector.
 
     Args:
-        state: WebTap state with client.
+        state: WebTap state with client (RPC client).
         har_entry: HAR entry from request_details().
         field: Field selector ("response.content" or "request.postData").
 
@@ -247,7 +244,12 @@ def fetch_body_content(state, har_entry: dict, field: str) -> tuple[str | None, 
         if not request_id:
             return None, "No request_id in HAR entry"
 
-        result = state.client.fetch_body(request_id)
+        try:
+            cdp_result = state.client.call("cdp", command="Network.getResponseBody", params={"requestId": request_id})
+            result = cdp_result.get("result", {})
+        except Exception as e:
+            return None, f"Failed to fetch response body: {e}"
+
         if not result:
             return None, "Failed to fetch response body"
 

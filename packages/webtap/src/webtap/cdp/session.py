@@ -1,8 +1,4 @@
-"""CDP Session with native event storage.
-
-PUBLIC API:
-  - CDPSession: WebSocket-based CDP client with DuckDB event storage
-"""
+"""CDP Session with native event storage."""
 
 import json
 import logging

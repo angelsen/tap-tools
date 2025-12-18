@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from replkit2 import App
 
-from webtap.client import DaemonClient
+from webtap.client import RPCClient
 
 
 @dataclass
@@ -21,14 +21,14 @@ class WebTapState:
     All CDP operations and data storage happen in the daemon.
 
     Attributes:
-        client: DaemonClient for HTTP communication with daemon.
+        client: RPCClient for JSON-RPC communication with daemon.
     """
 
-    client: DaemonClient = field(init=False)
+    client: RPCClient = field(init=False)
 
     def __post_init__(self):
-        """Initialize daemon client after dataclass init."""
-        self.client = DaemonClient()
+        """Initialize RPC client after dataclass init."""
+        self.client = RPCClient()
 
     def cleanup(self):
         """Cleanup resources on exit."""

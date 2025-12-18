@@ -1,8 +1,4 @@
-"""HAR view creation for DuckDB.
-
-PUBLIC API:
-  - create_har_views: Create har_entries and har_summary views
-"""
+"""HAR view creation for DuckDB."""
 
 import logging
 
@@ -12,6 +8,39 @@ logger = logging.getLogger(__name__)
 _HAR_ENTRIES_SQL = """
 CREATE OR REPLACE VIEW har_entries AS
 WITH
+-- Paused Fetch events (unresolved)
+paused_fetch AS (
+    SELECT
+        json_extract_string(event, '$.params.networkId') as network_id,
+        rowid as paused_id,
+        json_extract_string(event, '$.params.responseStatusCode') as fetch_status,
+        json_extract(event, '$.params.responseHeaders') as fetch_response_headers,
+        CASE
+            WHEN json_extract_string(event, '$.params.responseStatusCode') IS NOT NULL
+            THEN 'Response'
+            ELSE 'Request'
+        END as pause_stage,
+        json_extract_string(event, '$.params.requestId') as fetch_request_id
+    FROM events
+    WHERE method = 'Fetch.requestPaused'
+),
+
+-- Resolved Fetch events (continued, failed, or fulfilled)
+resolved_fetch AS (
+    SELECT DISTINCT json_extract_string(event, '$.params.requestId') as network_id
+    FROM events
+    WHERE method IN ('Network.loadingFinished', 'Network.loadingFailed')
+),
+
+-- Only unresolved paused events (latest per networkId)
+active_paused AS (
+    SELECT pf.*
+    FROM paused_fetch pf
+    WHERE pf.network_id IS NOT NULL
+      AND pf.network_id NOT IN (SELECT network_id FROM resolved_fetch WHERE network_id IS NOT NULL)
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY pf.network_id ORDER BY pf.paused_id DESC) = 1
+),
+
 -- HTTP Request: extract from requestWillBeSent
 http_requests AS (
     SELECT
@@ -121,7 +150,8 @@ http_entries AS (
         req.protocol,
         req.method,
         req.url,
-        CAST(COALESCE(resp.status, '0') AS INTEGER) as status,
+        -- Use Fetch status if paused at Response, otherwise Network status
+        CAST(COALESCE(ap.fetch_status, resp.status, '0') AS INTEGER) as status,
         resp.status_text,
         req.resource_type as type,
         CAST(COALESCE(fin.final_size, '0') AS INTEGER) as size,
@@ -130,15 +160,20 @@ http_entries AS (
             THEN CAST((CAST(fin.finished_timestamp AS DOUBLE) - CAST(req.started_timestamp AS DOUBLE)) * 1000 AS INTEGER)
             ELSE NULL
         END as time_ms,
+        -- State priority: paused > failed > complete > loading > pending
         CASE
+            WHEN ap.paused_id IS NOT NULL THEN 'paused'
             WHEN fail.error_text IS NOT NULL THEN 'failed'
             WHEN fin.finished_timestamp IS NOT NULL THEN 'complete'
             WHEN resp.status IS NOT NULL THEN 'loading'
             ELSE 'pending'
         END as state,
+        ap.pause_stage,
+        ap.paused_id,
         req.request_headers,
         req.post_data,
-        resp.response_headers,
+        -- Prefer Fetch response headers if at Response stage
+        COALESCE(ap.fetch_response_headers, resp.response_headers) as response_headers,
         resp.mime_type,
         resp.timing,
         fail.error_text,
@@ -149,6 +184,7 @@ http_entries AS (
     LEFT JOIN http_responses resp ON req.request_id = resp.request_id
     LEFT JOIN http_finished fin ON req.request_id = fin.request_id
     LEFT JOIN http_failed fail ON req.request_id = fail.request_id
+    LEFT JOIN active_paused ap ON req.request_id = ap.network_id
 ),
 
 -- Combine WebSocket entries
@@ -173,6 +209,8 @@ websocket_entries AS (
             WHEN hs.status IS NOT NULL THEN 'open'
             ELSE 'connecting'
         END as state,
+        CAST(NULL AS VARCHAR) as pause_stage,
+        CAST(NULL AS BIGINT) as paused_id,
         hs.request_headers,
         CAST(NULL AS VARCHAR) as post_data,
         hs.response_headers,
@@ -208,6 +246,8 @@ SELECT
     size,
     time_ms,
     state,
+    pause_stage,
+    paused_id,
     frames_sent,
     frames_received
 FROM har_entries

@@ -16,7 +16,21 @@ logger = logging.getLogger(__name__)
 
 # GitHub URLs for extension files
 EXTENSION_BASE_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/extension"
-EXTENSION_FILES = ["manifest.json", "background.js", "sidepanel.html", "sidepanel.js", "sidepanel.css"]
+EXTENSION_FILES = [
+    "manifest.json",
+    "background.js",
+    "sidepanel.html",
+    "sidepanel.js",
+    "sidepanel.css",
+    "bind.js",
+    "client.js",
+]
+EXTENSION_ASSETS = [
+    "assets/icon-16.png",
+    "assets/icon-32.png",
+    "assets/icon-48.png",
+    "assets/icon-128.png",
+]
 
 
 class ExtensionSetupService:
@@ -60,7 +74,7 @@ class ExtensionSetupService:
         # Create extension directory
         self.extension_dir.mkdir(parents=True, exist_ok=True)
 
-        # Download each file
+        # Download text files
         downloaded = []
         failed = []
 
@@ -84,6 +98,26 @@ class ExtensionSetupService:
                 logger.error(f"Failed to download {filename}: {e}")
                 failed.append(filename)
 
+        # Download binary assets (icons)
+        assets_dir = self.extension_dir / "assets"
+        assets_dir.mkdir(exist_ok=True)
+
+        for asset_path in EXTENSION_ASSETS:
+            url = f"{EXTENSION_BASE_URL}/{asset_path}"
+            target_file = self.extension_dir / asset_path
+
+            try:
+                logger.info(f"Downloading {asset_path}")
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+
+                target_file.write_bytes(response.content)
+                downloaded.append(asset_path)
+
+            except Exception as e:
+                logger.error(f"Failed to download {asset_path}: {e}")
+                failed.append(asset_path)
+
         # Determine success level
         if not downloaded:
             return {
@@ -93,11 +127,12 @@ class ExtensionSetupService:
                 "details": "Check network connection and try again",
             }
 
+        total_files = len(EXTENSION_FILES) + len(EXTENSION_ASSETS)
         if failed:
             # Partial success - some files downloaded
             return {
                 "success": True,  # Partial is still success
-                "message": f"Downloaded {len(downloaded)}/{len(EXTENSION_FILES)} files",
+                "message": f"Downloaded {len(downloaded)}/{total_files} files",
                 "path": str(self.extension_dir),
                 "details": f"Failed: {', '.join(failed)}",
             }

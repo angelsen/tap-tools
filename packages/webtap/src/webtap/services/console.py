@@ -1,8 +1,4 @@
-"""Console monitoring service for browser messages.
-
-PUBLIC API:
-  - ConsoleService: Console event queries and monitoring
-"""
+"""Console monitoring service for browser messages."""
 
 import logging
 from typing import TYPE_CHECKING

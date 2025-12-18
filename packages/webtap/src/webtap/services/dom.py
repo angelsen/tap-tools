@@ -1,8 +1,4 @@
-"""DOM inspection service using Chrome DevTools Protocol.
-
-PUBLIC API:
-  - DOMService: Manages element inspection and selection via CDP Overlay domain
-"""
+"""DOM inspection service using Chrome DevTools Protocol."""
 
 import logging
 import re
@@ -68,6 +64,26 @@ class DOMService:
             callback: Function to call when state changes (service._trigger_broadcast)
         """
         self._broadcast_callback = callback
+
+    def reset(self) -> None:
+        """Reset service state for new connection.
+
+        Call when reconnecting to a new page after previous disconnect.
+        Creates fresh executor and clears shutdown flag.
+        """
+        self._shutdown = False
+        self._inspection_active = False
+        self._pending_selections = 0
+        self._generation += 1  # Invalidate stale pending work
+
+        # Create fresh executor (old one was shutdown)
+        if hasattr(self, "_executor"):
+            try:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
+        logger.info("DOMService reset for new connection")
 
     def start_inspect(self) -> dict[str, Any]:
         """Enable CDP element inspection mode.

@@ -1,8 +1,4 @@
-"""Daemon server lifecycle management.
-
-PUBLIC API:
-  - run_daemon_server: Run daemon server in foreground (blocking)
-"""
+"""Daemon server lifecycle management."""
 
 import asyncio
 import logging
@@ -10,9 +6,10 @@ import logging
 import uvicorn
 
 from webtap.api.app import api
-from webtap.api.routes import include_routes
-from webtap.api.sse import broadcast_processor, get_broadcast_queue, set_broadcast_ready_event
+from webtap.api.sse import broadcast_processor, get_broadcast_queue, set_broadcast_ready_event, router as sse_router
 from webtap.daemon_state import DaemonState
+from webtap.rpc import RPCFramework
+from webtap.rpc.handlers import register_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +25,35 @@ def run_daemon_server(host: str = "127.0.0.1", port: int = 8765):
         host: Host to bind to
         port: Port to bind to
     """
+    import os
     import webtap.api.app as app_module
+    from fastapi import Request
 
-    include_routes(api)
-
+    # Initialize daemon state
     app_module.app_state = DaemonState()
     logger.info("Daemon initialized with CDPSession and WebTapService")
+
+    # Initialize RPC framework and register handlers
+    rpc = RPCFramework(app_module.app_state.service)
+    register_handlers(rpc)
+    app_module.app_state.service.rpc = rpc
+    logger.info("RPC framework initialized with 22 handlers")
+
+    # Add single RPC endpoint
+    @api.post("/rpc")
+    async def handle_rpc(request: Request) -> dict:
+        """Handle JSON-RPC 2.0 requests."""
+        body = await request.json()
+        return await rpc.handle(body)
+
+    # Add health check endpoint
+    @api.get("/health")
+    async def health_check() -> dict:
+        """Quick health check endpoint for extension."""
+        return {"status": "ok", "pid": os.getpid()}
+
+    # Include SSE endpoint
+    api.include_router(sse_router)
 
     async def run():
         """Run server with proper shutdown handling."""

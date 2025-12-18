@@ -3,6 +3,7 @@
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
+from webtap.client import RPCError
 from webtap.commands._builders import table_response, error_response, format_timestamp
 from webtap.commands._tips import get_tips
 
@@ -34,17 +35,12 @@ def console(state, limit: int = 50, _ctx: ExecutionContext = None) -> dict:  # p
     Returns:
         Table of console messages with full data
     """
-    # Check connection via daemon status
+    # Get console messages via RPC
     try:
-        status = state.client.status()
-        if not status.get("connected"):
-            return error_response("Not connected to any page. Use connect() first.")
-    except Exception as e:
-        return error_response(str(e))
-
-    # Get console messages from daemon
-    try:
-        messages = state.client.console(limit=limit)
+        result = state.client.call("console", limit=limit)
+        messages = result.get("messages", [])
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
 
@@ -54,14 +50,14 @@ def console(state, limit: int = 50, _ctx: ExecutionContext = None) -> dict:  # p
     # Build rows with mode-specific formatting
     rows = [
         {
-            "ID": str(m["id"]),
-            "Level": m["level"],
-            "Source": m["source"],
-            "Message": m["message"],
+            "ID": str(m.get("id", i)),
+            "Level": m.get("level", "unknown"),
+            "Source": m.get("source", ""),
+            "Message": m.get("message", ""),
             # REPL: human-friendly time, MCP: raw timestamp for LLM
-            "Time": format_timestamp(m["timestamp"]) if is_repl else (m["timestamp"] or 0),
+            "Time": format_timestamp(m.get("timestamp")) if is_repl else (m.get("timestamp") or 0),
         }
-        for m in messages
+        for i, m in enumerate(messages)
     ]
 
     # Build response

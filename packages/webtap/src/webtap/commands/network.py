@@ -3,6 +3,7 @@
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
+from webtap.client import RPCError
 from webtap.commands._builders import table_response, error_response, format_size
 from webtap.commands._tips import get_tips
 
@@ -25,12 +26,13 @@ _MCP_TRUNCATE = {
 )
 def network(
     state,
-    status: int = None,  # type: ignore[reportArgumentType]
-    method: str = None,  # type: ignore[reportArgumentType]
-    type: str = None,  # type: ignore[reportArgumentType]
-    url: str = None,  # type: ignore[reportArgumentType]
-    all: bool = False,
-    limit: int = 20,
+    status: int = None,  # pyright: ignore[reportArgumentType]
+    method: str = None,  # pyright: ignore[reportArgumentType]
+    resource_type: str = None,  # pyright: ignore[reportArgumentType]
+    url: str = None,  # pyright: ignore[reportArgumentType]
+    req_state: str = None,  # pyright: ignore[reportArgumentType]
+    show_all: bool = False,
+    limit: int = 50,
     _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
 ) -> dict:
     """List network requests with inline filters.
@@ -38,46 +40,52 @@ def network(
     Args:
         status: Filter by HTTP status code (e.g., 404, 500)
         method: Filter by HTTP method (e.g., "POST", "GET")
-        type: Filter by resource type (e.g., "xhr", "fetch", "websocket")
+        resource_type: Filter by resource type (e.g., "xhr", "fetch", "websocket")
         url: Filter by URL pattern (supports * wildcard)
-        all: Bypass noise filter groups
-        limit: Max results (default 20)
+        req_state: Filter by state (pending, loading, complete, failed, paused)
+        show_all: Bypass noise filter groups
+        limit: Max results (default 50)
 
     Examples:
         network()                    # Default with noise filter
         network(status=404)          # Only 404s
         network(method="POST")       # Only POST requests
-        network(type="websocket")    # Only WebSocket
+        network(resource_type="websocket")  # Only WebSocket
         network(url="*api*")         # URLs containing "api"
-        network(all=True)            # Show everything
+        network(req_state="paused")  # Only paused requests
+        network(show_all=True)       # Show everything
     """
-    # Check connection via daemon status
-    try:
-        daemon_status = state.client.status()
-        if not daemon_status.get("connected"):
-            return error_response("Not connected to any page. Use connect() first.")
-    except Exception as e:
-        return error_response(str(e))
+    # Build params, omitting None values
+    params = {"limit": limit, "show_all": show_all}
+    if status is not None:
+        params["status"] = status
+    if method is not None:
+        params["method"] = method
+    if resource_type is not None:
+        params["resource_type"] = resource_type
+    if url is not None:
+        params["url"] = url
+    if req_state is not None:
+        params["state"] = req_state
 
-    # Get network requests from daemon with inline filters
     try:
-        requests = state.client.network(
-            status=status,
-            method=method,
-            type_filter=type,
-            url=url,
-            apply_groups=not all,
-            limit=limit,
-        )
+        result = state.client.call("network", **params)
+        requests = result.get("requests", [])
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
 
     # Mode-specific configuration
     is_repl = _ctx and _ctx.is_repl()
 
+    # Check if any request has pause_stage (to show Pause column)
+    has_pause = any(r.get("pause_stage") for r in requests)
+
     # Build rows with mode-specific formatting
-    rows = [
-        {
+    rows = []
+    for r in requests:
+        row = {
             "ID": str(r["id"]),
             "ReqID": r["request_id"],
             "Method": r["method"],
@@ -88,18 +96,20 @@ def network(
             "Size": format_size(r["size"]) if is_repl else (r["size"] or 0),
             "State": r.get("state", "-"),
         }
-        for r in requests
-    ]
+        # Add Pause column if relevant
+        if has_pause:
+            row["Pause"] = r.get("pause_stage") or "-"
+        rows.append(row)
 
     # Build response with developer guidance
     warnings = []
     if limit and len(requests) == limit:
-        warnings.append(f"Showing first {limit} results (use limit parameter to see more)")
+        warnings.append(f"Showing {limit} most recent (use limit parameter to see more)")
 
     # Get tips from TIPS.md with context
     combined_tips = []
-    if not all:
-        combined_tips.append("Use all=True to bypass filter groups")
+    if not show_all:
+        combined_tips.append("Use show_all=True to bypass filter groups")
 
     if rows:
         example_id = rows[0]["ID"]
@@ -110,9 +120,14 @@ def network(
     # Use mode-specific truncation
     truncate = _REPL_TRUNCATE if is_repl else _MCP_TRUNCATE
 
+    # Build headers dynamically
+    headers = ["ID", "ReqID", "Method", "Status", "URL", "Type", "Size", "State"]
+    if has_pause:
+        headers.append("Pause")
+
     return table_response(
         title="Network Requests",
-        headers=["ID", "ReqID", "Method", "Status", "URL", "Type", "Size", "State"],
+        headers=headers,
         rows=rows,
         summary=f"{len(rows)} requests" if rows else None,
         warnings=warnings,

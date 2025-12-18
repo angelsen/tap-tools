@@ -1,8 +1,4 @@
-"""State management for SSE broadcasting.
-
-PUBLIC API:
-  - get_full_state: Get complete WebTap state for broadcasting (thread-safe)
-"""
+"""State management for SSE broadcasting."""
 
 import hashlib
 from typing import Any, Dict
@@ -30,6 +26,8 @@ def get_full_state() -> Dict[str, Any]:
     """
     if not app_module.app_state:
         return {
+            "connectionState": "disconnected",
+            "epoch": 0,
             "connected": False,
             "events": {"total": 0},
             "fetch": {"enabled": False, "paused_count": 0},
@@ -41,16 +39,23 @@ def get_full_state() -> Dict[str, Any]:
     # Get immutable snapshot (NO LOCKS NEEDED - inherently thread-safe)
     snapshot = app_module.app_state.service.get_state_snapshot()
 
+    # Get connection state and epoch from RPC machine
+    machine = app_module.app_state.service.rpc.machine if app_module.app_state.service.rpc else None
+    connection_state = machine.state if machine else "disconnected"
+    epoch = machine.epoch if machine else 0
+
     # Compute content hashes for frontend change detection
     # Only computed here when building SSE response (not on every state change)
     selections_hash = _stable_hash(str(sorted(snapshot.selections.keys())))
     filters_hash = _stable_hash(f"{sorted(snapshot.enabled_filters)}")
-    fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.paused_count}")
+    fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.response_stage}:{snapshot.paused_count}")
     page_hash = _stable_hash(f"{snapshot.connected}:{snapshot.page_id}")
     error_hash = _stable_hash(snapshot.error_message) if snapshot.error_message else ""
 
     # Convert snapshot to frontend format
     return {
+        "connectionState": connection_state,
+        "epoch": epoch,
         "connected": snapshot.connected,
         "page": {
             "id": snapshot.page_id,
@@ -60,7 +65,11 @@ def get_full_state() -> Dict[str, Any]:
         if snapshot.connected
         else None,
         "events": {"total": snapshot.event_count},
-        "fetch": {"enabled": snapshot.fetch_enabled, "paused_count": snapshot.paused_count},
+        "fetch": {
+            "enabled": snapshot.fetch_enabled,
+            "response_stage": snapshot.response_stage,
+            "paused_count": snapshot.paused_count,
+        },
         "filters": {"enabled": list(snapshot.enabled_filters), "disabled": list(snapshot.disabled_filters)},
         "browser": {
             "inspect_active": snapshot.inspect_active,

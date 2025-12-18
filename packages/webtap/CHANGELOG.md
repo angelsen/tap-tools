@@ -8,12 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **RPC Framework**: JSON-RPC 2.0 implementation replacing REST API routes
+  - `rpc/framework.py`: Core request/response handler with state validation
+  - `rpc/handlers.py`: 22 thin RPC method handlers delegating to services
+  - `rpc/machine.py`: Thread-safe `ConnectionMachine` using transitions library
+  - `rpc/errors.py`: Structured error codes (METHOD_NOT_FOUND, INVALID_STATE, STALE_EPOCH, etc.)
+  - Epoch tracking for stale request detection after reconnection
+- **Extension icons**: Added icon assets (16px, 32px, 48px, 128px) for browser toolbar and manifest
+- **Extension bind.js**: Lightweight reactive binding system (~370 lines) for declarative UI
+- **Extension client.js**: JSON-RPC 2.0 client with automatic epoch synchronization
+- **fulfill() command**: New command to fulfill paused requests with custom responses
 
 ### Changed
+- **BREAKING: Client architecture**: `DaemonClient` (452 lines) → `RPCClient` (79 lines)
+  - All operations now use single `client.call(method, **params)` interface
+  - Automatic epoch sync from server responses
+  - Unified `RPCError` exception handling
+- **BREAKING: API endpoint**: REST routes replaced with single `/rpc` endpoint
+- **Command layer refactored**: All commands now thin RPC wrappers
+  - Business logic moved to RPC handlers
+  - Commands handle display formatting only
+  - 20-50% line reduction per command file
+- **Extension sidepanel**: Complete rewrite with declarative bindings
+  - Removed inline event handlers in favor of `data-*` attributes
+  - CSS refactored with design system variables
+- **Extension setup**: Now downloads 11 files (added bind.js, client.js, 4 icon assets)
+- **network() parameters**: `type` → `resource_type`, `all` → `show_all` for clarity
+- **requests() command**: Now delegates to `network(req_state="paused")` instead of separate implementation
 
 ### Fixed
 
 ### Removed
+- **api/routes/ directory**: 7 REST route modules replaced by RPC handlers
+  - `routes/__init__.py`, `routes/browser.py`, `routes/cdp.py`
+  - `routes/connection.py`, `routes/data.py`, `routes/fetch.py`, `routes/filters.py`
 
 ## [0.9.1] - 2025-12-17
 

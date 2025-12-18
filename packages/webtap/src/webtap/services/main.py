@@ -1,8 +1,4 @@
-"""Main service orchestrator for WebTap business logic.
-
-PUBLIC API:
-  - WebTapService: Main service orchestrating all domain services
-"""
+"""Main service orchestrator for WebTap business logic."""
 
 from typing import Any
 
@@ -54,6 +50,9 @@ class WebTapService:
 
         self.enabled_domains: set[str] = set()
         self.filters = FilterManager()
+
+        # RPC framework (set by server.py after initialization)
+        self.rpc: "Any | None" = None
 
         self.fetch = FetchService()
         self.network = NetworkService()
@@ -122,6 +121,7 @@ class WebTapService:
 
         # Fetch state
         fetch_enabled = self.fetch.enabled
+        response_stage = self.fetch.enable_response_stage
         paused_count = self.fetch.paused_count if fetch_enabled else 0
 
         # Filter state (convert to immutable tuples)
@@ -150,6 +150,7 @@ class WebTapService:
             page_url=page_url,
             event_count=event_count,
             fetch_enabled=fetch_enabled,
+            response_stage=response_stage,
             paused_count=paused_count,
             enabled_filters=enabled_filters,
             disabled_filters=disabled_filters,
@@ -239,31 +240,50 @@ class WebTapService:
     def connect_to_page(self, page_index: int | None = None, page_id: str | None = None) -> dict[str, Any]:
         """Connect to Chrome page and enable required domains.
 
+        Pure domain logic - raises exceptions on failure.
+        State machine transitions are handled by RPC handlers.
+
         Args:
             page_index: Index of page to connect to (for REPL)
             page_id: ID of page to connect to (for extension)
+
+        Returns:
+            Connection info dict with 'title' and 'url'
+
+        Raises:
+            Exception: On connection or domain enable failure
         """
-        try:
-            self.cdp.connect(page_index=page_index, page_id=page_id)
+        # If already connected, disconnect first (enables seamless page switching)
+        if self.cdp.is_connected:
+            self.disconnect()
 
-            failures = self.enable_domains(REQUIRED_DOMAINS)
+        # Reset DOM service for new connection (executor may have been shutdown by previous disconnect)
+        self.dom.reset()
 
-            if failures:
-                self.cdp.disconnect()
-                return {"error": f"Failed to enable domains: {failures}"}
+        # Clear selections BEFORE connect to handle race with pending disconnect cleanup
+        # (disconnect handler runs in background thread, might clear after we connect)
+        self.dom.clear_selections()
 
-            self.filters.load()
+        self.cdp.connect(page_index=page_index, page_id=page_id)
 
-            page_info = self.cdp.page_info or {}
-            self._trigger_broadcast()
-            return {"connected": True, "title": page_info.get("title", "Untitled"), "url": page_info.get("url", "")}
-        except Exception as e:
-            return {"error": str(e)}
+        failures = self.enable_domains(REQUIRED_DOMAINS)
 
-    def disconnect(self) -> dict[str, Any]:
-        """Disconnect from Chrome."""
-        was_connected = self.cdp.is_connected
+        if failures:
+            self.cdp.disconnect()
+            raise RuntimeError(f"Failed to enable domains: {failures}")
 
+        self.filters.load()
+
+        page_info = self.cdp.page_info or {}
+        self._trigger_broadcast()
+        return {"title": page_info.get("title", "Untitled"), "url": page_info.get("url", "")}
+
+    def disconnect(self) -> None:
+        """Disconnect from Chrome and clean up all state.
+
+        Pure domain logic - performs full cleanup.
+        State machine transitions are handled by RPC handlers.
+        """
         if self.fetch.enabled:
             self.fetch.disable()
 
@@ -278,7 +298,6 @@ class WebTapService:
         self.enabled_domains.clear()
 
         self._trigger_broadcast()
-        return {"disconnected": True, "was_connected": was_connected}
 
     def enable_domains(self, domains: list[str]) -> dict[str, str]:
         """Enable CDP domains.

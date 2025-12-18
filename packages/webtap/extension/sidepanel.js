@@ -1,19 +1,43 @@
-// WebTap Side Panel - Clean Break Refactor
-// SSE-based real-time UI with tab navigation
-
 console.log("[WebTap] Side panel loaded");
 
-// ==================== Configuration ====================
+const icons = {
+  close: "✕",
+  pause: "⏸",
+  play: "▶",
+  stop: "■",
+  error: "⚠",
+  success: "✓",
+  pending: "○",
+  loading: "◌",
+  refresh: "↻",
+  arrow: "→",
+};
 
 const API_BASE = "http://localhost:8765";
+const client = new WebTapClient(API_BASE);
 
-// ==================== Theme Management ====================
+const bindings = Bind.connect(client);
+
+const selectionList = new ListRenderer("#selectionList", {
+  render: (data, id) => {
+    const preview = data.preview || {};
+    const previewText = `<${preview.tag}>${preview.id ? " #" + preview.id : ""}${
+      preview.classes?.length ? " ." + preview.classes.join(".") : ""
+    }`;
+
+    return ui.row("selection-item", [
+      ui.el("span", { class: "selection-badge", text: `#${id}` }),
+      ui.el("span", { class: "selection-preview", text: previewText }),
+    ]);
+  },
+});
 
 function updateThemeButton() {
   const btn = document.getElementById("themeToggle");
   if (!btn) return;
   const theme = document.documentElement.dataset.theme;
-  btn.textContent = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto";
+  btn.textContent =
+    theme === "light" ? "Light" : theme === "dark" ? "Dark" : "Auto";
 }
 
 function initTheme() {
@@ -47,9 +71,7 @@ function toggleTheme() {
 
 initTheme();
 
-// ==================== Tab Management ====================
-
-let activeTab = localStorage.getItem("webtap-tab") || "intercept";
+let activeTab = localStorage.getItem("webtap-tab") || "pages";
 
 function initTabs() {
   const tabButtons = document.querySelectorAll(".tab-button");
@@ -89,12 +111,19 @@ function switchTab(tabName) {
   });
 
   // Refresh network when switching to network tab
-  if (tabName === "network" && state.connected) {
+  if (tabName === "network" && client.state.connected) {
     fetchNetwork();
   }
 }
 
-// ==================== UI Helpers ====================
+function truncateMiddle(str, maxLen) {
+  if (!str || str.length <= maxLen) return str;
+  const ellipsis = "…";
+  const charsToShow = maxLen - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  return str.slice(0, frontChars) + ellipsis + str.slice(-backChars);
+}
 
 const ui = {
   el(tag, opts = {}) {
@@ -140,40 +169,27 @@ const ui = {
   },
 };
 
-function showError(message, opts = {}) {
-  const { type = "status" } = opts;
-
-  if (type === "banner") {
-    const banner = document.getElementById("errorBanner");
-    const messageEl = document.getElementById("errorMessage");
-    messageEl.textContent = message;
-    banner.classList.add("visible");
-  } else {
-    const status = document.getElementById("status");
-    status.innerHTML = "";
-    const span = document.createElement("span");
-    span.className = "error";
-    span.textContent = message;
-    status.appendChild(span);
-  }
-}
-
-function showMessage(message, opts = {}) {
-  const { className = "" } = opts;
+function updateHeaderStatus(text, state = "disconnected") {
   const status = document.getElementById("status");
+  const statusText = status.querySelector(".status-text");
 
-  if (className) {
-    status.innerHTML = "";
-    const span = document.createElement("span");
-    span.className = className;
-    span.textContent = message;
-    status.appendChild(span);
-  } else {
-    status.textContent = message;
+  status.classList.remove("connected", "error");
+  if (state === "connected") {
+    status.classList.add("connected");
+  } else if (state === "error") {
+    status.classList.add("error");
   }
+
+  statusText.textContent = text;
 }
 
-// ==================== Operation Lock ====================
+function showError(message) {
+  // Handle Error objects from RPC client
+  if (message instanceof Error) {
+    message = message.message;
+  }
+  updateHeaderStatus(message, "error");
+}
 
 let globalOperationInProgress = false;
 
@@ -192,228 +208,90 @@ async function withButtonLock(buttonId, asyncFn) {
 
   try {
     await asyncFn();
+  } catch (err) {
+    // Show error in status box
+    showError(err);
+    console.error(`[WebTap] ${buttonId} failed:`, err);
   } finally {
     btn.disabled = wasDisabled;
     globalOperationInProgress = false;
   }
 }
 
-// ==================== API Helper ====================
-
-async function api(endpoint, method = "GET", body = null) {
-  try {
-    const opts = {
-      method,
-      signal: AbortSignal.timeout(3000),
-    };
-    if (body) {
-      opts.headers = { "Content-Type": "application/json" };
-      opts.body = JSON.stringify(body);
-    }
-    const resp = await fetch(`${API_BASE}${endpoint}`, opts);
-    if (!resp.ok) {
-      return { error: `HTTP ${resp.status}: ${resp.statusText}` };
-    }
-    return await resp.json();
-  } catch (e) {
-    if (e.name === "AbortError") {
-      return { error: "WebTap not responding (timeout)" };
-    }
-    if (e.message.includes("Failed to fetch")) {
-      return { error: "WebTap not running" };
-    }
-    return { error: e.message };
-  }
+function bindAction(id, method, params = {}) {
+  document.getElementById(id).onclick = async () => {
+    await withButtonLock(id, async () => {
+      await client.call(method, params);
+    });
+  };
 }
 
-// ==================== State Management ====================
-
-let state = {
-  connected: false,
-  page: null,
-  events: { total: 0 },
-  fetch: { enabled: false, paused_count: 0 },
-  filters: { enabled: [], disabled: [] },
-  browser: { inspect_active: false, selections: {}, prompt: "" },
-};
-
-let eventSource = null;
 let webtapAvailable = false;
 
-let previousHashes = {
-  selections: "",
-  filters: "",
-  fetch: "",
-  page: "",
-  error: "",
-};
+client.on("state", (state, previousState) => {
+  updateConnectionStatus(state);
+  updateInterceptUI(state);
+  updateFiltersUI(state.filters);
+  updateSelectionUI(state.browser);
+  updateErrorBanner(state.error);
+  updateEventCount(state.events.total);
+  updateButtons(state.connected);
+  updateConnectButton();
 
-function updateFromState(newState) {
-  if (!newState) return;
-
-  state = newState;
-  updateConnectionStatus(newState);
-  updateEventCount(newState.events.total);
-  updateButtons(newState.connected);
-  updateErrorBanner(newState.error);
-  updateFetchStatus(newState.fetch.enabled, newState.fetch.paused_count);
-  updateFiltersUI(newState.filters);
-  updateSelectionUI(newState.browser);
-
-  previousHashes = {
-    selections: newState.selections_hash,
-    filters: newState.filters_hash,
-    fetch: newState.fetch_hash,
-    page: newState.page_hash,
-    error: newState.error_hash || "",
-  };
-
-  if (newState.connected && activeTab === "network") {
-    fetchNetwork();
-  }
-}
-
-// ==================== SSE Connection ====================
-
-function connectSSE() {
-  console.log("[WebTap] Connecting to SSE stream...");
-
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
-  }
-
-  eventSource = new EventSource(`${API_BASE}/events/stream`);
-
-  eventSource.onopen = () => {
-    console.log("[WebTap] SSE connected");
-    webtapAvailable = true;
+  const pageChanged = previousState?.page?.id !== state.page?.id;
+  if (
+    !previousState ||
+    previousState.connected !== state.connected ||
+    pageChanged
+  ) {
     loadPages();
-  };
+  }
 
-  eventSource.onmessage = (event) => {
-    try {
-      const newState = JSON.parse(event.data);
-
-      const connectionChanged =
-        state.connected !== newState.connected ||
-        state.page?.id !== newState.page?.id;
-
-      if (!state.connected || state.connected !== newState.connected) {
-        console.log("[WebTap] State update received");
-      }
-
-      state = newState;
-
-      // Hash-based selective updates
-      if (newState.selections_hash !== previousHashes.selections) {
-        previousHashes.selections = newState.selections_hash;
-        updateSelectionUI(newState.browser);
-      }
-
-      if (newState.filters_hash !== previousHashes.filters) {
-        previousHashes.filters = newState.filters_hash;
-        updateFiltersUI(newState.filters);
-      }
-
-      if (newState.fetch_hash !== previousHashes.fetch) {
-        previousHashes.fetch = newState.fetch_hash;
-        updateFetchStatus(newState.fetch.enabled, newState.fetch.paused_count);
-      }
-
-      if (newState.page_hash !== previousHashes.page) {
-        previousHashes.page = newState.page_hash;
-        updateConnectionStatus(newState);
-      }
-
-      updateErrorBanner(newState.error);
-      updateEventCount(newState.events.total);
-      updateButtons(newState.connected);
-
-      if (connectionChanged) {
-        loadPages();
-      }
-
-      if (newState.connected && activeTab === "network") {
-        fetchNetwork();
-      }
-    } catch (e) {
-      console.error("[WebTap] Failed to parse SSE message:", e);
-    }
-  };
-
-  eventSource.onerror = () => {
-    console.log("[WebTap] Connection failed or lost");
-    webtapAvailable = false;
-
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-
-    state.connected = false;
-
-    const status = document.getElementById("status");
-    ui.empty(status);
-
-    status.appendChild(
-      ui.row(null, [
-        ui.el("span", { class: "error", text: "Error: WebTap server not running" }),
-        ui.el("button", {
-          text: "Reconnect",
-          class: "reconnect-btn",
-          onclick: () => {
-            showMessage("Connecting...");
-            connectSSE();
-          },
-        }),
-      ]),
-    );
-
-    document.getElementById("pageList").innerHTML =
-      "<option disabled>Select a page</option>";
-  };
-}
-
-// ==================== Cleanup on Unload ====================
-
-window.addEventListener("beforeunload", () => {
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
+  if (state.connected && activeTab === "network") {
+    fetchNetwork();
   }
 });
 
-// ==================== UI Rendering ====================
+client.on("error", () => {
+  webtapAvailable = false;
+
+  updateHeaderStatus("Server offline", "error");
+
+  document.getElementById("pageList").innerHTML =
+    "<option disabled>Server not running</option>";
+
+  setTimeout(() => {
+    updateHeaderStatus("Reconnecting...", "error");
+    client.connect();
+    setTimeout(() => {
+      webtapAvailable = true;
+      loadPages();
+    }, 1000);
+  }, 2000);
+});
+
+window.addEventListener("beforeunload", () => {
+  client.disconnect();
+});
 
 function updateConnectionStatus(state) {
   if (state.connected && state.page) {
-    const status = document.getElementById("status");
-    status.innerHTML = "";
-    const connectedSpan = document.createElement("span");
-    connectedSpan.className = "connected";
-    connectedSpan.textContent = "Connected";
-    status.appendChild(connectedSpan);
-    status.appendChild(document.createTextNode(` - Events: ${state.events.total}`));
+    updateHeaderStatus(`Connected (${state.events.total})`, "connected");
   } else if (!state.connected) {
-    showMessage("Not connected");
+    updateHeaderStatus("Disconnected", "disconnected");
   }
 }
 
 function updateEventCount(count) {
   const status = document.getElementById("status");
-  const connectedSpan = status.querySelector(".connected");
-  if (connectedSpan) {
-    while (status.lastChild !== connectedSpan) {
-      status.removeChild(status.lastChild);
-    }
-    status.appendChild(document.createTextNode(` - Events: ${count}`));
+  if (status.classList.contains("connected")) {
+    const statusText = status.querySelector(".status-text");
+    statusText.textContent = `Connected (${count})`;
   }
 }
 
 function updateButtons(connected) {
-  document.getElementById("connect").disabled = false;
-  document.getElementById("fetchToggle").disabled = !connected;
+  document.getElementById("connectToggle").disabled = false;
 }
 
 function updateErrorBanner(error) {
@@ -428,40 +306,33 @@ function updateErrorBanner(error) {
   }
 }
 
-function updateFetchStatus(enabled, pausedCount = 0) {
-  const toggle = document.getElementById("fetchToggle");
-  const statusDiv = document.getElementById("fetchStatus");
-
-  if (enabled) {
-    toggle.textContent = "Disable Intercept";
-    toggle.classList.add("active");
-    ui.empty(statusDiv);
-    statusDiv.appendChild(
-      ui.row(null, [
-        ui.el("span", { class: "fetch-active", text: "Intercept ON" }),
-        ui.el("span", { text: ` - Paused: ${pausedCount}` }),
-      ]),
-    );
-  } else {
-    toggle.textContent = "Enable Intercept";
-    toggle.classList.remove("active");
-    ui.empty(statusDiv);
-    statusDiv.appendChild(ui.el("span", { class: "fetch-inactive", text: "Intercept OFF" }));
+function updateInterceptUI(state) {
+  let mode = "disabled";
+  if (state.fetch.enabled) {
+    mode = state.fetch.response_stage ? "response" : "request";
   }
+
+  interceptDropdown.setActive(mode);
+
+  const labels = { disabled: "Off", request: "Req", response: "Req+Res" };
+  const paused = state.fetch.paused_count || 0;
+  const pausedText = paused > 0 ? ` (${paused})` : "";
+  interceptDropdown.setText(`Intercept: ${labels[mode]}${pausedText}`);
+  interceptDropdown.toggle.classList.toggle("active", state.fetch.enabled);
 }
 
 function updateFiltersUI(filters) {
   const filterList = document.getElementById("filterList");
   const filterStats = document.getElementById("filterStats");
 
-  const enabled = filters.enabled || [];
-  const disabled = filters.disabled || [];
-  const total = enabled.length + disabled.length;
+  const enabled = new Set(filters.enabled || []);
+  const all = [...enabled, ...(filters.disabled || [])].sort();
 
-  filterStats.textContent = `${enabled.length}/${total} groups enabled`;
+  filterStats.textContent = `${enabled.size}/${all.length}`;
   ui.empty(filterList);
 
-  const createFilterCheckbox = (name, isEnabled) => {
+  all.forEach((name) => {
+    const isEnabled = enabled.has(name);
     const checkbox = ui.el("input", {
       attrs: { type: "checkbox", "data-filter": name },
     });
@@ -470,57 +341,23 @@ function updateFiltersUI(filters) {
 
     const label = ui.el("label", { children: [checkbox] });
     label.appendChild(document.createTextNode(name));
-    return label;
-  };
-
-  enabled.forEach((name) => filterList.appendChild(createFilterCheckbox(name, true)));
-  disabled.forEach((name) => filterList.appendChild(createFilterCheckbox(name, false)));
+    filterList.appendChild(label);
+  });
 }
 
 function updateSelectionUI(browser) {
   const selectionButton = document.getElementById("startSelection");
-  const selectionCount = document.getElementById("selectionCount");
-  const selectionList = document.getElementById("selectionList");
-  const selectionStatus = document.getElementById("selectionStatus");
 
   if (browser.inspect_active) {
-    selectionButton.textContent = "Stop Selection";
+    selectionButton.textContent = "Stop Selecting";
     selectionButton.classList.add("active-selection");
   } else {
-    selectionButton.textContent = "Start Selection Mode";
+    selectionButton.textContent = "Select Elements";
     selectionButton.classList.remove("active-selection");
   }
 
-  const count = Object.keys(browser.selections || {}).length;
-  const pending = browser.pending_count || 0;
-
-  if (pending > 0) {
-    selectionCount.textContent = `${count} (Processing: ${pending})`;
-    selectionCount.classList.add("processing");
-  } else {
-    selectionCount.textContent = count;
-    selectionCount.classList.remove("processing");
-  }
-
-  selectionStatus.classList.toggle("hidden", count === 0);
-  ui.empty(selectionList);
-
-  Object.entries(browser.selections || {}).forEach(([id, data]) => {
-    const preview = data.preview || {};
-    const previewText = `<${preview.tag}>${preview.id ? " #" + preview.id : ""}${
-      preview.classes?.length ? " ." + preview.classes.join(".") : ""
-    }`;
-
-    selectionList.appendChild(
-      ui.row("selection-item", [
-        ui.el("span", { class: "selection-badge", text: `#${id}` }),
-        ui.el("span", { class: "selection-preview", text: previewText }),
-      ]),
-    );
-  });
+  selectionList.update(browser.selections || {});
 }
-
-// ==================== Page Management ====================
 
 async function loadPages() {
   if (!webtapAvailable) {
@@ -529,250 +366,169 @@ async function loadPages() {
     return;
   }
 
-  const info = await api("/info");
+  try {
+    const info = await client.call("pages");
+    const pages = info.pages || [];
+    const select = document.getElementById("pageList");
+    select.innerHTML = "";
 
-  if (info.error) {
+    if (pages.length === 0) {
+      select.innerHTML = "<option disabled>Empty: No pages available</option>";
+    } else {
+      const currentPageId = client.state.page ? client.state.page.id : null;
+
+      const selectWidth = select.clientWidth || 200;
+      const charWidth = 7;
+      const reservedChars = 4;
+      const maxChars = Math.floor(selectWidth / charWidth) - reservedChars;
+
+      pages.forEach((page, index) => {
+        const option = document.createElement("option");
+        option.value = page.id;
+
+        const url = page.url || page.title || "Untitled";
+        const shortUrl = url.replace(/^https?:\/\//, "");
+        const displayUrl = truncateMiddle(shortUrl, maxChars);
+
+        if (page.id === currentPageId) {
+          option.className = "connected";
+          option.selected = true;
+        }
+
+        option.textContent = `${index}: ${displayUrl}`;
+        select.appendChild(option);
+      });
+    }
+  } catch (err) {
+    console.error("[WebTap] Failed to load pages:", err);
     document.getElementById("pageList").innerHTML =
       "<option disabled>Unable to load pages</option>";
-    return;
-  }
-
-  const pages = info.pages || [];
-  const select = document.getElementById("pageList");
-  select.innerHTML = "";
-
-  if (pages.length === 0) {
-    select.innerHTML = "<option disabled>Empty: No pages available</option>";
-  } else {
-    const currentPageId = state.page ? state.page.id : null;
-
-    pages.forEach((page, index) => {
-      const option = document.createElement("option");
-      option.value = page.id;
-
-      const title = page.title || "Untitled";
-      const shortTitle = title.length > 50 ? title.substring(0, 47) + "..." : title;
-
-      if (page.id === currentPageId) {
-        option.className = "connected";
-        option.selected = true;
-      }
-
-      option.textContent = `${index}: ${shortTitle}`;
-      select.appendChild(option);
-    });
   }
 }
 
-// ==================== Event Handlers ====================
-
-document.getElementById("reloadPages").onclick = async () => {
+const reloadPagesBtn = document.getElementById("reloadPages");
+reloadPagesBtn.textContent = icons.refresh;
+reloadPagesBtn.onclick = async () => {
   await withButtonLock("reloadPages", loadPages);
 };
 
-document.getElementById("connect").onclick = async () => {
-  await withButtonLock("connect", async () => {
-    const select = document.getElementById("pageList");
-    const selectedPageId = select.value;
+bindAction("clear", "clear", { events: true });
+
+// Smart connect button - handles connect, disconnect, and page switching
+document.getElementById("connectToggle").onclick = async () => {
+  await withButtonLock("connectToggle", async () => {
+    const selectedPageId = document.getElementById("pageList").value;
 
     if (!selectedPageId) {
-      showError("Note: Please select a page");
+      showError("Please select a page");
+      return;
+    }
+
+    const currentPageId = client.state.page?.id;
+    const isConnectedToSelected =
+      client.state.connected && currentPageId === selectedPageId;
+    const isConnectedToDifferent =
+      client.state.connected && currentPageId !== selectedPageId;
+
+    if (isConnectedToSelected) {
+      // Disconnect from current page
+      await client.call("disconnect");
+    } else if (isConnectedToDifferent) {
+      // Switching pages - confirm first
+      if (confirm("Disconnect from current page and connect to new one?")) {
+        await client.call("connect", { page_id: selectedPageId });
+      }
+    } else {
+      // Not connected - just connect
+      await client.call("connect", { page_id: selectedPageId });
+    }
+  });
+};
+
+function updateConnectButton() {
+  const btn = document.getElementById("connectToggle");
+  const selectedPageId = document.getElementById("pageList").value;
+  const currentPageId = client.state.page?.id;
+  const isConnectedToSelected =
+    client.state.connected && currentPageId === selectedPageId;
+
+  btn.textContent = isConnectedToSelected ? "Disconnect" : "Connect";
+  btn.classList.toggle("connected", isConnectedToSelected);
+}
+
+document.getElementById("pageList").onchange = updateConnectButton;
+
+const interceptDropdown = new Dropdown("#interceptDropdown", {
+  onSelect: async (mode) => {
+    if (!client.state.connected) {
+      showError("Connect to a page first");
       return;
     }
 
     try {
-      const result = await api("/connect", "POST", { page_id: selectedPageId });
-
-      if (result.state) {
-        updateFromState(result.state);
+      if (mode === "disabled") {
+        await client.call("fetch.disable");
+      } else {
+        await client.call("fetch.enable", {
+          request: true,
+          response: mode === "response",
+        });
       }
-
-      if (result.error) {
-        showError(`Error: ${result.error}`);
-      }
-    } catch (e) {
-      console.error("[WebTap] Connect failed:", e);
-      showError("Error: Connection failed");
+    } catch (err) {
+      showError(err);
     }
-  });
-};
-
-document.getElementById("disconnect").onclick = async () => {
-  await withButtonLock("disconnect", async () => {
-    try {
-      const result = await api("/disconnect", "POST");
-
-      if (result.state) {
-        updateFromState(result.state);
-      }
-
-      if (result.error) {
-        showError(`Error: ${result.error}`);
-      }
-    } catch (e) {
-      console.error("[WebTap] Disconnect failed:", e);
-      showError("Error: Disconnect failed");
-    }
-  });
-};
-
-document.getElementById("clear").onclick = async () => {
-  await withButtonLock("clear", async () => {
-    try {
-      const result = await api("/clear", "POST", { events: true });
-
-      if (result.state) {
-        updateFromState(result.state);
-      }
-
-      if (result.error) {
-        showError(`Error: ${result.error}`);
-      }
-    } catch (e) {
-      console.error("[WebTap] Clear failed:", e);
-      showError("Error: Failed to clear events");
-    }
-  });
-};
-
-// ==================== Fetch Interception ====================
-
-document.getElementById("fetchToggle").onclick = async () => {
-  await withButtonLock("fetchToggle", async () => {
-    if (!state.connected) {
-      showError("Required: Connect to a page first");
-      return;
-    }
-
-    const newState = !state.fetch.enabled;
-    const responseStage = document.getElementById("responseStage").checked;
-
-    try {
-      const result = await api("/fetch", "POST", {
-        enabled: newState,
-        response_stage: responseStage,
-      });
-
-      if (result.state) {
-        updateFromState(result.state);
-      }
-
-      if (result.error) {
-        showError(`Error: ${result.error}`);
-      }
-    } catch (e) {
-      console.error("[WebTap] Fetch toggle failed:", e);
-    }
-  });
-};
-
-// ==================== Filter Management ====================
+  },
+});
 
 async function toggleFilter(name, checkbox) {
-  // Disable checkbox during operation
   checkbox.disabled = true;
 
   try {
-    const isEnabled = state.filters.enabled.includes(name);
-    const result = await api(`/filters/${isEnabled ? "disable" : "enable"}/${name}`, "POST");
-
-    if (result.state) {
-      updateFromState(result.state);
-    }
-    if (result.error) {
-      showError(`Filter toggle failed: ${result.error}`);
-      // Revert checkbox on error
-      checkbox.checked = isEnabled;
-    }
-  } catch (e) {
-    console.error("[WebTap] Filter toggle failed:", e);
-    checkbox.checked = state.filters.enabled.includes(name);
+    const isEnabled = client.state.filters.enabled.includes(name);
+    const method = isEnabled ? "filters.disable" : "filters.enable";
+    await client.call(method, { name });
+  } catch (err) {
+    showError(err);
+    // Revert checkbox on error
+    const isEnabled = client.state.filters.enabled.includes(name);
+    checkbox.checked = isEnabled;
   } finally {
     checkbox.disabled = false;
   }
 }
 
-document.getElementById("enableAllFilters").onclick = async () => {
-  await withButtonLock("enableAllFilters", async () => {
-    const result = await api("/filters/enable-all", "POST");
-    if (result.state) {
-      updateFromState(result.state);
-    }
-    if (result.error) {
-      showError(`Enable all failed: ${result.error}`);
-    }
-  });
+document.getElementById("enableAllFilters").onclick = async (e) => {
+  e.stopPropagation();
+  await withButtonLock("enableAllFilters", () =>
+    client.call("filters.enableAll"),
+  );
 };
 
-document.getElementById("disableAllFilters").onclick = async () => {
-  await withButtonLock("disableAllFilters", async () => {
-    const result = await api("/filters/disable-all", "POST");
-    if (result.state) {
-      updateFromState(result.state);
-    }
-    if (result.error) {
-      showError(`Disable all failed: ${result.error}`);
-    }
-  });
+document.getElementById("disableAllFilters").onclick = async (e) => {
+  e.stopPropagation();
+  await withButtonLock("disableAllFilters", () =>
+    client.call("filters.disableAll"),
+  );
 };
-
-// ==================== Element Selection ====================
 
 document.getElementById("startSelection").onclick = async () => {
   await withButtonLock("startSelection", async () => {
-    if (!state.connected) {
+    if (!client.state.connected) {
       showError("Error: Not connected to a page");
       return;
     }
 
-    try {
-      const endpoint = state.browser.inspect_active
-        ? "/browser/stop-inspect"
-        : "/browser/start-inspect";
-      const result = await api(endpoint, "POST");
+    const method = client.state.browser.inspect_active
+      ? "browser.stopInspect"
+      : "browser.startInspect";
 
-      if (result.state) {
-        updateFromState(result.state);
-      }
-      if (result.error) {
-        showError(`Error: ${result.error}`);
-      }
-    } catch (e) {
-      console.error("[WebTap] Selection toggle failed:", e);
-      showError(`Error: ${e.message}`);
-    }
+    await client.call(method);
   });
 };
 
-document.getElementById("clearSelections").onclick = async () => {
-  await withButtonLock("clearSelections", async () => {
-    try {
-      const result = await api("/browser/clear", "POST");
-      if (result.state) {
-        updateFromState(result.state);
-      }
-      if (result.error) {
-        showError(`Error: ${result.error}`);
-      }
-    } catch (e) {
-      console.error("[WebTap] Clear selections failed:", e);
-      showError("Error: Failed to clear selections");
-    }
-  });
-};
+bindAction("clearSelections", "browser.clear");
 
-// ==================== Error Handling ====================
-
-document.getElementById("dismissError").onclick = async () => {
-  await withButtonLock("dismissError", async () => {
-    const result = await api("/errors/dismiss", "POST");
-    if (result.state) {
-      updateFromState(result.state);
-    }
-  });
-};
-
-// ==================== Network Table ====================
+bindAction("dismissError", "errors.dismiss");
 
 let selectedRequestId = null;
 
@@ -780,22 +536,20 @@ async function fetchNetwork() {
   const container = document.getElementById("networkTable");
   const countEl = document.getElementById("networkCount");
 
-  if (!state.connected) {
+  if (!client.state.connected) {
     ui.empty(container, "Connect to a page to see requests");
     countEl.textContent = "0 requests";
     return;
   }
 
-  const result = await api("/network?limit=50&order=asc");
-  if (result.error) {
-    showError(`Network fetch failed: ${result.error}`);
-    return;
+  try {
+    const result = await client.call("network", { limit: 50, order: "desc" });
+    const requests = (result.requests || []).reverse();
+    updateNetworkTable(requests);
+    container.scrollTop = container.scrollHeight;
+  } catch (err) {
+    showError(err);
   }
-
-  updateNetworkTable(result.requests || []);
-
-  // Auto-scroll to bottom (newest entries)
-  container.scrollTop = container.scrollHeight;
 }
 
 function updateNetworkTable(requests) {
@@ -811,15 +565,29 @@ function updateNetworkTable(requests) {
 
   ui.empty(container);
   requests.forEach((req) => {
-    const isError = req.status >= 400;
-    const row = ui.row("network-row" + (isError ? " error" : ""), [
-      ui.el("span", { class: "network-method", text: req.method || "GET" }),
-      ui.el("span", {
-        class: "network-status " + (isError ? "error" : "ok"),
-        text: String(req.status || "-"),
-      }),
-      ui.el("span", { class: "network-url", text: req.url || "", title: req.url || "" }),
-    ]);
+    const isPaused = req.state === "paused";
+    const isError = !isPaused && req.status >= 400;
+
+    const statusText = isPaused
+      ? `${icons.pause} ${req.pause_stage === "Response" ? "Res" : "Req"}`
+      : String(req.status || "-");
+    const statusClass = isPaused ? "paused" : isError ? "error" : "ok";
+
+    const row = ui.row(
+      "network-row" + (isPaused ? " paused" : isError ? " error" : ""),
+      [
+        ui.el("span", { class: "network-method", text: req.method || "GET" }),
+        ui.el("span", {
+          class: "network-status " + statusClass,
+          text: statusText,
+        }),
+        ui.el("span", {
+          class: "network-url",
+          text: req.url || "",
+          title: req.url || "",
+        }),
+      ],
+    );
     row.onclick = () => showRequestDetails(req.id);
     container.appendChild(row);
   });
@@ -842,66 +610,68 @@ async function showRequestDetails(id) {
   selectedRequestId = id;
   detailsEl.classList.remove("hidden");
 
-  // Only show loading if panel was hidden (avoids flash when switching entries)
   if (wasHidden) {
     ui.loading(detailsEl);
   }
 
-  const result = await api(`/request/${id}`);
-  if (result.error) {
-    ui.empty(detailsEl, `Error: ${result.error}`);
-    return;
-  }
+  try {
+    const result = await client.call("request", { id });
+    const entry = result.entry;
+    ui.empty(detailsEl);
 
-  const entry = result.entry;
-  ui.empty(detailsEl);
+    detailsEl.appendChild(
+      ui.row("request-details-header flex-row", [
+        ui.el("span", {
+          text: `${entry.request?.method || "GET"} ${entry.response?.status || ""}`,
+        }),
+        ui.el("button", {
+          class: "icon-btn",
+          text: icons.close,
+          title: "Close",
+          onclick: closeRequestDetails,
+        }),
+      ]),
+    );
 
-  detailsEl.appendChild(
-    ui.row("request-details-header", [
-      ui.el("span", { text: `${entry.request?.method || "GET"} ${entry.response?.status || ""}` }),
-      ui.el("button", {
-        class: "close-btn",
-        title: "Close",
-        onclick: closeRequestDetails,
-      }),
-    ]),
-  );
-
-  detailsEl.appendChild(
-    ui.el("div", {
-      text: entry.request?.url || "",
-      class: "url-display",
-    }),
-  );
-
-  if (entry.response?.content?.mimeType) {
     detailsEl.appendChild(
       ui.el("div", {
-        text: `Type: ${entry.response.content.mimeType}`,
-        class: "text-muted",
+        text: entry.request?.url || "",
+        class: "url-display",
       }),
     );
-  }
 
-  if (entry.request?.headers) {
-    const headerCount = Object.keys(entry.request.headers).length;
-    detailsEl.appendChild(
-      ui.details(`Request Headers (${headerCount})`, JSON.stringify(entry.request.headers, null, 2)),
-    );
-  }
+    if (entry.response?.content?.mimeType) {
+      detailsEl.appendChild(
+        ui.el("div", {
+          text: `Type: ${entry.response.content.mimeType}`,
+          class: "text-muted",
+        }),
+      );
+    }
 
-  if (entry.response?.headers) {
-    const headerCount = Object.keys(entry.response.headers).length;
-    detailsEl.appendChild(
-      ui.details(
-        `Response Headers (${headerCount})`,
-        JSON.stringify(entry.response.headers, null, 2),
-      ),
-    );
+    if (entry.request?.headers) {
+      const headerCount = Object.keys(entry.request.headers).length;
+      detailsEl.appendChild(
+        ui.details(
+          `Request Headers (${headerCount})`,
+          JSON.stringify(entry.request.headers, null, 2),
+        ),
+      );
+    }
+
+    if (entry.response?.headers) {
+      const headerCount = Object.keys(entry.response.headers).length;
+      detailsEl.appendChild(
+        ui.details(
+          `Response Headers (${headerCount})`,
+          JSON.stringify(entry.response.headers, null, 2),
+        ),
+      );
+    }
+  } catch (err) {
+    ui.empty(detailsEl, `Error: ${err.message}`);
   }
 }
-
-// ==================== Chrome Tab Listeners ====================
 
 chrome.tabs.onActivated.addListener(() => loadPages());
 chrome.tabs.onRemoved.addListener(() => loadPages());
@@ -913,8 +683,20 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
-// ==================== Initialization ====================
-
 document.getElementById("themeToggle").onclick = toggleTheme;
 initTabs();
-connectSSE();
+
+client.connect();
+setTimeout(() => {
+  webtapAvailable = true;
+  loadPages();
+}, 500);
+
+let lastPageListWidth = 0;
+new ResizeObserver((entries) => {
+  const width = entries[0]?.contentRect.width || 0;
+  if (width > 0 && Math.abs(width - lastPageListWidth) > 10) {
+    lastPageListWidth = width;
+    if (webtapAvailable) loadPages();
+  }
+}).observe(document.getElementById("pageList"));

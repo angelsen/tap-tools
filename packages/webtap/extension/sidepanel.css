@@ -1,11 +1,8 @@
-/* WebTap Side Panel - Clean Break Refactor */
-
-/* ==================== Theme System ==================== */
+/* Theme */
 
 :root {
   color-scheme: light dark;
 
-  /* Spacing */
   --space-xxs: 2px;
   --space-xs: 4px;
   --space-sm: 8px;
@@ -13,11 +10,9 @@
   --space-lg: 16px;
   --space-xl: 24px;
 
-  /* Border widths */
   --border-width: 1px;
   --border-width-thick: 2px;
 
-  /* Typography */
   --font-sans: system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, monospace;
   --text-xs: 10px;
@@ -26,11 +21,11 @@
   --text-md: 13px;
   --text-lg: 15px;
 
-  /* Border radius */
   --radius-sm: 3px;
   --radius-md: 4px;
 
-  /* Semantic colors */
+  --btn-sm-height: 22px;
+
   --color-bg: light-dark(#ffffff, #1a1a1a);
   --color-bg-subtle: light-dark(#f5f5f5, #2a2a2a);
   --color-bg-muted: light-dark(#fafafa, #222222);
@@ -51,35 +46,38 @@
   --color-error-surface: light-dark(#fff5f5, #2a1a1a);
   --color-warning: light-dark(#ff9800, #ffb74d);
 
-  /* Error banner */
   --color-error-banner-bg: light-dark(#ffebee, #2d1a1a);
   --color-error-banner-border: light-dark(#ef5350, #c62828);
   --color-error-banner-text: light-dark(#c62828, #ff8a80);
 
-  /* Interactive */
   --color-primary: light-dark(#0066cc, #4dabf7);
   --color-button-bg: light-dark(#ffffff, #2a2a2a);
   --color-button-border: light-dark(#cccccc, #555555);
   --color-toggle-bg: light-dark(#e0e0e0, #444444);
 
-  /* Focus */
   --color-focus: light-dark(#0066cc, #4dabf7);
-  --focus-offset: -2px;  /* Inset focus ring - never clips */
+  --focus-offset: -2px;
 
-  /* Animation */
   --transition-fast: 0.15s ease;
 }
 
-[data-theme="light"] { color-scheme: light; }
-[data-theme="dark"] { color-scheme: dark; }
+[data-theme="light"] {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+}
 
-/* ==================== Base ==================== */
+/* Base */
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   margin: 0;
 }
@@ -96,19 +94,19 @@ body {
   overflow: hidden;
 }
 
-/* ==================== Focus Styles ==================== */
+/* Focus */
 
 :focus-visible {
   outline: var(--border-width-thick) solid var(--color-focus);
   outline-offset: var(--focus-offset);
 }
 
-/* ==================== Header ==================== */
+/* Header */
 
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: var(--space-sm);
   margin-block-end: var(--space-sm);
   flex-shrink: 0;
 }
@@ -117,10 +115,51 @@ body {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 600;
+  line-height: var(--btn-sm-height);
 }
 
-.theme-toggle {
-  padding: var(--space-xxs) var(--space-sm);
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  height: var(--btn-sm-height);
+  margin-inline-start: auto;
+  padding-inline: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.header-status.connected .status-dot {
+  background: var(--color-success);
+}
+
+.header-status.connected .status-text {
+  color: var(--color-success);
+}
+
+.header-status.error .status-dot {
+  background: var(--color-error);
+}
+
+.header-status.error .status-text {
+  color: var(--color-error);
+}
+
+.btn-sm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-sm-height);
+  padding-inline: var(--space-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-button-bg);
@@ -130,16 +169,68 @@ body {
   transition: background var(--transition-fast);
 }
 
-.theme-toggle:hover {
+.btn-sm:hover {
   background: var(--color-bg-hover);
 }
 
-/* ==================== Tab Bar ==================== */
+/* Dropdown */
+
+.dropdown {
+  position: relative;
+}
+
+#interceptToggle {
+  width: 105px;
+}
+
+#interceptToggle.active {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 100%;
+  margin-top: var(--space-xxs);
+  padding: var(--space-xxs) 0;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dropdown-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.dropdown-item.active {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+/* Tabs */
 
 .tab-bar {
   display: flex;
   gap: var(--space-xs);
   margin-block-end: var(--space-md);
+  margin-inline: var(--space-xs);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
@@ -147,8 +238,9 @@ body {
 .tab-button {
   flex: 1;
   padding: var(--space-sm) var(--space-md);
-  border: none;
-  border-bottom: var(--border-width-thick) solid transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-base);
@@ -160,15 +252,16 @@ body {
 
 .tab-button:hover {
   color: var(--color-text);
-  background: var(--color-bg-hover);
+  border-color: var(--color-border-subtle);
 }
 
 .tab-button.active {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+  color: var(--color-text);
+  background: var(--color-bg);
+  border-color: var(--color-border);
 }
 
-/* ==================== Tab Content ==================== */
+/* Tab Content */
 
 .tab-content {
   display: none;
@@ -182,7 +275,7 @@ body {
   display: flex;
 }
 
-/* ==================== Sections ==================== */
+/* Sections */
 
 .section {
   flex-shrink: 0;
@@ -190,12 +283,6 @@ body {
 
 .section + .section {
   margin-block-start: var(--space-lg);
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .section-title {
@@ -215,7 +302,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ==================== Form Elements ==================== */
+/* Forms */
 
 select {
   inline-size: 100%;
@@ -226,6 +313,12 @@ select {
   font-size: var(--text-base);
   background: var(--color-button-bg);
   color: var(--color-text);
+}
+
+#pageList {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  min-block-size: 180px;
 }
 
 button {
@@ -252,7 +345,7 @@ input[type="checkbox"] {
   accent-color: var(--color-success-bg);
 }
 
-/* ==================== Layout ==================== */
+/* Layout */
 
 .button-row {
   display: flex;
@@ -273,15 +366,7 @@ input[type="checkbox"] {
   display: none;
 }
 
-/* ==================== Status Box ==================== */
-
-.status-box {
-  padding: var(--space-sm);
-  font-size: var(--text-base);
-  background: var(--color-bg-subtle);
-  border-radius: var(--radius-md);
-  margin-block-end: var(--space-sm);
-}
+/* Status */
 
 .error {
   color: var(--color-error);
@@ -292,7 +377,7 @@ input[type="checkbox"] {
   font-weight: bold;
 }
 
-/* ==================== Error Banner ==================== */
+/* Error Banner */
 
 .error-banner {
   display: none;
@@ -321,84 +406,50 @@ input[type="checkbox"] {
   margin-inline-end: var(--space-sm);
 }
 
-/* ==================== Fetch Intercept ==================== */
+/* Filters */
 
-.fetch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-block: var(--space-xs);
-}
-
-.fetch-status {
-  font-size: var(--text-base);
-}
-
-.fetch-active {
-  color: var(--color-success);
-  font-weight: bold;
-}
-
-.fetch-inactive {
-  color: var(--color-text-muted);
-}
-
-.toggle {
-  background: var(--color-toggle-bg);
-  border: 1px solid var(--color-button-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-xs) var(--space-md);
-  cursor: pointer;
-}
-
-.toggle.active {
-  background: var(--color-success-bg);
-  color: white;
-}
-
-.response-stage-option {
-  margin-block-start: var(--space-xs);
-  font-size: var(--text-sm);
-}
-
-.response-stage-option label {
-  cursor: pointer;
-}
-
-.response-stage-option input {
-  margin-inline-end: var(--space-xs);
-}
-
-/* ==================== Filters ==================== */
-
-.filter-section {
+.filter-accordion {
   flex-shrink: 0;
 }
 
-.filter-section label {
+.filter-accordion summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--space-xs) 0;
+}
+
+.filter-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-accordion summary::marker {
+  content: "";
+}
+
+.filter-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-inline-start: auto;
+  margin-inline-end: var(--space-sm);
+}
+
+.filter-accordion label {
   display: block;
   padding-block: var(--space-xs);
+  padding-inline-start: var(--space-md);
   font-size: var(--text-base);
   cursor: pointer;
 }
 
-.filter-section input[type="checkbox"] {
+.filter-accordion input[type="checkbox"] {
   margin-inline-end: var(--space-sm);
 }
 
 .filter-list {
-  margin-block: var(--space-sm);
+  margin-block: var(--space-xs);
 }
 
-.filter-buttons {
-  margin-block-start: var(--space-sm);
-}
-
-.filter-buttons button {
-  font-size: var(--text-sm);
-}
-
-/* ==================== Selection ==================== */
+/* Selection */
 
 .selection-section {
   flex: 1;
@@ -409,10 +460,7 @@ input[type="checkbox"] {
 
 .selection-list {
   max-block-size: 150px;
-  overflow-y: auto;
   margin-block: var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
   background: var(--color-bg-muted);
 }
 
@@ -446,23 +494,10 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 
-.selection-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-block-end: var(--space-xs);
+.selection-row {
+  gap: var(--space-sm);
 }
 
-.selection-header span {
-  font-size: var(--text-base);
-}
-
-.selection-header button {
-  padding: var(--space-xs) var(--space-sm);
-  font-size: var(--text-sm);
-}
-
-/* Selection button states - no !important needed with proper specificity */
 button.active-selection {
   background: var(--color-error-bg);
   color: white;
@@ -478,7 +513,7 @@ button.active-selection:hover:not(:disabled) {
   color: var(--color-warning);
 }
 
-/* ==================== Help Text ==================== */
+/* Help */
 
 .help-text {
   font-size: var(--text-sm);
@@ -498,7 +533,7 @@ button.active-selection:hover:not(:disabled) {
   font-size: var(--text-xs);
 }
 
-/* ==================== Network Section ==================== */
+/* Network */
 
 .network-section {
   flex: 1;
@@ -509,10 +544,7 @@ button.active-selection:hover:not(:disabled) {
 
 .network-table {
   flex: 1;
-  overflow-y: auto;
   margin-block: var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
   font-size: var(--text-sm);
   min-height: 80px;
 }
@@ -539,7 +571,7 @@ button.active-selection:hover:not(:disabled) {
 }
 
 .network-method {
-  inline-size: 40px;
+  inline-size: 55px;
   font-weight: bold;
   color: var(--color-text-muted);
 }
@@ -557,6 +589,15 @@ button.active-selection:hover:not(:disabled) {
   color: var(--color-error);
 }
 
+.network-status.paused {
+  color: var(--color-warning);
+  inline-size: 50px;
+}
+
+.network-row.paused {
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+
 .network-url {
   flex: 1;
   overflow: hidden;
@@ -564,7 +605,7 @@ button.active-selection:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-/* ==================== Request Details ==================== */
+/* Request Details */
 
 .request-details {
   margin-block-start: var(--space-sm);
@@ -583,9 +624,6 @@ button.active-selection:hover:not(:disabled) {
 }
 
 .request-details-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-block-end: var(--space-xs);
   padding-block-end: var(--space-xs);
   border-block-end: 1px solid var(--color-border-subtle);
@@ -612,54 +650,39 @@ button.active-selection:hover:not(:disabled) {
   color: var(--color-text);
 }
 
-/* ==================== Utilities ==================== */
+/* Utilities */
 
-.reconnect-btn {
-  margin-inline-start: var(--space-md);
-  padding: var(--space-xxs) var(--space-sm);
-  cursor: pointer;
+.flex-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.close-btn {
+.list-box {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-y: auto;
+}
+
+.icon-btn {
   background: transparent;
   border: none;
   cursor: pointer;
   padding: 0;
-  inline-size: 16px;
-  block-size: 16px;
-  position: relative;
+  font-size: 14px;
+  line-height: 1;
   flex-shrink: 0;
   opacity: 0.6;
   transition: opacity var(--transition-fast);
+  color: var(--color-text);
 }
 
-.close-btn:hover {
+.icon-btn:hover {
   opacity: 1;
 }
 
-.close-btn::before,
-.close-btn::after {
-  content: "";
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-start: 50%;
-  inline-size: 10px;
-  block-size: 2px;
-  background: var(--color-text);
-  border-radius: 1px;
-}
-
-.close-btn::before {
-  transform: translate(-50%, -50%) rotate(45deg);
-}
-
-.close-btn::after {
-  transform: translate(-50%, -50%) rotate(-45deg);
-}
-
-.close-btn--error::before,
-.close-btn--error::after {
-  background: var(--color-error-banner-text);
+.icon-btn--error {
+  color: var(--color-error-banner-text);
 }
 
 .url-display {

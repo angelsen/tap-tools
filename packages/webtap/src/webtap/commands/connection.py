@@ -3,6 +3,7 @@
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
+from webtap.client import RPCError
 from webtap.commands._builders import info_response, table_response, error_response
 from webtap.commands._tips import get_mcp_description, get_tips
 
@@ -46,16 +47,21 @@ def connect(state, page: int = None, page_id: str = None) -> dict:  # pyright: i
     Returns:
         Connection status in markdown
     """
-    if page is not None and page_id is not None:
-        return error_response("Cannot specify both 'page' and 'page_id'. Use one or the other.")
-
     try:
-        result = state.client.connect(page=page, page_id=page_id)
+        # Build params - default to page=0 when no params given
+        params = {}
+        if page is not None:
+            params["page"] = page
+        if page_id is not None:
+            params["page_id"] = page_id
+        if not params:
+            params["page"] = 0  # Connect to first page by default
+
+        result = state.client.call("connect", **params)
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
-
-    if "error" in result:
-        return error_response(result["error"])
 
     # Success - return formatted info with full URL
     return info_response(
@@ -70,17 +76,14 @@ def connect(state, page: int = None, page_id: str = None) -> dict:  # pyright: i
 def disconnect(state) -> dict:
     """Disconnect from Chrome."""
     try:
-        result = state.client.disconnect()
+        state.client.call("disconnect")
+    except RPCError as e:
+        # INVALID_STATE means not connected
+        if e.code == "INVALID_STATE":
+            return info_response(title="Disconnect Status", fields={"Status": "Not connected"})
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
-
-    if "error" in result:
-        return error_response(result["error"])
-
-    # Check if was connected
-    was_connected = result.get("was_connected", True)
-    if not was_connected:
-        return info_response(title="Disconnect Status", fields={"Status": "Not connected"})
 
     return info_response(title="Disconnect Status", fields={"Status": "Disconnected"})
 
@@ -104,12 +107,11 @@ def clear(state, events: bool = True, console: bool = False) -> dict:
         Summary of what was cleared
     """
     try:
-        result = state.client.clear(events=events, console=console)
+        result = state.client.call("clear", events=events, console=console)
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
-
-    if "error" in result:
-        return error_response(result["error"])
 
     # Build cleared list from result
     cleared = result.get("cleared", [])
@@ -134,7 +136,10 @@ def pages(state, _ctx: ExecutionContext = None) -> dict:  # pyright: ignore[repo
         Table of available pages in markdown
     """
     try:
-        pages_list = state.client.pages()
+        result = state.client.call("pages")
+        pages_list = result.get("pages", [])
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
 
@@ -192,25 +197,24 @@ def status(state) -> dict:
         Status information in markdown
     """
     try:
-        status = state.client.status()
+        status_data = state.client.call("status")
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
 
-    if status.get("error"):
-        return error_response(status["error"])
-
     # Check if connected
-    if not status.get("connected"):
+    if not status_data.get("connected"):
         return error_response("Not connected to any page. Use connect() first.")
 
     # Build formatted response with full URL
-    page = status.get("page", {})
+    page = status_data.get("page", {})
     return info_response(
         title="Connection Status",
         fields={
             "Page": page.get("title", "Unknown"),
             "URL": page.get("url", ""),
-            "Events": f"{status.get('events', {}).get('total', 0)} stored",
-            "Fetch": "Enabled" if status.get("fetch", {}).get("enabled") else "Disabled",
+            "Events": f"{status_data.get('events', {}).get('total', 0)} stored",
+            "Fetch": "Enabled" if status_data.get("fetch", {}).get("enabled") else "Disabled",
         },
     )

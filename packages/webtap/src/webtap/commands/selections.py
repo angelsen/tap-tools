@@ -5,6 +5,7 @@ PUBLIC API:
 """
 
 from webtap.app import app
+from webtap.client import RPCError
 from webtap.commands._utils import evaluate_expression, format_expression_result
 from webtap.commands._builders import error_response
 from webtap.commands._tips import get_tips
@@ -32,9 +33,11 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
     Returns:
         Formatted browser data or expression result
     """
-    # Fetch browser data from daemon
+    # Fetch browser data from daemon via RPC
     try:
-        daemon_status = state.client.status()
+        daemon_status = state.client.call("status")
+    except RPCError as e:
+        return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
 

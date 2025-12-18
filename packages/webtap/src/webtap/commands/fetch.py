@@ -1,12 +1,14 @@
 """HTTP fetch request interception and debugging commands."""
 
 from webtap.app import app
-from webtap.commands._builders import check_connection, error_response, info_response, table_response
+from webtap.client import RPCError
+from webtap.commands._builders import error_response, info_response
 from webtap.commands._tips import get_mcp_description, get_tips
 
 _fetch_desc = get_mcp_description("fetch")
 _resume_desc = get_mcp_description("resume")
 _fail_desc = get_mcp_description("fail")
+_fulfill_desc = get_mcp_description("fulfill")
 
 
 @app.command(
@@ -35,110 +37,100 @@ def fetch(state, action: str, options: dict = None) -> dict:  # pyright: ignore[
     Returns:
         Fetch interception status
     """
-    if action == "disable":
-        result = state.client.fetch("disable")
-        if "error" in result:
-            return error_response(result["error"])
-        return info_response(title="Fetch Disabled", fields={"Status": "Interception disabled"})
+    try:
+        if action == "disable":
+            state.client.call("fetch.disable")
+            return info_response(title="Fetch Disabled", fields={"Status": "Interception disabled"})
 
-    elif action == "enable":
-        # Check connection first
-        if error := check_connection(state):
-            return error
+        elif action == "enable":
+            response_stage = (options or {}).get("response", False)
+            result = state.client.call("fetch.enable", request=True, response=response_stage)
 
-        result = state.client.fetch("enable", options)
-        if "error" in result:
-            return error_response(result["error"])
+            stages = "Request and Response stages" if result.get("response_stage") else "Request stage only"
+            return info_response(
+                title="Fetch Enabled",
+                fields={
+                    "Stages": stages,
+                    "Status": "Requests will pause",
+                },
+            )
 
-        # Extract stages info from result
-        stages = "Request and Response stages" if result.get("response_stage") else "Request stage only"
-        return info_response(
-            title="Fetch Enabled",
-            fields={
-                "Stages": stages,
-                "Status": "Requests will pause",
-            },
-        )
+        elif action == "status":
+            status = state.client.call("status")
+            fetch_state = status.get("fetch", {})
+            fetch_enabled = fetch_state.get("enabled", False)
+            paused_count = fetch_state.get("paused_count", 0) if fetch_enabled else 0
 
-    elif action == "status":
-        # Get status from daemon
-        status = state.client.status()
-        if status.get("error"):
-            return error_response(status["error"])
+            return info_response(
+                title=f"Fetch Status: {'Enabled' if fetch_enabled else 'Disabled'}",
+                fields={
+                    "Status": "Enabled" if fetch_enabled else "Disabled",
+                    "Paused": f"{paused_count} requests paused" if fetch_enabled else "None",
+                },
+            )
 
-        fetch_state = status.get("fetch", {})
-        fetch_enabled = fetch_state.get("enabled", False)
-        paused_count = fetch_state.get("paused_count", 0) if fetch_enabled else 0
+        else:
+            return error_response(f"Unknown action: {action}")
 
-        return info_response(
-            title=f"Fetch Status: {'Enabled' if fetch_enabled else 'Disabled'}",
-            fields={
-                "Status": "Enabled" if fetch_enabled else "Disabled",
-                "Paused": f"{paused_count} requests paused" if fetch_enabled else "None",
-            },
-        )
-
-    else:
-        return error_response(f"Unknown action: {action}")
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
 
 
 @app.command(display="markdown", fastmcp={"type": "resource", "mime_type": "text/markdown"})
 def requests(state, limit: int = 50) -> dict:
-    """Show paused requests and responses.
-
-    Lists all paused HTTP traffic. Use the ID with request() to examine
-    details or resume() / fail() to proceed.
+    """Show paused requests. Equivalent to network(req_state="paused").
 
     Args:
         limit: Maximum items to show
 
     Examples:
         requests()           # Show all paused
-        request(47)          # View request details
-        resume(47)           # Continue request 47
+        request(583)         # View request details
+        resume(583)          # Continue request
 
     Returns:
         Table of paused requests/responses in markdown
     """
-    # Check connection first
-    if error := check_connection(state):
-        return error
+    try:
+        # Get status to check if fetch is enabled
+        status = state.client.call("status")
+        if not status.get("fetch", {}).get("enabled", False):
+            return error_response("Fetch interception is disabled. Use fetch('enable') first.")
 
-    # Get status to check if fetch is enabled
-    status = state.client.status()
-    if status.get("error"):
-        return error_response(status["error"])
+        # Delegate to network command with state filter
+        from webtap.commands.network import network
 
-    if not status.get("fetch", {}).get("enabled", False):
-        return error_response("Fetch interception is disabled. Use fetch('enable') first.")
+        result = network(state, req_state="paused", limit=limit, show_all=True)
 
-    # Get paused requests from daemon
-    rows = state.client.paused_requests()
+        # Add fetch-specific tips if we have rows
+        if result.get("elements"):
+            # Find table element and extract first ID for tips
+            for element in result["elements"]:
+                if element.get("type") == "table":
+                    rows = element.get("rows", [])
+                    if rows and rows[0]:
+                        example_id = rows[0].get("ID", 0)
+                        tips = get_tips("requests", context={"id": example_id})
+                        if tips:
+                            # Add tips as alerts after table
+                            tip_elements = [{"type": "alert", "content": tip, "level": "info"} for tip in tips]
+                            # Insert after table
+                            table_index = result["elements"].index(element)
+                            result["elements"] = (
+                                result["elements"][: table_index + 1]
+                                + tip_elements
+                                + result["elements"][table_index + 1 :]
+                            )
+                    break
 
-    # Apply limit
-    if limit and len(rows) > limit:
-        rows = rows[:limit]
+        return result
 
-    # Build warnings if needed
-    warnings = []
-    if limit and len(rows) == limit:
-        warnings.append(f"Showing first {limit} paused requests (use limit parameter to see more)")
-
-    # Get tips from TIPS.md
-    tips = None
-    if rows:
-        example_id = rows[0]["ID"]
-        tips = get_tips("requests", context={"id": example_id})
-
-    # Build markdown response
-    return table_response(
-        title="Paused Requests",
-        headers=["ID", "Stage", "Method", "Status", "URL"],
-        rows=rows,
-        summary=f"{len(rows)} requests paused",
-        warnings=warnings,
-        tips=tips,
-    )
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
 
 
 @app.command(
@@ -154,7 +146,7 @@ def resume(state, request: int, wait: float = 0.5, modifications: dict = None) -
         responseCode, responseHeaders
 
     Args:
-        request: Request row ID from requests() table
+        request: Request ID from network() table
         wait: Wait time for next event in seconds (default: 0.5)
         modifications: Request/response modifications dict
             - {"url": "..."} - Change URL
@@ -164,43 +156,50 @@ def resume(state, request: int, wait: float = 0.5, modifications: dict = None) -
             - {"responseHeaders": [...]} - Modify response headers
 
     Examples:
-        resume(123)                               # Simple resume
-        resume(123, wait=1.0)                    # Wait for redirect
-        resume(123, modifications={"url": "..."})  # Change URL
-        resume(123, modifications={"method": "POST"})  # Change method
-        resume(123, modifications={"headers": [{"name":"X-Custom","value":"test"}]})
+        resume(583)                               # Simple resume
+        resume(583, wait=1.0)                    # Wait for redirect
+        resume(583, modifications={"url": "..."})  # Change URL
+        resume(583, modifications={"method": "POST"})  # Change method
+        resume(583, modifications={"headers": [{"name":"X-Custom","value":"test"}]})
 
     Returns:
         Continuation status with any follow-up events detected
     """
-    # Get status to check if fetch is enabled
-    status = state.client.status()
-    if status.get("error"):
-        return error_response(status["error"])
+    try:
+        # Get status to check if fetch is enabled
+        status = state.client.call("status")
+        if not status.get("fetch", {}).get("enabled", False):
+            return error_response("Fetch interception is disabled. Use fetch('enable') first.")
 
-    if not status.get("fetch", {}).get("enabled", False):
-        return error_response("Fetch interception is disabled. Use fetch('enable') first.")
+        # Resume via RPC (now uses HAR ID)
+        result = state.client.call("fetch.resume", id=request, modifications=modifications, wait=wait)
 
-    # Resume via daemon
-    response = state.client.resume_request(request, modifications or {}, wait)
+        # Build concise status line
+        har_id = result.get("id", request)
+        outcome = result.get("outcome", "unknown")
+        resumed_from = result.get("resumed_from", "unknown")
 
-    if "error" in response:
-        return error_response(response["error"])
+        if outcome == "response":
+            status_code = result.get("status", "?")
+            summary = f"ID {har_id} → paused at Response ({status_code})"
+        elif outcome == "redirect":
+            redirect_id = result.get("redirect_id", "?")
+            summary = f"ID {har_id} → redirected to ID {redirect_id}"
+        elif outcome == "complete":
+            summary = f"ID {har_id} → complete"
+        else:
+            summary = f"ID {har_id} → resumed from {resumed_from}"
 
-    result = response.get("result", {})
-    fields = {"Stage": result.get("stage", "unknown"), "Continued": f"Row {result.get('continued', request)}"}
+        fields = {"Result": summary}
+        if result.get("remaining", 0) > 0:
+            fields["Remaining"] = f"{result['remaining']} paused"
 
-    # Report follow-up if detected
-    if next_event := result.get("next_event"):
-        fields["Next Event"] = next_event["description"]
-        fields["Next ID"] = str(next_event["rowid"])
-        if next_event.get("status"):
-            fields["Status"] = next_event["status"]
+        return info_response(title="Resumed", fields=fields)
 
-    if result.get("remaining"):
-        fields["Remaining"] = f"{result['remaining']} requests paused"
-
-    return info_response(title="Request Resumed", fields=fields)
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
 
 
 @app.command(
@@ -210,7 +209,7 @@ def fail(state, request: int, reason: str = "BlockedByClient") -> dict:
     """Fail a paused request.
 
     Args:
-        request: Row ID from requests() table
+        request: Request ID from network() table
         reason: CDP error reason (default: BlockedByClient)
                 Options: Failed, Aborted, TimedOut, AccessDenied,
                         ConnectionClosed, ConnectionReset, ConnectionRefused,
@@ -219,29 +218,93 @@ def fail(state, request: int, reason: str = "BlockedByClient") -> dict:
                         BlockedByResponse
 
     Examples:
-        fail(47)                          # Fail specific request
-        fail(47, reason="AccessDenied")  # Fail with specific reason
+        fail(583)                          # Fail specific request
+        fail(583, reason="AccessDenied")  # Fail with specific reason
 
     Returns:
         Failure status
     """
-    # Get status to check if fetch is enabled
-    status = state.client.status()
-    if status.get("error"):
-        return error_response(status["error"])
+    try:
+        # Get status to check if fetch is enabled
+        status = state.client.call("status")
+        if not status.get("fetch", {}).get("enabled", False):
+            return error_response("Fetch interception is disabled. Use fetch('enable') first.")
 
-    if not status.get("fetch", {}).get("enabled", False):
-        return error_response("Fetch interception is disabled. Use fetch('enable') first.")
+        # Fail via RPC (now uses HAR ID)
+        result = state.client.call("fetch.fail", id=request, reason=reason)
 
-    # Fail via daemon
-    response = state.client.fail_request(request, reason)
+        har_id = result.get("id", request)
+        summary = f"ID {har_id} → failed ({reason})"
 
-    if "error" in response:
-        return error_response(response["error"])
+        fields = {"Result": summary}
+        if result.get("remaining", 0) > 0:
+            fields["Remaining"] = f"{result['remaining']} paused"
 
-    result = response.get("result", {})
-    fields = {"Failed": f"Row {result.get('failed', request)}", "Reason": result.get("reason", reason)}
-    if result.get("remaining") is not None:
-        fields["Remaining"] = f"{result['remaining']} requests paused"
+        return info_response(title="Failed", fields=fields)
 
-    return info_response(title="Request Failed", fields=fields)
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
+
+
+@app.command(
+    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _fulfill_desc or ""}
+)
+def fulfill(
+    state,
+    request: int,
+    body: str = "",
+    status: int = 200,
+    headers: list = None,  # pyright: ignore[reportArgumentType]
+) -> dict:
+    """Fulfill a paused request with a custom response.
+
+    Returns a mock response without hitting the server. Useful for:
+    - Mock API responses during development
+    - Test error handling with specific status codes
+    - Offline development without backend
+
+    Args:
+        request: Request ID from network() table
+        body: Response body content (default: empty)
+        status: HTTP status code (default: 200)
+        headers: Response headers as list of {"name": "...", "value": "..."} dicts
+
+    Examples:
+        fulfill(583)                                    # Empty 200 response
+        fulfill(583, body='{"ok": true}')              # JSON response
+        fulfill(583, body="Not Found", status=404)     # Error response
+        fulfill(583, headers=[{"name": "Content-Type", "value": "application/json"}])
+
+    Returns:
+        Fulfillment status
+    """
+    try:
+        # Get status to check if fetch is enabled
+        fetch_status = state.client.call("status")
+        if not fetch_status.get("fetch", {}).get("enabled", False):
+            return error_response("Fetch interception is disabled. Use fetch('enable') first.")
+
+        # Fulfill via RPC (uses HAR ID)
+        result = state.client.call(
+            "fetch.fulfill",
+            id=request,
+            response_code=status,
+            response_headers=headers,
+            body=body,
+        )
+
+        har_id = result.get("id", request)
+        summary = f"ID {har_id} → fulfilled ({status})"
+
+        fields = {"Result": summary}
+        if result.get("remaining", 0) > 0:
+            fields["Remaining"] = f"{result['remaining']} paused"
+
+        return info_response(title="Fulfilled", fields=fields)
+
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))

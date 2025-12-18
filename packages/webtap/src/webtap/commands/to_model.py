@@ -3,7 +3,7 @@
 import json
 from datamodel_code_generator import generate, InputFileType, DataModelType
 from webtap.app import app
-from webtap.commands._builders import check_connection, success_response, error_response
+from webtap.commands._builders import success_response, error_response
 from webtap.commands._code_generation import (
     ensure_output_directory,
     parse_json,
@@ -46,11 +46,13 @@ def to_model(
     Returns:
         Success message with generation details
     """
-    if error := check_connection(state):
-        return error
+    # Get HAR entry via RPC - need full entry with request_id for body fetch
+    try:
+        result = state.client.call("request", id=id, fields=["*"])
+        har_entry = result.get("entry")
+    except Exception as e:
+        return error_response(f"Failed to get request: {e}")
 
-    # Get HAR entry
-    har_entry = state.client.request_details(id)
     if not har_entry:
         return error_response(f"Request {id} not found")
 

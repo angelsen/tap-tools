@@ -90,15 +90,16 @@ quicktype(5, "types.ts", "User", options={"readonly": True})
 - **Pydantic:** Use `to_model(id, "models/model.py", "Model")` for Pydantic v2 instead
 
 ### network
-Show network requests with full data.
+Show network requests with full data. Use `req_state="paused"` to filter paused requests.
 
 #### Tips
-- **Analyze responses:** `request(id, ["response.content"])` - fetch response body
-- **Generate models:** `to_model(id, "models/model.py", "Model")` - create Pydantic models from JSON
-- **Parse HTML:** `request(id, ["response.content"], expr="bs4(data['response']['content']['text'], 'html.parser').find('title').text")`
-- **Extract JSON:** `request(id, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
+- **Analyze responses:** `request({id}, ["response.content"])` - fetch response body
+- **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
+- **Parse HTML:** `request({id}, ["response.content"], expr="bs4(data['response']['content']['text'], 'html.parser').find('title').text")`
+- **Extract JSON:** `request({id}, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
 - **Find patterns:** `network(url="*api*")` - filter by URL pattern
-- **Intercept traffic:** `fetch('enable')` then `requests()` - pause and modify
+- **View paused only:** `network(req_state="paused")` - show only paused requests
+- **Intercept traffic:** `fetch('enable')` then `resume({id})` or `fail({id})` to control
 
 ### console
 Show console messages with full data.
@@ -187,20 +188,39 @@ fetch("disable")                          # Disable
 ```
 
 #### Tips
-- **View paused:** `requests()` - see all intercepted requests
+- **View paused:** `network(req_state="paused")` or `requests()` - see intercepted requests
 - **View details:** `request({id})` - view request/response data
 - **Resume request:** `resume({id})` - continue the request
 - **Modify request:** `resume({id}, modifications={'url': '...'})`
 - **Block request:** `fail({id}, 'BlockedByClient')` - reject the request
+- **Mock response:** `fulfill({id}, body='{"ok":true}')` - return custom response without server
 
 ### requests
-Show paused requests and responses.
+Show paused requests. Equivalent to `network(req_state="paused")`.
 
 #### Tips
 - **View details:** `request({id})` - view request/response data
 - **Resume request:** `resume({id})` - continue the request
 - **Modify request:** `resume({id}, modifications={'url': '...'})`
 - **Fail request:** `fail({id}, 'BlockedByClient')` - block the request
+- **Mock response:** `fulfill({id}, body='...')` - return custom response
+
+### fulfill
+Fulfill a paused request with a custom response without hitting the server.
+
+#### Examples
+```python
+fulfill(583)                                    # Empty 200 response
+fulfill(583, body='{"ok": true}')              # JSON response
+fulfill(583, body="Not Found", status=404)     # Error response
+fulfill(583, headers=[{"name": "Content-Type", "value": "application/json"}])
+```
+
+#### Tips
+- **Mock APIs:** Return fake JSON during development without backend
+- **Test errors:** `fulfill({id}, body="Error", status=500)` - test error handling
+- **Set headers:** Use `headers=[{"name": "...", "value": "..."}]` for content-type etc.
+- **View paused:** `network(req_state="paused")` - find requests to fulfill
 
 ### page
 Get current page information and navigate.
