@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [0.11.1] - 2025-12-19
+
+### Added
+
+### Changed
 - **js command**: Added `output` parameter for file export
 - **request command**: Added `output` parameter for file export
 
