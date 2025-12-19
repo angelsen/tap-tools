@@ -18,6 +18,7 @@ Module Organization:
   - request.py: Request data extraction with Python expressions
   - to_model.py: Generate Pydantic models from responses
   - quicktype.py: Generate type definitions via quicktype
+  - js_export.py: Export JS evaluation results to local files
   - selections.py: DOM element selection and inspection
   - setup.py: Component installation
   - launch.py: Browser launch helpers

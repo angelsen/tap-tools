@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **js_export command**: Export JavaScript evaluation results to local files
+- **HAR ExtraInfo support**: Capture raw Cookie/Set-Cookie headers before browser sanitization via `Network.*ExtraInfo` events
 
 ### Changed
+- **RPC framework**: Auto-broadcast SSE after state-modifying handlers (`broadcasts` flag)
+- **RPC framework**: Auto-inject paused request for fetch handlers (`requires_paused_request` flag)
+- **Handler constants**: `CONNECTED_STATES` and `CONNECTED_ONLY` replace inline state lists
 
 ### Fixed
 

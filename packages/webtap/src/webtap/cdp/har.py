@@ -1,4 +1,8 @@
-"""HAR view creation for DuckDB."""
+"""HAR view creation for DuckDB.
+
+PUBLIC API:
+  - create_har_views: Create HAR aggregation views in DuckDB
+"""
 
 import logging
 
@@ -94,6 +98,28 @@ http_failed AS (
     GROUP BY json_extract_string(event, '$.params.requestId')
 ),
 
+-- Request ExtraInfo: raw headers with cookies (before browser sanitization)
+request_extra AS (
+    SELECT
+        json_extract_string(event, '$.params.requestId') as request_id,
+        MAX(json_extract(event, '$.params.headers')) as raw_headers,
+        MAX(json_extract(event, '$.params.associatedCookies')) as cookies
+    FROM events
+    WHERE method = 'Network.requestWillBeSentExtraInfo'
+    GROUP BY json_extract_string(event, '$.params.requestId')
+),
+
+-- Response ExtraInfo: Set-Cookie headers and true status
+response_extra AS (
+    SELECT
+        json_extract_string(event, '$.params.requestId') as request_id,
+        MAX(json_extract(event, '$.params.headers')) as raw_headers,
+        MAX(json_extract_string(event, '$.params.statusCode')) as true_status
+    FROM events
+    WHERE method = 'Network.responseReceivedExtraInfo'
+    GROUP BY json_extract_string(event, '$.params.requestId')
+),
+
 -- WebSocket Created
 ws_created AS (
     SELECT
@@ -150,8 +176,8 @@ http_entries AS (
         req.protocol,
         req.method,
         req.url,
-        -- Use Fetch status if paused at Response, otherwise Network status
-        CAST(COALESCE(ap.fetch_status, resp.status, '0') AS INTEGER) as status,
+        -- Use Fetch status if paused, then ExtraInfo true status, then Network status
+        CAST(COALESCE(ap.fetch_status, respx.true_status, resp.status, '0') AS INTEGER) as status,
         resp.status_text,
         req.resource_type as type,
         CAST(COALESCE(fin.final_size, '0') AS INTEGER) as size,
@@ -170,18 +196,23 @@ http_entries AS (
         END as state,
         ap.pause_stage,
         ap.paused_id,
-        req.request_headers,
+        -- Prefer raw headers from ExtraInfo (includes Cookie header)
+        COALESCE(reqx.raw_headers, req.request_headers) as request_headers,
         req.post_data,
-        -- Prefer Fetch response headers if at Response stage
-        COALESCE(ap.fetch_response_headers, resp.response_headers) as response_headers,
+        -- Prefer raw headers from ExtraInfo (includes Set-Cookie), then Fetch headers
+        COALESCE(respx.raw_headers, ap.fetch_response_headers, resp.response_headers) as response_headers,
         resp.mime_type,
         resp.timing,
         fail.error_text,
+        -- Cookie details from ExtraInfo (httpOnly, Secure, SameSite attributes)
+        reqx.cookies as request_cookies,
         CAST(NULL AS BIGINT) as frames_sent,
         CAST(NULL AS BIGINT) as frames_received,
         CAST(NULL AS BIGINT) as ws_total_bytes
     FROM http_requests req
+    LEFT JOIN request_extra reqx ON req.request_id = reqx.request_id
     LEFT JOIN http_responses resp ON req.request_id = resp.request_id
+    LEFT JOIN response_extra respx ON req.request_id = respx.request_id
     LEFT JOIN http_finished fin ON req.request_id = fin.request_id
     LEFT JOIN http_failed fail ON req.request_id = fail.request_id
     LEFT JOIN active_paused ap ON req.request_id = ap.network_id
@@ -217,6 +248,7 @@ websocket_entries AS (
         'websocket' as mime_type,
         CAST(NULL AS JSON) as timing,
         CAST(NULL AS VARCHAR) as error_text,
+        CAST(NULL AS JSON) as request_cookies,
         wf.frames_sent,
         wf.frames_received,
         wf.total_bytes as ws_total_bytes
@@ -257,12 +289,10 @@ FROM har_entries
 def create_har_views(db_execute) -> None:
     """Create HAR-based aggregation views in DuckDB.
 
+    Creates har_entries and har_summary views for network request aggregation.
+
     Args:
         db_execute: Function to execute SQL (session._db_execute)
-
-    Creates:
-        - har_entries: Full HAR structure with all fields
-        - har_summary: Lightweight list view for network() command
     """
     db_execute(_HAR_ENTRIES_SQL, wait_result=True)
     db_execute(_HAR_SUMMARY_SQL, wait_result=True)
