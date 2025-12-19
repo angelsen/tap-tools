@@ -10,15 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+- **js command**: Added `output` parameter for file export
+- **request command**: Added `output` parameter for file export
 
 ### Fixed
 
 ### Removed
+- **js_export command**: Consolidated into js() with output parameter
 
 ## [0.11.0] - 2025-12-19
 
 ### Added
-- **js_export command**: Export JavaScript evaluation results to local files
 - **HAR ExtraInfo support**: Capture raw Cookie/Set-Cookie headers before browser sanitization via `Network.*ExtraInfo` events
 
 ### Changed

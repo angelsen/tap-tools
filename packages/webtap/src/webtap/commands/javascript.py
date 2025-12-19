@@ -1,10 +1,13 @@
 """JavaScript code execution in browser context."""
 
+import json
+
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
 from webtap.client import RPCError
-from webtap.commands._builders import error_response, code_result_response
+from webtap.commands._builders import error_response, code_result_response, success_response
+from webtap.commands._code_generation import ensure_output_directory
 from webtap.commands._tips import get_mcp_description
 
 mcp_desc = get_mcp_description("js")
@@ -19,6 +22,7 @@ mcp_desc = get_mcp_description("js")
 def js(
     state,
     code: str,
+    output: str = None,  # pyright: ignore[reportArgumentType]
     selection: int = None,  # pyright: ignore[reportArgumentType]
     persist: bool = False,
     wait_return: bool = True,
@@ -29,18 +33,19 @@ def js(
 
     Args:
         code: JavaScript code to execute (single expression by default, multi-statement with persist=True)
-        selection: Browser element selection number - makes 'element' variable available
-        persist: Keep variables in global scope across calls (default: False)
-        wait_return: Wait for and return result (default: True)
-        await_promise: Await promises before returning (default: False)
+        output: Write result to file instead of displaying
+        selection: Browser selection number to bind to 'element' variable. Defaults to None.
+        persist: Keep variables in global scope. Defaults to False.
+        wait_return: Wait for and return result. Defaults to True.
+        await_promise: Await promise results. Defaults to False.
 
     Examples:
-        js("document.title")                           # Fresh scope (default)
-        js("[...document.links].map(a => a.href)")    # Single expression works
+        js("document.title")                           # Get page title
+        js("[...document.links].map(a => a.href)")    # Get all links
         js("var x = 1; x + 1", persist=True)          # Multi-statement needs persist=True
         js("element.offsetWidth", selection=1)        # With browser element
         js("fetch('/api')", await_promise=True)       # Async operation
-        js("element.remove()", selection=1, wait_return=False)  # No return needed
+        js("setEquipment.toString()", output="out/fn.js")  # Export to file
     """
     try:
         result = state.client.call(
@@ -49,11 +54,29 @@ def js(
             selection=selection,
             persist=persist,
             await_promise=await_promise,
-            return_value=wait_return,
+            return_value=wait_return or bool(output),
         )
 
+        value = result.get("value")
+
+        # Export to file if output path provided
+        if output:
+            if value is None:
+                return error_response("Expression returned null/undefined")
+            content = value if isinstance(value, str) else json.dumps(value, indent=2, default=str)
+            output_path = ensure_output_directory(output)
+            output_path.write_text(content)
+            return success_response(
+                "Exported successfully",
+                details={
+                    "Output": str(output_path),
+                    "Size": f"{output_path.stat().st_size} bytes",
+                    "Lines": len(content.splitlines()),
+                },
+            )
+
         if wait_return:
-            return code_result_response("JavaScript Result", code, "javascript", result=result.get("value"))
+            return code_result_response("JavaScript Result", code, "javascript", result=value)
         else:
             # Truncate code for display
             is_repl = _ctx and _ctx.is_repl()

@@ -4,7 +4,8 @@ import json
 
 from webtap.app import app
 from webtap.client import RPCError
-from webtap.commands._builders import error_response
+from webtap.commands._builders import error_response, success_response
+from webtap.commands._code_generation import ensure_output_directory
 from webtap.commands._tips import get_mcp_description
 from webtap.commands._utils import evaluate_expression, format_expression_result
 
@@ -20,28 +21,26 @@ def request(
     id: int,
     fields: list = None,  # pyright: ignore[reportArgumentType]
     expr: str = None,  # pyright: ignore[reportArgumentType]
+    output: str = None,  # pyright: ignore[reportArgumentType]
 ) -> dict:
-    """Get HAR request details with field selection.
+    """Get HAR request details with field selection and Python expressions.
 
-    Args:
-        id: Row ID from network() output
-        fields: ES-style field patterns (HAR structure)
-            - None: minimal (method, url, status, time, state)
-            - ["*"]: all fields
-            - ["request.*"]: all request fields
-            - ["request.headers.*"]: all request headers
-            - ["request.postData"]: request body
-            - ["response.headers.*"]: all response headers
-            - ["response.content"]: fetch response body on-demand
-        expr: Python expression with 'data' variable containing selected fields
+    All commands have these pre-imported (no imports needed!):
+    - **Web:** bs4/BeautifulSoup, lxml, ElementTree/ET
+    - **Data:** json, yaml, msgpack, protobuf_json/protobuf_text
+    - **Security:** jwt, base64, hashlib, cryptography
+    - **HTTP:** httpx, urllib
+    - **Text:** re, difflib, textwrap, html
+    - **Utils:** datetime, collections, itertools, pprint, ast
 
     Examples:
-        request(123)                           # Minimal
-        request(123, ["*"])                    # Everything
-        request(123, ["request.headers.*"])    # Request headers
-        request(123, ["response.content"])     # Fetch response body
-        request(123, ["request.postData", "response.content"])  # Both bodies
-        request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")
+      request(123)                           # Minimal (method, url, status)
+      request(123, ["*"])                    # Everything
+      request(123, ["request.headers.*"])    # Request headers
+      request(123, ["response.content"])     # Fetch response body
+      request(123, ["request.postData", "response.content"])  # Both bodies
+      request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")  # Parse JSON
+      request(123, ["*"], output="session.json")  # Export to file
     """
     # Get pre-selected HAR entry from daemon via RPC
     # Field selection (including body fetch) happens server-side
@@ -60,8 +59,21 @@ def request(
     if expr:
         try:
             namespace = {"data": selected}
-            eval_result, output = evaluate_expression(expr, namespace)
-            formatted = format_expression_result(eval_result, output)
+            eval_result, stdout = evaluate_expression(expr, namespace)
+            formatted = format_expression_result(eval_result, stdout)
+
+            # Export to file if output path provided
+            if output:
+                output_path = ensure_output_directory(output)
+                output_path.write_text(formatted)
+                return success_response(
+                    "Exported successfully",
+                    details={
+                        "Output": str(output_path),
+                        "Size": f"{output_path.stat().st_size} bytes",
+                        "Lines": len(formatted.splitlines()),
+                    },
+                )
 
             return {
                 "elements": [
@@ -80,6 +92,20 @@ def request(
                     "Example: json.loads(data['response']['content']['text'])",
                 ],
             )
+
+    # Export to file if output path provided (no expr)
+    if output:
+        content = json.dumps(selected, indent=2, default=str)
+        output_path = ensure_output_directory(output)
+        output_path.write_text(content)
+        return success_response(
+            "Exported successfully",
+            details={
+                "Output": str(output_path),
+                "Size": f"{output_path.stat().st_size} bytes",
+                "Lines": len(content.splitlines()),
+            },
+        )
 
     # Build markdown response
     elements = [
