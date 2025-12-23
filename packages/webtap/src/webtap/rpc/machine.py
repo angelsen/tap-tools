@@ -10,6 +10,8 @@ from typing import Any
 
 from transitions.extensions import LockedMachine
 
+__all__ = ["ConnectionState", "ConnectionMachine"]
+
 
 class ConnectionState(str, Enum):
     """Connection lifecycle states.

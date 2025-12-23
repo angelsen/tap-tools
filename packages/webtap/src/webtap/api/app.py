@@ -1,9 +1,4 @@
-"""FastAPI application and shared state.
-
-PUBLIC API:
-  - api: FastAPI application instance
-  - app_state: Global reference to DaemonState (set by server.py on startup)
-"""
+"""FastAPI application and shared state."""
 
 from typing import Any
 

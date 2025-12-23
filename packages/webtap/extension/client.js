@@ -5,10 +5,51 @@
  * - JSON-RPC 2.0 request/response format
  * - Automatic epoch tracking from responses
  * - SSE state synchronization
+ * - Dynamic port discovery
  * - Debug logging with correlation IDs
  */
 
+// Port discovery constants
+const BASE_DAEMON_PORT = 8765;
+const MAX_PORT_TRIES = 10;
+
 class WebTapClient {
+  /**
+   * Discover the daemon port by scanning
+   * @returns {Promise<number|null>} Daemon port if found, null otherwise
+   */
+  static async discoverDaemon() {
+    for (let i = 0; i < MAX_PORT_TRIES; i++) {
+      const port = BASE_DAEMON_PORT + i;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 500);
+        const response = await fetch(`http://localhost:${port}/health`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (response.ok) {
+          return port;
+        }
+      } catch {
+        // Port not available, try next
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Create a client with auto-discovered port
+   * @returns {Promise<WebTapClient|null>} Client instance if daemon found, null otherwise
+   */
+  static async create() {
+    const port = await WebTapClient.discoverDaemon();
+    if (port === null) {
+      return null;
+    }
+    return new WebTapClient(`http://localhost:${port}`);
+  }
+
   /**
    * @param {string} baseUrl - Base URL for WebTap daemon (default: http://localhost:8765)
    */

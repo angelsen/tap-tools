@@ -37,6 +37,9 @@
       ></button>
     </header>
 
+    <!-- Notices Banner -->
+    <div id="noticesBanner" class="notices-banner hidden"></div>
+
     <div id="errorBanner" class="error-banner">
       <div class="error-banner-header">
         <div class="error-banner-message" id="errorMessage"></div>
@@ -122,6 +125,15 @@
 
     <!-- Tab 2: Network & Filters -->
     <main class="tab-content" data-tab="network" role="tabpanel">
+      <section class="section targets-section">
+        <div class="section-header">
+          <span class="section-title">Targets</span>
+        </div>
+        <div id="targetsList" class="targets-list"></div>
+      </section>
+
+      <hr class="hairline-separator" />
+
       <details class="filter-accordion" open>
         <summary class="section-header flex-row">
           <span class="section-title">Filters</span>

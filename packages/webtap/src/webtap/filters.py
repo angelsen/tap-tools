@@ -1,4 +1,9 @@
-"""Network request filter management for WebTap."""
+"""Network request filter management for WebTap.
+
+PUBLIC API:
+  - FilterManager: Persistent filter groups with in-memory toggle state
+  - FilterGroup: Named filter group with hide configuration
+"""
 
 import json
 import logging
@@ -10,9 +15,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FilterGroup:
-    """A named filter group with hide configuration."""
+    """A named filter group with hide configuration.
 
-    hide: dict  # {"types": [...], "urls": [...]}
+    Attributes:
+        hide: Filter config with "types" and "urls" lists
+    """
+
+    hide: dict
 
 
 class FilterManager:
@@ -34,6 +43,7 @@ class FilterManager:
             self.filter_path = Path(filter_path)
         self.groups: dict[str, FilterGroup] = {}
         self.enabled: set[str] = set()
+        self.active_targets: set[str] | None = None
 
     def load(self) -> bool:
         """Load group definitions from file. All disabled by default.
@@ -49,7 +59,7 @@ class FilterManager:
                     name: FilterGroup(hide=cfg.get("hide", {"types": [], "urls": []}))
                     for name, cfg in data.get("groups", {}).items()
                 }
-                self.enabled = set()  # All disabled on load
+                self.enabled = set()
                 logger.info(f"Loaded {len(self.groups)} filter groups from {self.filter_path}")
                 return True
             except Exception as e:
@@ -85,7 +95,6 @@ class FilterManager:
             name: Group name.
             hide: Filter config {"types": [...], "urls": [...]}.
         """
-        # Ensure hide has required keys
         normalized_hide = {
             "types": hide.get("types", []),
             "urls": hide.get("urls", []),
@@ -165,6 +174,26 @@ class FilterManager:
             for name, group in self.groups.items()
         }
 
+    def set_targets(self, targets: list[str]) -> None:
+        """Set active targets for inclusion filtering.
+
+        Args:
+            targets: List of target IDs (e.g., ["9222:8c5f3a"]). Empty = all.
+        """
+        self.active_targets = set(targets) if targets else None
+
+    def clear_targets(self) -> None:
+        """Clear active targets (show all)."""
+        self.active_targets = None
+
+    def get_targets(self) -> list[str]:
+        """Get active targets list.
+
+        Returns:
+            List of target IDs, empty if all targets.
+        """
+        return list(self.active_targets) if self.active_targets else []
+
     def build_filter_sql(
         self,
         status: int | None = None,
@@ -172,6 +201,7 @@ class FilterManager:
         type_filter: str | None = None,
         url: str | None = None,
         apply_groups: bool = True,
+        target: str | None = None,
     ) -> str:
         """Build SQL WHERE conditions for har_summary filtering.
 
@@ -181,13 +211,20 @@ class FilterManager:
             type_filter: Filter by resource type.
             url: Filter by URL pattern (supports * wildcard).
             apply_groups: Apply enabled filter groups.
+            target: Explicit target override (takes priority over active_targets).
 
         Returns:
             SQL WHERE clause conditions (without WHERE keyword).
         """
         conditions = []
 
-        # Inline filters
+        if target:
+            conditions.append(f"target = '{target}'")
+        elif self.active_targets:
+            escaped_targets = [t.replace("'", "''") for t in self.active_targets]
+            targets_sql = ", ".join(f"'{t}'" for t in escaped_targets)
+            conditions.append(f"target IN ({targets_sql})")
+
         if status is not None:
             conditions.append(f"status = {status}")
         if method:
@@ -198,17 +235,14 @@ class FilterManager:
             sql_pattern = url.replace("'", "''").replace("*", "%")
             conditions.append(f"url LIKE '{sql_pattern}'")
 
-        # Apply enabled filter groups
         if apply_groups:
             active = self.get_active_filters()
 
-            # Hide matching types
             if active["types"]:
                 escaped_types = [t.replace("'", "''") for t in active["types"]]
                 type_list = ", ".join(f"'{t}'" for t in escaped_types)
                 conditions.append(f"type NOT IN ({type_list})")
 
-            # Hide matching URLs
             for pattern in active["urls"]:
                 sql_pattern = pattern.replace("'", "''").replace("*", "%")
                 conditions.append(f"url NOT LIKE '{sql_pattern}'")
@@ -216,4 +250,4 @@ class FilterManager:
         return " AND ".join(conditions) if conditions else ""
 
 
-__all__ = ["FilterManager"]
+__all__ = ["FilterManager", "FilterGroup"]

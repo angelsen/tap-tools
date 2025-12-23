@@ -7,12 +7,16 @@ PUBLIC API:
 """
 
 import asyncio
+import hashlib
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from webtap.rpc.errors import ErrorCode, RPCError
+
+__all__ = ["RPCFramework", "RPCContext", "HandlerMeta"]
 
 if TYPE_CHECKING:
     from webtap.rpc.machine import ConnectionMachine
@@ -67,6 +71,10 @@ class RPCFramework:
         self.machine = ConnectionMachine()
         self.handlers: dict[str, tuple[Callable, HandlerMeta]] = {}
 
+        # Client tracking: {client_id: {version, type, context, last_seen, is_stale}}
+        self._clients: dict[str, dict[str, Any]] = {}
+        self._client_lock = asyncio.Lock()
+
     def method(
         self,
         name: str,
@@ -102,17 +110,64 @@ class RPCFramework:
 
         return decorator
 
-    async def handle(self, request: dict) -> dict:
+    async def _update_client_tracking(self, headers: dict[str, str]) -> None:
+        """Update client tracking from request headers.
+
+        Args:
+            headers: HTTP headers from RPC request
+        """
+        version = headers.get("x-webtap-version")
+        client_type = headers.get("x-webtap-client-type")
+        context = headers.get("x-webtap-context")
+
+        if not (version and client_type and context):
+            return  # Not a tracked client (e.g., extension, old client)
+
+        # Generate client ID from type + context
+        client_id = hashlib.md5(f"{client_type}:{context}".encode()).hexdigest()[:16]
+
+        # Get daemon version for staleness check
+        from webtap import __version__
+
+        is_stale = version < __version__
+
+        async with self._client_lock:
+            self._clients[client_id] = {
+                "version": version,
+                "client_type": client_type,
+                "context": context,
+                "last_seen": time.time(),
+                "is_stale": is_stale,
+            }
+
+            # Prune stale clients (>5min since last seen)
+            cutoff = time.time() - 300  # 5 minutes
+            self._clients = {k: v for k, v in self._clients.items() if v["last_seen"] > cutoff}
+
+    def get_tracked_clients(self) -> dict[str, dict[str, Any]]:
+        """Get all tracked clients (thread-safe snapshot).
+
+        Returns:
+            Dict of client_id -> client info
+        """
+        return dict(self._clients)
+
+    async def handle(self, request: dict, headers: dict[str, str] | None = None) -> dict:
         """Handle JSON-RPC 2.0 request.
 
         Validates request format, routes to handler, manages state transitions.
 
         Args:
             request: JSON-RPC 2.0 request dict
+            headers: HTTP headers from request (for client tracking)
 
         Returns:
             JSON-RPC 2.0 response dict (success or error)
         """
+        # Update client tracking if headers provided
+        if headers:
+            await self._update_client_tracking(headers)
+
         request_id = request.get("id", "")
 
         try:

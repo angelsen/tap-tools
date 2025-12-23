@@ -1,8 +1,7 @@
 """RPC method handlers - thin wrappers around WebTapService.
 
-This module contains all RPC method implementations. Handlers receive RPCContext
-and delegate to WebTapService for business logic. State transitions are managed
-by the ConnectionMachine via ctx.machine.
+Handlers receive RPCContext and delegate to WebTapService for business logic.
+State transitions are managed by the ConnectionMachine via ctx.machine.
 
 Handler categories:
   - Connection Management: connect, disconnect, pages, status, clear
@@ -23,12 +22,36 @@ PUBLIC API:
 from webtap.rpc.errors import ErrorCode, RPCError
 from webtap.rpc.framework import RPCContext, RPCFramework
 
-# Common state requirements
 CONNECTED_STATES = ["connected", "inspecting"]
 CONNECTED_ONLY = ["connected"]
 
-
 __all__ = ["register_handlers", "CONNECTED_STATES", "CONNECTED_ONLY"]
+
+
+def _resolve_cdp_session(ctx: RPCContext, target: str | None):
+    """Resolve target to CDPSession.
+
+    Args:
+        ctx: RPC context
+        target: Target ID or None for primary connection
+
+    Returns:
+        CDPSession instance
+
+    Raises:
+        RPCError: If target not found or multiple connections with no target specified
+    """
+    if target:
+        conn = ctx.service.get_connection(target)
+        if not conn:
+            raise RPCError(ErrorCode.INVALID_PARAMS, f"Target '{target}' not found")
+        return conn.cdp
+
+    # No target specified - use primary connection
+    if len(ctx.service.connections) > 1:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Multiple connections active. Specify target parameter.")
+
+    return ctx.service.cdp
 
 
 def register_handlers(rpc: RPCFramework) -> None:
@@ -77,40 +100,75 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("cdp", requires_state=CONNECTED_STATES)(cdp)
     rpc.method("errors.dismiss")(errors_dismiss)
 
+    # Multi-target support
+    rpc.method("targets.set")(targets_set)
+    rpc.method("targets.clear")(targets_clear)
+    rpc.method("targets.get", broadcasts=False)(targets_get)
 
-def connect(ctx: RPCContext, page_id: str | None = None, page: int | None = None) -> dict:
-    """Connect to a Chrome page by index or page ID.
+
+def connect(
+    ctx: RPCContext,
+    page_id: str | None = None,
+    page: int | None = None,
+    chrome_port: int | None = None,
+    target: str | None = None,
+) -> dict:
+    """Connect to a Chrome page (supports multi-target).
 
     Args:
         page_id: Chrome page ID. Defaults to None.
         page: Page index. Defaults to None.
+        chrome_port: Chrome debug port to connect to (default: 9222). Defaults to None.
+        target: Target ID to connect to (format: "{port}:{short-id}"). Defaults to None.
 
     Returns:
-        Connection result with page details.
+        Connection result with page details including 'target'.
 
     Raises:
         RPCError: If connection fails or invalid parameters.
     """
-    if page is not None and page_id is not None:
-        raise RPCError(ErrorCode.INVALID_PARAMS, "Cannot specify both 'page' and 'page_id'")
-    if page is None and page_id is None:
-        raise RPCError(ErrorCode.INVALID_PARAMS, "Must specify 'page' or 'page_id'")
+    # Validate parameters
+    param_count = sum(x is not None for x in [page, page_id, target])
+    if param_count == 0:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Must specify 'page', 'page_id', or 'target'")
+    if param_count > 1:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Can only specify one of 'page', 'page_id', or 'target'")
 
-    if ctx.service.cdp.is_connected:
-        current_info = ctx.service.cdp.page_info or {}
-        current_id = current_info.get("id")
-        if page_id and page_id == current_id:
-            return {
-                "connected": True,
-                "already_connected": True,
-                "title": current_info.get("title", ""),
-                "url": current_info.get("url", ""),
-            }
+    # Check and auto-update extension before connecting
+    from webtap.services.setup.extension import auto_update_extension
+    from webtap.services.setup.platform import get_platform_info
+
+    try:
+        ext_status = auto_update_extension()
+
+        # Add appropriate notices based on extension status
+        if ext_status.status == "missing":
+            # Extension was just installed
+            info = get_platform_info()
+            extension_path = info["paths"]["data_dir"] / "extension"
+            ctx.service.notices.add("extension_installed", path=str(extension_path))
+
+        elif ext_status.status == "manifest_changed":
+            # Manifest changed - requires reload in chrome://extensions
+            ctx.service.notices.add("extension_manifest_changed")
+
+        elif ext_status.status == "outdated":
+            # Non-manifest files changed - requires sidepanel reopen
+            ctx.service.notices.add("extension_updated")
+
+        # If status was "ok", no notice needed
+
+    except Exception as e:
+        # Log error but don't block connection
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Extension check failed: {e}")
 
     ctx.machine.start_connect()
 
     try:
-        result = ctx.service.connect_to_page(page_index=page, page_id=page_id)
+        result = ctx.service.connect_to_page(page_index=page, page_id=page_id, chrome_port=chrome_port, target=target)
         ctx.machine.connect_success()
         return {"connected": True, **result}
 
@@ -119,14 +177,29 @@ def connect(ctx: RPCContext, page_id: str | None = None, page: int | None = None
         raise RPCError(ErrorCode.NOT_CONNECTED, str(e))
 
 
-def disconnect(ctx: RPCContext) -> dict:
-    """Disconnect from currently connected page."""
+def disconnect(ctx: RPCContext, target: str | None = None) -> dict:
+    """Disconnect from target(s).
+
+    Args:
+        target: Target ID to disconnect. If None, disconnects all targets.
+
+    Returns:
+        Dict with 'disconnected' list of target IDs.
+    """
     ctx.machine.start_disconnect()
 
     try:
-        ctx.service.disconnect()
+        if target:
+            # Disconnect specific target
+            ctx.service.disconnect_target(target)
+            disconnected = [target]
+        else:
+            # Disconnect all targets
+            disconnected = list(ctx.service.connections.keys())
+            ctx.service.disconnect()
+
         ctx.machine.disconnect_complete()
-        return {"disconnected": True}
+        return {"disconnected": disconnected}
 
     except Exception as e:
         # Still complete the transition even if there's an error
@@ -134,11 +207,17 @@ def disconnect(ctx: RPCContext) -> dict:
         raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
 
 
-def pages(ctx: RPCContext) -> dict:
-    """Get available Chrome pages from /json endpoint."""
+def pages(ctx: RPCContext, chrome_port: int | None = None) -> dict:
+    """Get available Chrome pages from one or all tracked ports.
+
+    Args:
+        chrome_port: Specific port to query. If None, returns pages from all tracked ports.
+
+    Returns:
+        Dict with 'pages' list. Each page includes 'chrome_port' and 'is_connected' fields.
+    """
     try:
-        pages_data = ctx.service.cdp.list_pages()
-        return {"pages": pages_data}
+        return ctx.service.list_pages(chrome_port=chrome_port)
     except Exception as e:
         raise RPCError(ErrorCode.INTERNAL_ERROR, f"Failed to list pages: {e}")
 
@@ -432,14 +511,16 @@ def errors_dismiss(ctx: RPCContext) -> dict:
     return {"success": True}
 
 
-def navigate(ctx: RPCContext, url: str) -> dict:
+def navigate(ctx: RPCContext, url: str, target: str | None = None) -> dict:
     """Navigate to URL.
 
     Args:
         url: Target URL
+        target: Target ID. Uses primary connection if not specified.
     """
     try:
-        result = ctx.service.cdp.execute("Page.navigate", {"url": url})
+        cdp = _resolve_cdp_session(ctx, target)
+        result = cdp.execute("Page.navigate", {"url": url})
         return {
             "url": url,
             "frame_id": result.get("frameId"),
@@ -450,42 +531,54 @@ def navigate(ctx: RPCContext, url: str) -> dict:
         raise RPCError(ErrorCode.INTERNAL_ERROR, f"Navigation failed: {e}")
 
 
-def reload(ctx: RPCContext, ignore_cache: bool = False) -> dict:
+def reload(ctx: RPCContext, ignore_cache: bool = False, target: str | None = None) -> dict:
     """Reload current page.
 
     Args:
         ignore_cache: Ignore browser cache. Defaults to False.
+        target: Target ID. Uses primary connection if not specified.
     """
     try:
-        ctx.service.cdp.execute("Page.reload", {"ignoreCache": ignore_cache})
+        cdp = _resolve_cdp_session(ctx, target)
+        cdp.execute("Page.reload", {"ignoreCache": ignore_cache})
         return {"reloaded": True, "ignore_cache": ignore_cache}
     except Exception as e:
         raise RPCError(ErrorCode.INTERNAL_ERROR, f"Reload failed: {e}")
 
 
-def back(ctx: RPCContext) -> dict:
-    """Navigate back in history."""
+def back(ctx: RPCContext, target: str | None = None) -> dict:
+    """Navigate back in history.
+
+    Args:
+        target: Target ID. Uses primary connection if not specified.
+    """
     try:
-        return _navigate_history(ctx, -1)
+        return _navigate_history(ctx, -1, target)
     except Exception as e:
         raise RPCError(ErrorCode.INTERNAL_ERROR, f"Back navigation failed: {e}")
 
 
-def forward(ctx: RPCContext) -> dict:
-    """Navigate forward in history."""
+def forward(ctx: RPCContext, target: str | None = None) -> dict:
+    """Navigate forward in history.
+
+    Args:
+        target: Target ID. Uses primary connection if not specified.
+    """
     try:
-        return _navigate_history(ctx, +1)
+        return _navigate_history(ctx, +1, target)
     except Exception as e:
         raise RPCError(ErrorCode.INTERNAL_ERROR, f"Forward navigation failed: {e}")
 
 
-def _navigate_history(ctx: RPCContext, direction: int) -> dict:
+def _navigate_history(ctx: RPCContext, direction: int, target: str | None = None) -> dict:
     """Navigate history by direction.
 
     Args:
         direction: -1 for back, +1 for forward
+        target: Target ID or None for primary connection
     """
-    result = ctx.service.cdp.execute("Page.getNavigationHistory", {})
+    cdp = _resolve_cdp_session(ctx, target)
+    result = cdp.execute("Page.getNavigationHistory", {})
     entries = result.get("entries", [])
     current = result.get("currentIndex", 0)
     target_idx = current + direction
@@ -495,13 +588,13 @@ def _navigate_history(ctx: RPCContext, direction: int) -> dict:
     if target_idx >= len(entries):
         return {"navigated": False, "reason": "Already at last entry"}
 
-    target = entries[target_idx]
-    ctx.service.cdp.execute("Page.navigateToHistoryEntry", {"entryId": target["id"]})
+    target_entry = entries[target_idx]
+    cdp.execute("Page.navigateToHistoryEntry", {"entryId": target_entry["id"]})
 
     return {
         "navigated": True,
-        "title": target.get("title", ""),
-        "url": target.get("url", ""),
+        "title": target_entry.get("title", ""),
+        "url": target_entry.get("url", ""),
         "index": target_idx,
         "total": len(entries),
     }
@@ -568,6 +661,7 @@ def js(
     persist: bool = False,
     await_promise: bool = False,
     return_value: bool = True,
+    target: str | None = None,
 ) -> dict:
     """Execute JavaScript in browser context.
 
@@ -577,8 +671,11 @@ def js(
         persist: Keep variables in global scope. Defaults to False.
         await_promise: Await promise results. Defaults to False.
         return_value: Return the result value. Defaults to True.
+        target: Target ID. Uses primary connection if not specified.
     """
     try:
+        cdp = _resolve_cdp_session(ctx, target)
+
         if selection is not None:
             dom_state = ctx.service.dom.get_state()
             selections = dom_state.get("selections", {})
@@ -599,7 +696,7 @@ def js(
             # Default: wrap in IIFE for fresh scope
             code = f"(() => {{ return ({code}); }})()"
 
-        result = ctx.service.cdp.execute(
+        result = cdp.execute(
             "Runtime.evaluate",
             {
                 "expression": code,
@@ -623,3 +720,38 @@ def js(
         raise
     except Exception as e:
         raise RPCError(ErrorCode.INTERNAL_ERROR, f"JS execution failed: {e}")
+
+
+def targets_set(ctx: RPCContext, targets: list[str]) -> dict:
+    """Set active targets for filtering.
+
+    Args:
+        targets: List of target IDs to filter to. Empty list = all targets.
+
+    Returns:
+        Dict with 'active_targets' list.
+    """
+    ctx.service.filters.set_targets(targets)
+    return {"active_targets": targets}
+
+
+def targets_clear(ctx: RPCContext) -> dict:
+    """Clear active targets (show all).
+
+    Returns:
+        Dict with empty 'active_targets' list.
+    """
+    ctx.service.filters.clear_targets()
+    return {"active_targets": []}
+
+
+def targets_get(ctx: RPCContext) -> dict:
+    """Get current active targets.
+
+    Returns:
+        Dict with 'active_targets' list (empty = all targets).
+    """
+    return {"active_targets": ctx.service.filters.get_targets()}
+
+
+# Port methods removed - superseded by target-based approach

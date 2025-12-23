@@ -38,6 +38,7 @@ class DaemonState:
         from webtap.services import WebTapService
 
         self.cdp = CDPSession()
+        self.cdp_sessions: dict[int, "CDPSession"] = {9222: self.cdp}
         self.browser_data = None
         self.service = WebTapService(self)
         self.error_state = None
@@ -45,9 +46,10 @@ class DaemonState:
     def cleanup(self):
         """Clean up resources on shutdown."""
         if self.service:
-            self.service.disconnect()  # Cleans up DOM, fetch, body services
-        if self.cdp:
-            self.cdp.cleanup()
+            self.service.disconnect()
+
+        for cdp_session in self.cdp_sessions.values():
+            cdp_session.cleanup()
 
 
 __all__ = ["DaemonState"]

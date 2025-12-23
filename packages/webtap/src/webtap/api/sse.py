@@ -1,15 +1,9 @@
-"""SSE streaming and broadcast management.
-
-PUBLIC API:
-  - router: FastAPI router with SSE endpoints
-  - get_broadcast_queue: Get broadcast queue for service
-  - set_broadcast_ready_event: Set ready event signal
-  - broadcast_processor: Background task for coalesced broadcasts
-"""
+"""SSE streaming and broadcast management."""
 
 import asyncio
 import json as json_module
 import logging
+import time
 from typing import Any, Dict
 
 from fastapi import APIRouter
@@ -19,6 +13,8 @@ import webtap.api.app as app_module
 from webtap.api.state import get_full_state
 
 logger = logging.getLogger(__name__)
+
+SSE_SHUTDOWN_TIMEOUT = 2.0  # Max seconds to wait for SSE clients to disconnect
 
 router = APIRouter()
 
@@ -30,7 +26,11 @@ _broadcast_ready_event: asyncio.Event | None = None
 
 
 def set_broadcast_ready_event(event: asyncio.Event) -> None:
-    """Set the event to signal when broadcast processor is ready."""
+    """Set ready event signal for broadcast processor.
+
+    Args:
+        event: Event to signal when processor is ready
+    """
     global _broadcast_ready_event
     _broadcast_ready_event = event
 
@@ -46,11 +46,17 @@ async def stream_events():
     - Filter status
     - Element selection state (inspect_active, selections)
 
+    On connect, clears notices with clear_on="extension_connect".
+
     Returns:
         StreamingResponse with text/event-stream content type
     """
+    # Clear extension-related notices on connect
+    if app_module.app_state and app_module.app_state.service:
+        app_module.app_state.service.notices.clear_on_event("extension_connect")
+        logger.debug("Cleared extension_connect notices on SSE connect")
 
-    async def event_generator():
+    async def _event_generator():
         """Generate SSE events with full state."""
         queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
 
@@ -83,7 +89,7 @@ async def stream_events():
                 _sse_clients.discard(queue)
 
     return StreamingResponse(
-        event_generator(),
+        _event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -93,7 +99,7 @@ async def stream_events():
     )
 
 
-async def broadcast_state():
+async def _broadcast_state():
     """Broadcast current state to all SSE clients."""
     global _sse_clients
 
@@ -151,7 +157,7 @@ async def broadcast_processor():
                 logger.debug(f"Broadcast signal received: {signal}")
 
                 # Broadcast to all SSE clients
-                await broadcast_state()
+                await _broadcast_state()
 
                 # Clear pending flag to allow next broadcast (service owns coalescing)
                 if app_module.app_state and app_module.app_state.service:
@@ -180,3 +186,44 @@ async def broadcast_processor():
 def get_broadcast_queue() -> asyncio.Queue | None:
     """Get broadcast queue for wiring to service."""
     return _broadcast_queue
+
+
+async def shutdown_sse_clients(timeout: float = SSE_SHUTDOWN_TIMEOUT) -> None:
+    """Gracefully close all SSE connections with timeout.
+
+    Sends shutdown signal to all clients and waits for them to disconnect.
+    Force-clears any remaining clients after timeout.
+
+    Args:
+        timeout: Maximum seconds to wait for clients to disconnect. Defaults to 2.0.
+    """
+    async with _sse_clients_lock:
+        clients = list(_sse_clients)
+
+    if not clients:
+        return
+
+    logger.debug(f"Shutting down {len(clients)} SSE clients (timeout={timeout}s)")
+
+    # Send shutdown signal to all clients
+    for queue in clients:
+        try:
+            queue.put_nowait(None)  # None signals shutdown
+        except asyncio.QueueFull:
+            pass  # Client is hung, will be force-cleared
+
+    # Wait for clients to disconnect (with timeout)
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        async with _sse_clients_lock:
+            if not _sse_clients:
+                logger.debug("All SSE clients disconnected gracefully")
+                return
+        await asyncio.sleep(0.1)
+
+    # Force clear any remaining clients
+    async with _sse_clients_lock:
+        remaining = len(_sse_clients)
+        if remaining:
+            logger.warning(f"Force-clearing {remaining} hung SSE clients after {timeout}s timeout")
+        _sse_clients.clear()

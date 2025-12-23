@@ -1,8 +1,4 @@
-"""HAR view creation for DuckDB.
-
-PUBLIC API:
-  - create_har_views: Create HAR aggregation views in DuckDB
-"""
+"""HAR view creation for DuckDB."""
 
 import logging
 
@@ -57,7 +53,8 @@ http_requests AS (
         MAX(json_extract_string(event, '$.params.request.url')) as url,
         MAX(json_extract(event, '$.params.request.headers')) as request_headers,
         MAX(json_extract_string(event, '$.params.request.postData')) as post_data,
-        MAX(json_extract_string(event, '$.params.type')) as resource_type
+        MAX(json_extract_string(event, '$.params.type')) as resource_type,
+        MAX(target) as target
     FROM events
     WHERE method = 'Network.requestWillBeSent'
     GROUP BY json_extract_string(event, '$.params.requestId')
@@ -126,7 +123,8 @@ ws_created AS (
         json_extract_string(event, '$.params.requestId') as request_id,
         MIN(rowid) as first_rowid,
         'websocket' as protocol,
-        MAX(json_extract_string(event, '$.params.url')) as url
+        MAX(json_extract_string(event, '$.params.url')) as url,
+        MAX(target) as target
     FROM events
     WHERE method = 'Network.webSocketCreated'
     GROUP BY json_extract_string(event, '$.params.requestId')
@@ -208,7 +206,8 @@ http_entries AS (
         reqx.cookies as request_cookies,
         CAST(NULL AS BIGINT) as frames_sent,
         CAST(NULL AS BIGINT) as frames_received,
-        CAST(NULL AS BIGINT) as ws_total_bytes
+        CAST(NULL AS BIGINT) as ws_total_bytes,
+        req.target
     FROM http_requests req
     LEFT JOIN request_extra reqx ON req.request_id = reqx.request_id
     LEFT JOIN http_responses resp ON req.request_id = resp.request_id
@@ -251,7 +250,8 @@ websocket_entries AS (
         CAST(NULL AS JSON) as request_cookies,
         wf.frames_sent,
         wf.frames_received,
-        wf.total_bytes as ws_total_bytes
+        wf.total_bytes as ws_total_bytes,
+        ws.target
     FROM ws_created ws
     LEFT JOIN ws_handshake hs ON ws.request_id = hs.request_id
     LEFT JOIN ws_frames wf ON ws.request_id = wf.request_id
@@ -281,15 +281,14 @@ SELECT
     pause_stage,
     paused_id,
     frames_sent,
-    frames_received
+    frames_received,
+    target
 FROM har_entries
 """
 
 
-def create_har_views(db_execute) -> None:
+def _create_har_views(db_execute) -> None:
     """Create HAR-based aggregation views in DuckDB.
-
-    Creates har_entries and har_summary views for network request aggregation.
 
     Args:
         db_execute: Function to execute SQL (session._db_execute)
@@ -299,4 +298,4 @@ def create_har_views(db_execute) -> None:
     logger.debug("HAR views created")
 
 
-__all__ = ["create_har_views"]
+__all__ = ["_create_har_views"]

@@ -1,6 +1,8 @@
 """JSON-RPC 2.0 client for WebTap daemon communication."""
 
 import logging
+import os
+import subprocess
 import uuid
 from typing import Any
 
@@ -32,10 +34,51 @@ class RPCClient:
     The client tracks epoch for stale request detection.
     """
 
-    def __init__(self, base_url: str = "http://localhost:8765", timeout: float = 30.0):
-        self.base_url = base_url
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0, client_type: str = "repl"):
+        from webtap.daemon import get_daemon_url
+
+        self.base_url = base_url or get_daemon_url()
         self.epoch = 0
+        self._client_type = client_type
         self._client = httpx.Client(timeout=timeout)
+
+    def _get_client_headers(self) -> dict[str, str]:
+        """Build client tracking headers for RPC requests.
+
+        Returns:
+            Dict of headers with version, type, and context information
+        """
+        from webtap import __version__
+
+        headers = {
+            "X-Webtap-Version": __version__,
+            "X-Webtap-Client-Type": self._client_type,
+        }
+
+        # Build context string
+        context_parts = []
+
+        # Detect tmux
+        if os.environ.get("TMUX"):
+            tmux_pane = os.environ.get("TMUX_PANE", "")
+            # Get session:window from tmux
+            try:
+                result = subprocess.run(
+                    ["tmux", "display-message", "-p", "#{session_name}:#{window_index}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
+                if result.returncode == 0:
+                    context_parts.append(f"tmux:{result.stdout.strip()}{tmux_pane}")
+            except Exception:
+                context_parts.append("tmux:unknown")
+
+        # Add cwd
+        context_parts.append(os.getcwd())
+
+        headers["X-Webtap-Context"] = ":".join(context_parts)
+        return headers
 
     def call(self, method: str, **params) -> dict[str, Any]:
         """Call RPC method. Raises RPCError on error."""
@@ -52,7 +95,7 @@ class RPCClient:
             request["epoch"] = self.epoch
 
         try:
-            response = self._client.post(f"{self.base_url}/rpc", json=request)
+            response = self._client.post(f"{self.base_url}/rpc", json=request, headers=self._get_client_headers())
             response.raise_for_status()
             data = response.json()
         except httpx.ConnectError as e:

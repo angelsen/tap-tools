@@ -5,7 +5,6 @@ PUBLIC API:
   - app: Main ReplKit2 App instance (imported by commands and __init__)
 """
 
-import sys
 from dataclasses import dataclass, field
 
 from replkit2 import App
@@ -36,7 +35,6 @@ class WebTapState:
             self.client.close()
 
 
-# Must be created before command imports for decorator registration
 app = App(
     "webtap",
     WebTapState,
@@ -45,34 +43,23 @@ app = App(
         "instructions": "Chrome DevTools Protocol debugger",
     },
     typer_config={
-        "add_completion": False,  # Hide shell completion options
+        "add_completion": False,
         "help": "WebTap - Chrome DevTools Protocol CLI",
     },
 )
 
-# Command imports trigger @app.command decorator registration
-if "--cli" in sys.argv:
-    # Only import CLI-compatible commands (no dict/list parameters)
-    from webtap.commands import setup  # noqa: E402, F401
-    from webtap.commands import launch  # noqa: E402, F401
-else:
-    # Import all commands for REPL/MCP mode
-    from webtap.commands import connection  # noqa: E402, F401
-    from webtap.commands import navigation  # noqa: E402, F401
-    from webtap.commands import javascript  # noqa: E402, F401
-    from webtap.commands import network  # noqa: E402, F401
-    from webtap.commands import request  # noqa: E402, F401
-    from webtap.commands import console  # noqa: E402, F401
-    from webtap.commands import filters  # noqa: E402, F401
-    from webtap.commands import fetch  # noqa: E402, F401
-    from webtap.commands import to_model  # noqa: E402, F401
-    from webtap.commands import quicktype  # noqa: E402, F401
-    from webtap.commands import selections  # noqa: E402, F401
-    from webtap.commands import setup  # noqa: E402, F401
-    from webtap.commands import launch  # noqa: E402, F401
-
-
-# Entry point is in __init__.py:main() as specified in pyproject.toml
-
+from webtap.commands import connection  # noqa: E402, F401
+from webtap.commands import navigation  # noqa: E402, F401
+from webtap.commands import javascript  # noqa: E402, F401
+from webtap.commands import network  # noqa: E402, F401
+from webtap.commands import request  # noqa: E402, F401
+from webtap.commands import console  # noqa: E402, F401
+from webtap.commands import filters  # noqa: E402, F401
+from webtap.commands import fetch  # noqa: E402, F401
+from webtap.commands import to_model  # noqa: E402, F401
+from webtap.commands import quicktype  # noqa: E402, F401
+from webtap.commands import selections  # noqa: E402, F401
+from webtap.commands import setup  # noqa: E402, F401
+from webtap.commands import launch  # noqa: E402, F401
 
 __all__ = ["WebTapState", "app"]

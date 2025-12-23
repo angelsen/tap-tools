@@ -11,7 +11,7 @@ import duckdb
 import requests
 import websocket
 
-from webtap.cdp.har import create_har_views
+from webtap.cdp.har import _create_har_views
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ class CDPSession:
         self.connected = threading.Event()
         self.page_info: dict | None = None
 
+        # Target tracking for multi-target support
+        self.target: str | None = None
+
         # CDP request/response tracking
         self._next_id = 1
         self._pending: dict[int, Future] = {}
@@ -68,19 +71,23 @@ class CDPSession:
         self._db_thread = threading.Thread(target=self._db_worker, daemon=True)
         self._db_thread.start()
 
-        # Initialize schema with method column for fast filtering
+        # Initialize schema with method and target columns for fast filtering
         # Must wait for table to exist before any queries can run
         self._db_execute(
-            "CREATE TABLE IF NOT EXISTS events (event JSON, method VARCHAR)",
+            "CREATE TABLE IF NOT EXISTS events (event JSON, method VARCHAR, target VARCHAR)",
             wait_result=True,
         )
         self._db_execute(
             "CREATE INDEX IF NOT EXISTS idx_events_method ON events(method)",
             wait_result=True,
         )
+        self._db_execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_target ON events(target)",
+            wait_result=True,
+        )
 
         # Create HAR views for aggregated network request data
-        create_har_views(self._db_execute)
+        _create_har_views(self._db_execute)
 
         # Event count for pruning (approximate, updated periodically)
         self._event_count = 0
@@ -283,6 +290,7 @@ class CDPSession:
 
         self.connected.clear()
         self.page_info = None
+        self.target = None
 
     def cleanup(self) -> None:
         """Shutdown DB thread and disconnect (call on app exit only).
@@ -385,9 +393,10 @@ class CDPSession:
             # CDP event - store AS-IS in DuckDB and update field lookup
             elif "method" in data:
                 method = data.get("method", "")
+                # Store with target string (set by service after connection)
                 self._db_execute(
-                    "INSERT INTO events (event, method) VALUES (?, ?)",
-                    [json.dumps(data), method],
+                    "INSERT INTO events (event, method, target) VALUES (?, ?, ?)",
+                    [json.dumps(data), method, self.target],
                     wait_result=False,
                 )
                 self._event_count += 1
@@ -433,6 +442,7 @@ class CDPSession:
             # Unexpected disconnect: was connected and ws_app was set (not manual disconnect)
             is_unexpected = was_connected and ws_app_was_set
             self.page_info = None
+            self.target = None
 
         # Trigger service-level cleanup if this was unexpected
         if is_unexpected and self._disconnect_callback:

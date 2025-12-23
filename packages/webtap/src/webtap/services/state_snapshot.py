@@ -1,7 +1,7 @@
 """Immutable state snapshots for thread-safe SSE broadcasting."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List, Dict
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,7 @@ class StateSnapshot:
     and background threads (WebSocket, disconnect handlers).
 
     Attributes:
-        connected: Whether connected to Chrome page
+        connected: Whether connected to Chrome page (any target)
         page_id: Stable page identifier (empty if not connected)
         page_title: Page title (empty if not connected)
         page_url: Page URL (empty if not connected)
@@ -24,12 +24,15 @@ class StateSnapshot:
         paused_count: Number of paused requests (if fetch enabled)
         enabled_filters: Tuple of enabled filter category names
         disabled_filters: Tuple of disabled filter category names
+        active_targets: Tuple of target IDs being filtered to (empty = all)
+        connections: Tuple of connection info dicts (target, title, url)
         inspect_active: Whether element inspection mode is active
         selections: Dict of selected elements (id -> element data)
         prompt: Browser prompt text (unused, reserved)
         pending_count: Number of pending element selections being processed
         error_message: Current error message or None
         error_timestamp: Error timestamp or None
+        notices: List of active notices for multi-surface display
     """
 
     # Connection state
@@ -50,6 +53,10 @@ class StateSnapshot:
     enabled_filters: tuple[str, ...]
     disabled_filters: tuple[str, ...]
 
+    # Multi-target state
+    active_targets: tuple[str, ...]  # Target IDs being filtered to (empty = all)
+    connections: tuple[dict, ...]  # Connection info: [{target, title, url}, ...]
+
     # Browser/DOM state
     inspect_active: bool
     selections: dict[str, Any]  # Dict is mutable but replaced atomically
@@ -59,6 +66,9 @@ class StateSnapshot:
     # Error state
     error_message: str | None
     error_timestamp: float | None
+
+    # Notice state
+    notices: List[Dict[str, Any]]
 
     @classmethod
     def create_empty(cls) -> "StateSnapshot":
@@ -74,12 +84,15 @@ class StateSnapshot:
             paused_count=0,
             enabled_filters=(),
             disabled_filters=(),
+            active_targets=(),
+            connections=(),
             inspect_active=False,
             selections={},
             prompt="",
             pending_count=0,
             error_message=None,
             error_timestamp=None,
+            notices=[],
         )
 
 

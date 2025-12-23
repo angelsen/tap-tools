@@ -232,11 +232,13 @@ client.on("state", (state, previousState) => {
   updateConnectionStatus(state);
   updateInterceptUI(state);
   updateFiltersUI(state.filters);
+  updateTargetsUI(state);
   updateSelectionUI(state.browser);
   updateErrorBanner(state.error);
   updateEventCount(state.events.total);
   updateButtons(state.connected);
   updateConnectButton();
+  renderNotices(state.notices, state.clients);
 
   const pageChanged = previousState?.page?.id !== state.page?.id;
   if (
@@ -306,6 +308,72 @@ function updateErrorBanner(error) {
   }
 }
 
+// Notice type to CSS class mapping
+const NOTICE_TYPE_CLASSES = {
+  extension_installed: "notice--info",
+  extension_updated: "notice--warning",
+  extension_manifest_changed: "notice--warning",
+  client_stale: "notice--stale",
+};
+
+function renderNotices(notices, clients) {
+  const container = document.getElementById("noticesBanner");
+  container.innerHTML = "";
+
+  // Combine notices with stale client notices
+  const allNotices = [...(notices || [])];
+
+  // Add stale client notices from clients dict
+  if (clients) {
+    const staleClients = Object.entries(clients)
+      .filter(([_, c]) => c.is_stale)
+      .map(([id, c]) => ({
+        type: "client_stale",
+        message: `${c.client_type || "Client"} (${c.version}) in ${c.context || "unknown"} is outdated`,
+        clear_on: null,
+      }));
+    allNotices.push(...staleClients);
+  }
+
+  if (allNotices.length === 0) {
+    container.classList.add("hidden");
+    return;
+  }
+
+  container.classList.remove("hidden");
+
+  for (const notice of allNotices) {
+    const typeClass = NOTICE_TYPE_CLASSES[notice.type] || "";
+    const noticeEl = ui.el("div", { class: `notice ${typeClass}` });
+
+    const messageEl = ui.el("span", {
+      class: "notice-message",
+      text: notice.message,
+    });
+    noticeEl.appendChild(messageEl);
+
+    // Add dismiss button for manual-clear notices (no clear_on)
+    if (!notice.clear_on) {
+      const dismissBtn = ui.el("button", {
+        class: "notice-dismiss",
+        text: icons.close,
+        title: "Dismiss",
+        onclick: () => {
+          // For now, just remove from UI
+          // TODO: Add notices.dismiss RPC method when backend supports it
+          noticeEl.remove();
+          if (container.children.length === 0) {
+            container.classList.add("hidden");
+          }
+        },
+      });
+      noticeEl.appendChild(dismissBtn);
+    }
+
+    container.appendChild(noticeEl);
+  }
+}
+
 function updateInterceptUI(state) {
   let mode = "disabled";
   if (state.fetch.enabled) {
@@ -343,6 +411,81 @@ function updateFiltersUI(filters) {
     label.appendChild(document.createTextNode(name));
     filterList.appendChild(label);
   });
+}
+
+async function updateTargetsUI(state) {
+  const targetsList = document.getElementById("targetsList");
+  const activeTargets = new Set(state.active_targets || []);
+  const connections = new Set(
+    (state.connections || []).map((c) => c.target)
+  );
+
+  ui.empty(targetsList);
+
+  if (!webtapAvailable) {
+    return;
+  }
+
+  try {
+    const info = await client.call("pages");
+    const pages = info.pages || [];
+
+    if (pages.length === 0) {
+      return;
+    }
+
+    pages.forEach((page) => {
+      const target = page.target;
+      const isConnected = connections.has(target);
+      const isActive =
+        activeTargets.size === 0 || activeTargets.has(target);
+
+      const checkbox = ui.el("input", {
+        attrs: { type: "checkbox", "data-target": target },
+      });
+      checkbox.checked = isActive;
+      checkbox.onchange = () => toggleTarget(target, checkbox, pages);
+
+      const label = ui.el("label", {
+        children: [
+          checkbox,
+          ui.el("span", {
+            class: "target-label",
+            text: `${target} (${page.title || "Untitled"})`,
+          }),
+          ui.el("span", {
+            class: `connection-indicator ${isConnected ? "connected" : ""}`,
+          }),
+        ],
+      });
+
+      targetsList.appendChild(label);
+    });
+  } catch (err) {
+    console.error("[WebTap] Failed to load pages for targets:", err);
+  }
+}
+
+async function toggleTarget(target, checkbox, allPages) {
+  const targetsList = document.getElementById("targetsList");
+  const checkboxes = targetsList.querySelectorAll(
+    'input[type="checkbox"]'
+  );
+  const activeTargets = [];
+
+  checkboxes.forEach((cb) => {
+    if (cb.checked) {
+      activeTargets.push(cb.dataset.target);
+    }
+  });
+
+  if (activeTargets.length === 0) {
+    await client.call("targets.clear");
+  } else if (activeTargets.length === allPages.length) {
+    await client.call("targets.clear");
+  } else {
+    await client.call("targets.set", { targets: activeTargets });
+  }
 }
 
 function updateSelectionUI(browser) {

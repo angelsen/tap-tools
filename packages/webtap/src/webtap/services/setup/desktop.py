@@ -1,8 +1,4 @@
-"""Desktop/Application launcher setup (cross-platform).
-
-PUBLIC API:
-  - DesktopSetupService: Desktop entry/app bundle installation
-"""
+"""Desktop entry and application launcher installation (cross-platform)."""
 
 import logging
 from typing import Dict, Any
@@ -11,8 +7,7 @@ from .platform import get_platform_info
 
 logger = logging.getLogger(__name__)
 
-# Desktop entry template for Linux
-LINUX_DESKTOP_ENTRY = """[Desktop Entry]
+_LINUX_DESKTOP_ENTRY = """[Desktop Entry]
 Version=1.0
 Type=Application
 Name=Chrome Debug
@@ -43,8 +38,7 @@ StartupWMClass=Google-chrome
 Exec={wrapper_path} --temp
 """
 
-# Info.plist template for macOS app bundle
-MACOS_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+_MACOS_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -199,7 +193,7 @@ exec "{chrome_path}" \\
 
         # Create Info.plist
         plist_path = contents_dir / "Info.plist"
-        plist_path.write_text(MACOS_INFO_PLIST)
+        plist_path.write_text(_MACOS_INFO_PLIST)
 
         logger.info(f"Created Chrome Debug app at {app_path}")
 
@@ -252,4 +246,4 @@ exec "{chrome_path}" \\
         # Use absolute expanded path for Exec lines
         wrapper_abs_path = self.wrapper_path.expanduser()
 
-        return LINUX_DESKTOP_ENTRY.format(wrapper_path=wrapper_abs_path)
+        return _LINUX_DESKTOP_ENTRY.format(wrapper_path=wrapper_abs_path)

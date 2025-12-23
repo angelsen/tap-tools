@@ -1,10 +1,4 @@
-"""Platform detection and path management using platformdirs.
-
-PUBLIC API:
-  - get_platform_info: Get platform information dict with paths and Chrome location
-  - ensure_directories: Create required directories with proper permissions
-  - APP_NAME: Application name constant
-"""
+"""Platform detection and path management using platformdirs."""
 
 import platform
 import shutil
@@ -13,31 +7,26 @@ from typing import Optional
 
 import platformdirs
 
-# Application constants
 APP_NAME = "webtap"
-APP_AUTHOR = "webtap"
 
-# Directory names
-BIN_DIR_NAME = ".local/bin"
-WRAPPER_NAME = "chrome-debug"
-TMP_RUNTIME_DIR = "/tmp"
+_APP_AUTHOR = "webtap"
+_BIN_DIR_NAME = ".local/bin"
+_WRAPPER_NAME = "chrome-debug"
+_TMP_RUNTIME_DIR = "/tmp"
 
-# Chrome executable names for Linux
-CHROME_NAMES_LINUX = [
+_CHROME_NAMES_LINUX = [
     "google-chrome",
     "google-chrome-stable",
     "chromium",
     "chromium-browser",
 ]
 
-# Chrome paths for macOS
-CHROME_PATHS_MACOS = [
+_CHROME_PATHS_MACOS = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # Relative to home
+    "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 ]
 
-# Chrome paths for Linux
-CHROME_PATHS_LINUX = [
+_CHROME_PATHS_LINUX = [
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
@@ -45,13 +34,11 @@ CHROME_PATHS_LINUX = [
     "/snap/bin/chromium",
 ]
 
-# Platform identifiers
-PLATFORM_DARWIN = "Darwin"
-PLATFORM_LINUX = "Linux"
+_PLATFORM_DARWIN = "Darwin"
+_PLATFORM_LINUX = "Linux"
 
-# Application directories
-MACOS_APPLICATIONS_DIR = "Applications"
-LINUX_APPLICATIONS_DIR = ".local/share/applications"
+_MACOS_APPLICATIONS_DIR = "Applications"
+_LINUX_APPLICATIONS_DIR = ".local/share/applications"
 
 
 def get_platform_paths() -> dict[str, Path]:
@@ -60,7 +47,7 @@ def get_platform_paths() -> dict[str, Path]:
     Returns:
         Dictionary of paths for config, data, cache, runtime, and state directories.
     """
-    dirs = platformdirs.PlatformDirs(APP_NAME, APP_AUTHOR)
+    dirs = platformdirs.PlatformDirs(APP_NAME, _APP_AUTHOR)
 
     paths = {
         "config_dir": Path(dirs.user_config_dir),  # ~/.config/webtap or ~/Library/Application Support/webtap
@@ -74,7 +61,7 @@ def get_platform_paths() -> dict[str, Path]:
         paths["runtime_dir"] = Path(dirs.user_runtime_dir)
     except AttributeError:
         # Fallback for platforms without runtime dir
-        paths["runtime_dir"] = Path(TMP_RUNTIME_DIR) / APP_NAME
+        paths["runtime_dir"] = Path(_TMP_RUNTIME_DIR) / APP_NAME
 
     return paths
 
@@ -87,15 +74,15 @@ def get_chrome_path() -> Optional[Path]:
     """
     system = platform.system()
 
-    if system == PLATFORM_DARWIN:
+    if system == _PLATFORM_DARWIN:
         # macOS standard locations
         candidates = [
-            Path(CHROME_PATHS_MACOS[0]),
-            Path.home() / CHROME_PATHS_MACOS[1],
+            Path(_CHROME_PATHS_MACOS[0]),
+            Path.home() / _CHROME_PATHS_MACOS[1],
         ]
-    elif system == PLATFORM_LINUX:
+    elif system == _PLATFORM_LINUX:
         # Linux standard locations
-        candidates = [Path(p) for p in CHROME_PATHS_LINUX]
+        candidates = [Path(p) for p in _CHROME_PATHS_LINUX]
     else:
         return None
 
@@ -104,7 +91,7 @@ def get_chrome_path() -> Optional[Path]:
             return path
 
     # Try to find in PATH
-    for name in CHROME_NAMES_LINUX:
+    for name in _CHROME_NAMES_LINUX:
         if found := shutil.which(name):
             return Path(found)
 
@@ -121,30 +108,30 @@ def get_platform_info() -> dict:
     paths = get_platform_paths()
 
     # Unified paths for both platforms
-    paths["bin_dir"] = Path.home() / BIN_DIR_NAME  # User space, no sudo needed
+    paths["bin_dir"] = Path.home() / _BIN_DIR_NAME
 
     # Platform-specific launcher locations
-    if system == PLATFORM_DARWIN:
-        paths["applications_dir"] = Path.home() / MACOS_APPLICATIONS_DIR
+    if system == _PLATFORM_DARWIN:
+        paths["applications_dir"] = Path.home() / _MACOS_APPLICATIONS_DIR
     else:  # Linux
-        paths["applications_dir"] = Path.home() / LINUX_APPLICATIONS_DIR
+        paths["applications_dir"] = Path.home() / _LINUX_APPLICATIONS_DIR
 
     chrome_path = get_chrome_path()
 
     return {
         "system": system.lower(),
-        "is_macos": system == PLATFORM_DARWIN,
-        "is_linux": system == PLATFORM_LINUX,
+        "is_macos": system == _PLATFORM_DARWIN,
+        "is_linux": system == _PLATFORM_LINUX,
         "paths": paths,
         "chrome": {
             "path": chrome_path,
             "found": chrome_path is not None,
-            "wrapper_name": WRAPPER_NAME,
+            "wrapper_name": _WRAPPER_NAME,
         },
         "capabilities": {
-            "desktop_files": system == PLATFORM_LINUX,
-            "app_bundles": system == PLATFORM_DARWIN,
-            "bindfs": system == PLATFORM_LINUX and shutil.which("bindfs") is not None,
+            "desktop_files": system == _PLATFORM_LINUX,
+            "app_bundles": system == _PLATFORM_DARWIN,
+            "bindfs": system == _PLATFORM_LINUX and shutil.which("bindfs") is not None,
         },
     }
 

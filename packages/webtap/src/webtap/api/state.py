@@ -1,4 +1,7 @@
-"""State management for SSE broadcasting."""
+"""State management for SSE broadcasting.
+
+Functions in this module build state snapshots for SSE clients.
+"""
 
 import hashlib
 from typing import Any, Dict
@@ -16,7 +19,7 @@ def _stable_hash(data: str) -> str:
 
 
 def get_full_state() -> Dict[str, Any]:
-    """Get complete WebTap state for broadcasting.
+    """Get complete WebTap state for SSE broadcasting.
 
     Thread-safe, zero-lock reads from immutable snapshot.
     No blocking I/O - returns cached snapshot immediately.
@@ -36,7 +39,6 @@ def get_full_state() -> Dict[str, Any]:
             "error": None,
         }
 
-    # Get immutable snapshot (NO LOCKS NEEDED - inherently thread-safe)
     snapshot = app_module.app_state.service.get_state_snapshot()
 
     # Get connection state and epoch from RPC machine
@@ -44,18 +46,27 @@ def get_full_state() -> Dict[str, Any]:
     connection_state = machine.state if machine else "disconnected"
     epoch = machine.epoch if machine else 0
 
+    # Get tracked clients from RPC framework
+    clients = app_module.app_state.service.rpc.get_tracked_clients() if app_module.app_state.service.rpc else {}
+
+    from webtap import __version__
+
+    daemon_version = __version__
+
     # Compute content hashes for frontend change detection
-    # Only computed here when building SSE response (not on every state change)
     selections_hash = _stable_hash(str(sorted(snapshot.selections.keys())))
     filters_hash = _stable_hash(f"{sorted(snapshot.enabled_filters)}")
     fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.response_stage}:{snapshot.paused_count}")
     page_hash = _stable_hash(f"{snapshot.connected}:{snapshot.page_id}")
     error_hash = _stable_hash(snapshot.error_message) if snapshot.error_message else ""
+    targets_hash = _stable_hash(f"{sorted(snapshot.active_targets)}:{len(snapshot.connections)}")
 
     # Convert snapshot to frontend format
     return {
         "connectionState": connection_state,
         "epoch": epoch,
+        "daemon_version": daemon_version,
+        "clients": clients,
         "connected": snapshot.connected,
         "page": {
             "id": snapshot.page_id,
@@ -71,6 +82,9 @@ def get_full_state() -> Dict[str, Any]:
             "paused_count": snapshot.paused_count,
         },
         "filters": {"enabled": list(snapshot.enabled_filters), "disabled": list(snapshot.disabled_filters)},
+        # Multi-target state
+        "active_targets": list(snapshot.active_targets),
+        "connections": list(snapshot.connections),
         "browser": {
             "inspect_active": snapshot.inspect_active,
             "selections": snapshot.selections,
@@ -80,10 +94,12 @@ def get_full_state() -> Dict[str, Any]:
         "error": {"message": snapshot.error_message, "timestamp": snapshot.error_timestamp}
         if snapshot.error_message
         else None,
+        "notices": snapshot.notices,
         # Content hashes for efficient change detection
         "selections_hash": selections_hash,
         "filters_hash": filters_hash,
         "fetch_hash": fetch_hash,
         "page_hash": page_hash,
         "error_hash": error_hash,
+        "targets_hash": targets_hash,
     }

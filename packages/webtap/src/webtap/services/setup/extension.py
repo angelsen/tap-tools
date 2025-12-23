@@ -1,12 +1,11 @@
-"""Chrome extension setup service (cross-platform).
+"""Chrome extension setup service (cross-platform)."""
 
-PUBLIC API:
-  - ExtensionSetupService: Chrome extension file installation
-"""
-
+import hashlib
 import json
 import logging
-from typing import Dict, Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Any, Optional
 
 import requests
 
@@ -14,9 +13,8 @@ from .platform import get_platform_info, ensure_directories
 
 logger = logging.getLogger(__name__)
 
-# GitHub URLs for extension files
-EXTENSION_BASE_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/extension"
-EXTENSION_FILES = [
+_EXTENSION_BASE_URL = "https://raw.githubusercontent.com/angelsen/tap-tools/main/packages/webtap/extension"
+_EXTENSION_FILES = [
     "manifest.json",
     "background.js",
     "sidepanel.html",
@@ -25,12 +23,95 @@ EXTENSION_FILES = [
     "bind.js",
     "client.js",
 ]
-EXTENSION_ASSETS = [
+_EXTENSION_ASSETS = [
     "assets/icon-16.png",
     "assets/icon-32.png",
     "assets/icon-48.png",
     "assets/icon-128.png",
 ]
+
+
+@dataclass
+class ExtensionStatus:
+    """Status of extension installation."""
+
+    status: str
+    installed_hash: Optional[str]
+    expected_hash: str
+    manifest_changed: bool
+
+
+def compute_extension_hash(extension_dir: Path) -> tuple[str, str]:
+    """Compute hash of extension files.
+
+    Args:
+        extension_dir: Path to extension directory
+    """
+    all_hasher = hashlib.md5()
+    manifest_hash = ""
+
+    for filename in _EXTENSION_FILES + _EXTENSION_ASSETS:
+        filepath = extension_dir / filename
+        if filepath.exists():
+            content = filepath.read_bytes()
+            all_hasher.update(content)
+            if filename == "manifest.json":
+                manifest_hash = hashlib.md5(content).hexdigest()[:16]
+
+    return all_hasher.hexdigest()[:16], manifest_hash
+
+
+def get_expected_hash() -> tuple[str, str]:
+    """Get expected hash from bundled extension source."""
+    # Find the package source extension directory
+    import webtap
+
+    package_dir = Path(webtap.__file__).parent.parent.parent
+    source_extension = package_dir / "extension"
+
+    if source_extension.exists():
+        return compute_extension_hash(source_extension)
+
+    # Fallback: return empty hashes (will trigger update check)
+    return "", ""
+
+
+def check_extension_status() -> ExtensionStatus:
+    """Check if extension needs install/update."""
+    info = get_platform_info()
+    extension_dir = info["paths"]["data_dir"] / "extension"
+
+    expected_full, expected_manifest = get_expected_hash()
+
+    # Check if extension directory and manifest exist
+    if not extension_dir.exists() or not (extension_dir / "manifest.json").exists():
+        return ExtensionStatus(
+            status="missing",
+            installed_hash=None,
+            expected_hash=expected_full,
+            manifest_changed=False,
+        )
+
+    installed_full, installed_manifest = compute_extension_hash(extension_dir)
+
+    # Check if hashes match
+    if installed_full == expected_full:
+        return ExtensionStatus(
+            status="ok",
+            installed_hash=installed_full,
+            expected_hash=expected_full,
+            manifest_changed=False,
+        )
+
+    # Check if manifest specifically changed
+    manifest_changed = installed_manifest != expected_manifest
+
+    return ExtensionStatus(
+        status="manifest_changed" if manifest_changed else "outdated",
+        installed_hash=installed_full,
+        expected_hash=expected_full,
+        manifest_changed=manifest_changed,
+    )
 
 
 class ExtensionSetupService:
@@ -48,9 +129,6 @@ class ExtensionSetupService:
 
         Args:
             force: Overwrite existing files
-
-        Returns:
-            Installation result
         """
         # Check if exists (manifest.json is required file)
         if (self.extension_dir / "manifest.json").exists() and not force:
@@ -78,8 +156,8 @@ class ExtensionSetupService:
         downloaded = []
         failed = []
 
-        for filename in EXTENSION_FILES:
-            url = f"{EXTENSION_BASE_URL}/{filename}"
+        for filename in _EXTENSION_FILES:
+            url = f"{_EXTENSION_BASE_URL}/{filename}"
             target_file = self.extension_dir / filename
 
             try:
@@ -102,8 +180,8 @@ class ExtensionSetupService:
         assets_dir = self.extension_dir / "assets"
         assets_dir.mkdir(exist_ok=True)
 
-        for asset_path in EXTENSION_ASSETS:
-            url = f"{EXTENSION_BASE_URL}/{asset_path}"
+        for asset_path in _EXTENSION_ASSETS:
+            url = f"{_EXTENSION_BASE_URL}/{asset_path}"
             target_file = self.extension_dir / asset_path
 
             try:
@@ -127,7 +205,7 @@ class ExtensionSetupService:
                 "details": "Check network connection and try again",
             }
 
-        total_files = len(EXTENSION_FILES) + len(EXTENSION_ASSETS)
+        total_files = len(_EXTENSION_FILES) + len(_EXTENSION_ASSETS)
         if failed:
             # Partial success - some files downloaded
             return {
@@ -145,3 +223,31 @@ class ExtensionSetupService:
             "path": str(self.extension_dir),
             "details": f"Files: {', '.join(downloaded)}",
         }
+
+
+def auto_update_extension() -> ExtensionStatus:
+    """Auto-install or update extension if needed."""
+    status = check_extension_status()
+
+    # If already OK, nothing to do
+    if status.status == "ok":
+        return status
+
+    # Remember what operation we're performing
+    operation = status.status
+
+    # Install or update extension
+    service = ExtensionSetupService()
+    result = service.install_extension(force=True)
+
+    if not result["success"]:
+        raise Exception(f"Failed to install extension: {result['message']}")
+
+    # Return status indicating what operation was performed
+    # (not the re-checked status which would always be "ok")
+    return ExtensionStatus(
+        status=operation,  # Preserve original status to indicate what was done
+        installed_hash=status.expected_hash,  # Now matches expected
+        expected_hash=status.expected_hash,
+        manifest_changed=status.manifest_changed,
+    )

@@ -1,4 +1,4 @@
-"""WebTap API package.
+"""WebTap API service layer.
 
 PUBLIC API:
   - run_daemon_server: Run daemon server (blocking)

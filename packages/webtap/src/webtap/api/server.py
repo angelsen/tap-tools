@@ -1,4 +1,8 @@
-"""Daemon server lifecycle management."""
+"""Daemon server lifecycle management.
+
+PUBLIC API:
+  - run_daemon_server: Run daemon server (blocking)
+"""
 
 import asyncio
 import logging
@@ -39,23 +43,35 @@ def run_daemon_server(host: str = "127.0.0.1", port: int = 8765):
     app_module.app_state.service.rpc = rpc
     logger.info("RPC framework initialized with 22 handlers")
 
-    # Add single RPC endpoint
     @api.post("/rpc")
     async def handle_rpc(request: Request) -> dict:
-        """Handle JSON-RPC 2.0 requests."""
-        body = await request.json()
-        return await rpc.handle(body)
+        """Handle JSON-RPC 2.0 requests.
 
-    # Add health check endpoint
+        Args:
+            request: FastAPI request object with JSON body
+
+        Returns:
+            JSON-RPC response dictionary
+        """
+        body = await request.json()
+        headers = dict(request.headers)
+        return await rpc.handle(body, headers=headers)
+
     @api.get("/health")
     async def health_check() -> dict:
-        """Quick health check endpoint for extension."""
-        return {"status": "ok", "pid": os.getpid()}
+        """Health check endpoint for extension.
+
+        Returns:
+            Dictionary with status, pid, and version
+        """
+        from webtap import __version__
+
+        return {"status": "ok", "pid": os.getpid(), "version": __version__}
 
     # Include SSE endpoint
     api.include_router(sse_router)
 
-    async def run():
+    async def _run():
         """Run server with proper shutdown handling."""
         config = uvicorn.Config(
             api,
@@ -100,7 +116,7 @@ def run_daemon_server(host: str = "127.0.0.1", port: int = 8765):
                     pass
 
     try:
-        asyncio.run(run())
+        asyncio.run(_run())
     except (SystemExit, KeyboardInterrupt):
         pass
     except Exception as e:

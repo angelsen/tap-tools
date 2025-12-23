@@ -7,6 +7,8 @@ PUBLIC API:
 
 from typing import Any
 
+__all__ = ["ErrorCode", "RPCError"]
+
 
 class ErrorCode:
     """Standard JSON-RPC 2.0 error codes.
