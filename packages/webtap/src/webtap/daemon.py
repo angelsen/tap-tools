@@ -338,6 +338,42 @@ def daemon_status() -> dict:
         return {"running": False, "pid": pid, "error": str(e)}
 
 
+def handle_cli(args: list[str]) -> None:
+    """Handle daemon CLI subcommand.
+
+    Args:
+        args: Command line arguments after 'daemon'
+    """
+    action = args[0] if args else "start"
+
+    if action == "start":
+        start_daemon()
+    elif action == "stop":
+        try:
+            stop_daemon()
+            print("Daemon stopped")
+        except RuntimeError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif action == "status":
+        status = daemon_status()
+        if status["running"]:
+            print(f"Daemon running (pid: {status['pid']})")
+            if status.get("connected"):
+                print(f"Connected to: {status.get('page_title', 'Unknown')}")
+                print(f"Events: {status.get('event_count', 0)}")
+            else:
+                print("Not connected to any page")
+        else:
+            print("Daemon not running")
+            if status.get("error"):
+                print(f"Error: {status['error']}")
+    else:
+        print(f"Unknown action: {action}")
+        print("Usage: webtap daemon [start|stop|status]")
+        sys.exit(1)
+
+
 __all__ = [
     "daemon_running",
     "ensure_daemon",
@@ -347,4 +383,5 @@ __all__ = [
     "get_daemon_version",
     "discover_daemon_port",
     "get_daemon_url",
+    "handle_cli",
 ]

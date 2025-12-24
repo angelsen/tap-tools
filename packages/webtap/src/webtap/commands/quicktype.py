@@ -1,4 +1,8 @@
-"""Generate types and schemas from HTTP request/response bodies using quicktype."""
+"""Generate types and schemas from HTTP request/response bodies using quicktype.
+
+Uses the quicktype CLI to generate TypeScript, Python, Go, and other type definitions
+from JSON response bodies.
+"""
 
 import json
 import shutil
@@ -133,7 +137,11 @@ def _insert_header(row_id: int, har_entry: dict, output_path: Path, language: st
         pass
 
 
-@app.command(display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": mcp_desc or ""})
+@app.command(
+    display="markdown",
+    typer={"enabled": False},
+    fastmcp={"type": "tool", "mime_type": "text/markdown", "description": mcp_desc or ""},
+)
 def quicktype(
     state,
     id: int,
@@ -304,3 +312,6 @@ def quicktype(
             "Size": f"{output_path.stat().st_size} bytes",
         },
     )
+
+
+__all__ = ["quicktype"]

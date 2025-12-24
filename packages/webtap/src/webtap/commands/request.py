@@ -1,4 +1,7 @@
-"""Request details command with ES-style field selection."""
+"""Request details command with ES-style field selection.
+
+Retrieve HAR request/response details with flexible field selection and Python expression evaluation.
+"""
 
 import json
 
@@ -14,6 +17,7 @@ _mcp_desc = get_mcp_description("request")
 
 @app.command(
     display="markdown",
+    typer={"enabled": False},
     fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _mcp_desc or ""},
 )
 def request(

@@ -1,4 +1,8 @@
-"""HTTP fetch request interception and debugging commands."""
+"""HTTP fetch request interception and debugging commands.
+
+Commands for controlling request interception, inspection, and modification.
+All commands delegate to daemon via RPC client.
+"""
 
 from webtap.app import app
 from webtap.client import RPCError
@@ -12,7 +16,9 @@ _fulfill_desc = get_mcp_description("fulfill")
 
 
 @app.command(
-    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _fetch_desc or ""}
+    display="markdown",
+    typer={"enabled": False},
+    fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _fetch_desc or ""},
 )
 def fetch(state, action: str, options: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
     """Control fetch interception.
@@ -134,7 +140,9 @@ def requests(state, limit: int = 50) -> dict:
 
 
 @app.command(
-    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _resume_desc or ""}
+    display="markdown",
+    typer={"enabled": False},
+    fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _resume_desc or ""},
 )
 def resume(state, request: int, wait: float = 0.5, modifications: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
     """Resume a paused request.
@@ -249,7 +257,9 @@ def fail(state, request: int, reason: str = "BlockedByClient") -> dict:
 
 
 @app.command(
-    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _fulfill_desc or ""}
+    display="markdown",
+    typer={"enabled": False},
+    fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _fulfill_desc or ""},
 )
 def fulfill(
     state,
@@ -308,3 +318,6 @@ def fulfill(
         return error_response(e.message)
     except Exception as e:
         return error_response(str(e))
+
+
+__all__ = ["fetch", "requests", "resume", "fail", "fulfill"]

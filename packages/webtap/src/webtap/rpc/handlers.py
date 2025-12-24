@@ -105,6 +105,10 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("targets.clear")(targets_clear)
     rpc.method("targets.get", broadcasts=False)(targets_get)
 
+    # Port management
+    rpc.method("ports.add")(ports_add)
+    rpc.method("ports.remove")(ports_remove)
+
 
 def connect(
     ctx: RPCContext,
@@ -754,4 +758,90 @@ def targets_get(ctx: RPCContext) -> dict:
     return {"active_targets": ctx.service.filters.get_targets()}
 
 
-# Port methods removed - superseded by target-based approach
+# Port management
+
+
+def ports_add(ctx: RPCContext, port: int) -> dict:
+    """Register a Chrome debug port with the daemon.
+
+    Args:
+        port: Chrome debug port number to register
+
+    Returns:
+        Dict with 'port', 'status', and optional 'warning'
+
+    Raises:
+        RPCError: If port validation fails
+    """
+    import httpx
+
+    # Validate port range
+    if not (1024 <= port <= 65535):
+        raise RPCError(ErrorCode.INVALID_PARAMS, f"Invalid port: {port}. Must be 1024-65535")
+
+    # Check if Chrome is listening on this port
+    try:
+        response = httpx.get(f"http://localhost:{port}/json", timeout=2.0)
+        if response.status_code != 200:
+            return {
+                "port": port,
+                "status": "unreachable",
+                "warning": f"Port {port} not responding with Chrome debug protocol",
+            }
+    except httpx.RequestError:
+        return {
+            "port": port,
+            "status": "unreachable",
+            "warning": f"Port {port} not responding. Is Chrome running with --remote-debugging-port={port}?",
+        }
+
+    # Create CDPSession for this port if it doesn't exist
+    from webtap.cdp import CDPSession
+
+    if hasattr(ctx.service.state, "cdp_sessions"):
+        if port not in ctx.service.state.cdp_sessions:
+            ctx.service.state.cdp_sessions[port] = CDPSession(port=port)
+
+    return {"port": port, "status": "registered"}
+
+
+def ports_remove(ctx: RPCContext, port: int) -> dict:
+    """Unregister a port from daemon tracking.
+
+    Args:
+        port: Chrome debug port number to unregister
+
+    Returns:
+        Dict with 'port' and 'removed' boolean
+
+    Raises:
+        RPCError: If port is protected or not found
+    """
+    # Protect default port 9222
+    if port == 9222:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Port 9222 is protected (default desktop port)")
+
+    if not hasattr(ctx.service.state, "cdp_sessions"):
+        raise RPCError(ErrorCode.INTERNAL_ERROR, "Daemon state not available")
+
+    if port not in ctx.service.state.cdp_sessions:
+        raise RPCError(ErrorCode.INVALID_PARAMS, f"Port {port} not registered")
+
+    # Disconnect any active connections on this port
+    from webtap.targets import parse_target
+
+    targets_to_disconnect = []
+    for target_id in ctx.service.connections:
+        target_port, _ = parse_target(target_id)
+        if target_port == port:
+            targets_to_disconnect.append(target_id)
+
+    for target_id in targets_to_disconnect:
+        ctx.service.disconnect_target(target_id)
+
+    # Remove the CDPSession
+    cdp_session = ctx.service.state.cdp_sessions.pop(port, None)
+    if cdp_session:
+        cdp_session.cleanup()
+
+    return {"port": port, "removed": True, "disconnected": targets_to_disconnect}

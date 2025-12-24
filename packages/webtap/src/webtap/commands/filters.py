@@ -1,4 +1,7 @@
-"""Filter group management commands."""
+"""Filter group management commands.
+
+Commands for creating, enabling, and managing filter groups to reduce noise in network views.
+"""
 
 from webtap.app import app
 from webtap.client import RPCError
@@ -9,7 +12,9 @@ _filters_desc = get_mcp_description("filters")
 
 
 @app.command(
-    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _filters_desc or ""}
+    display="markdown",
+    typer={"enabled": False},
+    fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _filters_desc or ""},
 )
 def filters(
     state,
