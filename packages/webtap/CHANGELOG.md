@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.12.0] - 2025-12-27
+
+### Added
 - **Multi-target support**: Simultaneous Chrome connections with unified target IDs (`{port}:{short-id}`)
   - `targets.set/clear/get` RPC methods for filtering active targets
   - Extension UI: Targets section with connection indicators
