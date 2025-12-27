@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **setup-android command**: ADB port forwarding for mobile debugging (`-y`, `-p`, `-d` flags)
 - **CLI improvements**: `--help`, `--version`, `status` commands; lazy app loading
 - **Daemon lifecycle**: Dynamic port discovery (37650-37659), version checking, client tracking
+- **entry() command**: Console entry details with field selection (like `request()` for console)
+- **Extension controller architecture**: Modular rewrite replacing monolithic sidepanel.js
+  - 11 controller modules in `controllers/` directory
+  - Reusable `DataTable` component with efficient DOM diffing and auto-scroll
+  - `lib/ui.js` for shared UI utilities
+  - ES6 module exports for `bind.js` and `client.js`
+- **Client staleness detection**: Version headers track outdated MCP/extension clients
 
 ### Changed
 - **Daemon port**: Changed from 8765-8774 to 37650-37659 (reduces conflicts with dev servers)
@@ -22,10 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **run-chrome**: Port conflict detection, automatic daemon registration
 - **CLI**: Daemon subcommand moved to `webtap daemon [start|stop|status]`
 - **Commands with dict/list params**: Disabled typer (MCP-only)
+- **Extension setup**: Updated file list for controller architecture (was 11 files, now 24)
 
 ### Fixed
+- **Documentation**: `network()` parameters corrected (`all`→`show_all`, `type`→`resource_type`)
+- **Python conventions**: Added PUBLIC API docstrings and `__all__` exports across modules
 
 ### Removed
+- **sidepanel.js**: Replaced by modular controller architecture (845 lines → 11 modules)
 
 ## [0.11.1] - 2025-12-19
 
