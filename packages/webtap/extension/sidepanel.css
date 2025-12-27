@@ -59,6 +59,22 @@
   --focus-offset: -2px;
 
   --transition-fast: 0.15s ease;
+
+  /* Container heights */
+  --height-panel-sm: 150px;
+  --height-panel-md: 200px;
+  --height-panel-lg: 500px;
+
+  /* Column widths (network table) */
+  --col-method: 55px;
+  --col-status: 35px;
+
+  /* Icon size */
+  --text-icon: 14px;
+
+  /* Colors - danger states */
+  --color-danger: light-dark(#c0392b, #e74c3c);
+  --color-text-inverse: #fff;
 }
 
 [data-theme="light"] {
@@ -136,6 +152,7 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--color-text-muted);
+  flex-shrink: 0;
 }
 
 .header-status.connected .status-dot {
@@ -173,6 +190,34 @@ body {
   background: var(--color-bg-hover);
 }
 
+.inspect-btn {
+  min-width: 52px;
+  padding: var(--space-xxs) var(--space-xs);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  background: var(--color-button-bg);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.inspect-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.inspect-btn.inspecting {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  color: var(--color-text-inverse);
+}
+
+.inspect-btn.inspecting:hover {
+  background: var(--color-danger);
+}
+
 /* Dropdown */
 
 .dropdown {
@@ -180,7 +225,7 @@ body {
 }
 
 #interceptToggle {
-  width: 105px;
+  min-width: 6em;
 }
 
 #interceptToggle.active {
@@ -318,7 +363,8 @@ select {
 #pageList {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  min-block-size: 180px;
+  min-block-size: var(--height-panel-md);
+  max-block-size: var(--height-panel-lg);
 }
 
 button {
@@ -384,9 +430,9 @@ input[type="checkbox"] {
   background: var(--color-error-banner-bg);
   border: 1px solid var(--color-error-banner-border);
   border-radius: var(--radius-md);
-  padding: var(--space-md);
-  margin-block-end: var(--space-md);
-  font-size: var(--text-base);
+  padding: var(--space-sm) var(--space-md);
+  margin-block-end: var(--space-sm);
+  font-size: var(--text-sm);
   flex-shrink: 0;
 }
 
@@ -507,7 +553,7 @@ input[type="checkbox"] {
 }
 
 .selection-list {
-  max-block-size: 150px;
+  max-block-size: var(--height-panel-sm);
   margin-block: var(--space-sm);
   background: var(--color-bg-muted);
 }
@@ -540,10 +586,6 @@ input[type="checkbox"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.selection-row {
-  gap: var(--space-sm);
 }
 
 button.active-selection {
@@ -590,11 +632,15 @@ button.active-selection:hover:not(:disabled) {
   min-height: 0;
 }
 
+#networkTable {
+  flex: 1;
+  min-height: 0;
+}
+
 .network-table {
   flex: 1;
   margin-block: var(--space-sm);
   font-size: var(--text-sm);
-  min-height: 80px;
 }
 
 .network-row {
@@ -619,13 +665,13 @@ button.active-selection:hover:not(:disabled) {
 }
 
 .network-method {
-  inline-size: 55px;
+  inline-size: var(--col-method);
   font-weight: bold;
   color: var(--color-text-muted);
 }
 
 .network-status {
-  inline-size: 30px;
+  inline-size: var(--col-status);
   text-align: center;
 }
 
@@ -639,7 +685,6 @@ button.active-selection:hover:not(:disabled) {
 
 .network-status.paused {
   color: var(--color-warning);
-  inline-size: 50px;
 }
 
 .network-row.paused {
@@ -662,7 +707,7 @@ button.active-selection:hover:not(:disabled) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
-  max-block-size: 150px;
+  max-block-size: var(--height-panel-sm);
   overflow-y: auto;
   flex-shrink: 0;
 }
@@ -671,13 +716,57 @@ button.active-selection:hover:not(:disabled) {
   display: none;
 }
 
-.request-details-header {
+/* Console Section - reuses network-section layout */
+
+.console-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#consoleTable {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Console Details - reuses request-details pattern */
+
+.console-details {
+  margin-block-start: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  max-block-size: var(--height-panel-sm);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.console-details.hidden {
+  display: none;
+}
+
+/* Shared details panel styles */
+
+.request-details-header,
+.console-details-header {
   margin-block-end: var(--space-xs);
   padding-block-end: var(--space-xs);
   border-block-end: 1px solid var(--color-border-subtle);
 }
 
-.request-details pre {
+.console-message-full {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  word-break: break-all;
+  white-space: pre-wrap;
+  margin-block-end: var(--space-sm);
+}
+
+.request-details pre,
+.console-details pre {
   font-size: var(--text-xs);
   margin: var(--space-xs) 0;
   white-space: pre-wrap;
@@ -688,14 +777,27 @@ button.active-selection:hover:not(:disabled) {
   border-radius: var(--radius-sm);
 }
 
-.request-details summary {
+.request-details summary,
+.console-details summary {
   cursor: pointer;
   padding: var(--space-xs) 0;
   color: var(--color-text-muted);
 }
 
-.request-details summary:hover {
+.request-details summary:hover,
+.console-details summary:hover {
   color: var(--color-text);
+}
+
+/* Error row highlighting */
+
+.data-table-row--error .data-table-cell {
+  background: var(--color-error-surface);
+}
+
+.data-table-body .data-table-row--error:hover .data-table-cell {
+  background: var(--color-error-surface);
+  filter: brightness(0.95);
 }
 
 /* Utilities */
@@ -717,7 +819,7 @@ button.active-selection:hover:not(:disabled) {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 14px;
+  font-size: var(--text-icon);
   line-height: 1;
   flex-shrink: 0;
   opacity: 0.6;
@@ -776,7 +878,7 @@ button.active-selection:hover:not(:disabled) {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 14px;
+  font-size: var(--text-icon);
   line-height: 1;
   opacity: 0.6;
   transition: opacity var(--transition-fast);
@@ -805,4 +907,218 @@ button.active-selection:hover:not(:disabled) {
   background: light-dark(#fce4ec, #2d1a2a);
   border-color: light-dark(#c2185b, #f06292);
   color: light-dark(#880e4f, #f48fb1);
+}
+
+/* DataTable - CSS Grid layout for consistent column alignment */
+
+.data-table {
+  display: grid;
+  align-content: start;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-y: auto;
+  background: var(--color-bg);
+}
+
+.data-table-header,
+.data-table-body,
+.data-table-row {
+  display: contents;
+}
+
+/* Sticky header cells - simpler than body cells */
+.data-table-header .data-table-cell {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-subtle);
+  border-bottom: var(--border-width) solid var(--color-border);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--color-text-subtle);
+  min-height: auto;
+  display: block;
+  align-self: start;
+}
+
+/* Row hover/selection */
+.data-table-body .data-table-cell {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.data-table-body .data-table-row:hover .data-table-cell {
+  background: var(--color-bg-hover);
+}
+
+.data-table-row--selected .data-table-cell {
+  background: light-dark(#e3f2fd, #1a2a3d) !important;
+}
+
+/* Row state backgrounds */
+.data-table-row--tracked .data-table-cell,
+.data-table-row--connected .data-table-cell {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+
+.data-table-body .data-table-row--tracked:hover .data-table-cell,
+.data-table-body .data-table-row--connected:hover .data-table-cell {
+  background: color-mix(in srgb, var(--color-success) 18%, transparent);
+}
+
+/* Row borders */
+.data-table-body .data-table-cell {
+  border-bottom: var(--border-width) solid var(--color-border-subtle);
+}
+
+.data-table-body .data-table-row:last-child .data-table-cell {
+  border-bottom: none;
+}
+
+.data-table-cell {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+  min-width: 0;
+  min-height: 28px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+/* Flex column class no longer needed for layout but keep for compatibility */
+.data-table-cell--flex {
+  min-width: 0;
+}
+
+.data-table-cell--truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table-cell--mono {
+  font-family: var(--font-mono);
+}
+
+.data-table-cell--center {
+  text-align: center;
+}
+
+.data-table-empty {
+  grid-column: 1 / -1;
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Status badges */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 18px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status-badge--success {
+  background: var(--color-success-bg);
+  color: white;
+}
+
+.status-badge--error {
+  background: var(--color-error-bg);
+  color: white;
+}
+
+.status-badge--warning {
+  background: var(--color-warning);
+  color: light-dark(#1a1a1a, #1a1a1a);
+}
+
+.status-badge--info {
+  background: light-dark(#2196f3, #1976d2);
+  color: white;
+}
+
+.status-badge--muted {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+/* DataTable compact mode */
+
+.data-table--compact .data-table-row {
+  min-height: 28px;
+}
+
+.data-table--compact .data-table-cell {
+  padding: var(--space-xxs) var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.data-table--compact .data-table-header {
+  font-size: var(--text-sm);
+}
+
+.data-table-cell--auto {
+  /* auto columns sized via grid-template-columns: auto */
+}
+
+.data-table-cell--checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.data-table-cell--checkbox input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Status dot in tables */
+
+.status-dot--connected {
+  background: var(--color-success);
+}
+
+.status-dot--disconnected {
+  background: var(--color-text-muted);
+}
+
+/* DataTable Loading State */
+
+.data-table {
+  position: relative;
+}
+
+.data-table.loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.datatable-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: light-dark(rgba(255, 255, 255, 0.8), rgba(26, 26, 26, 0.8));
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  pointer-events: none;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  z-index: 10;
+}
+
+.datatable-overlay.visible {
+  opacity: 1;
 }

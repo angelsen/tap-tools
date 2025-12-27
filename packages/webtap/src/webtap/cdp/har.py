@@ -1,4 +1,7 @@
-"""HAR view creation for DuckDB."""
+"""HAR view creation for DuckDB.
+
+Internal module for creating HAR aggregation views in DuckDB.
+"""
 
 import logging
 
@@ -150,7 +153,8 @@ ws_frames AS (
         json_extract_string(event, '$.params.requestId') as request_id,
         SUM(CASE WHEN method = 'Network.webSocketFrameSent' THEN 1 ELSE 0 END) as frames_sent,
         SUM(CASE WHEN method = 'Network.webSocketFrameReceived' THEN 1 ELSE 0 END) as frames_received,
-        SUM(LENGTH(COALESCE(json_extract_string(event, '$.params.response.payloadData'), ''))) as total_bytes
+        SUM(LENGTH(COALESCE(json_extract_string(event, '$.params.response.payloadData'), ''))) as total_bytes,
+        MAX(json_extract_string(event, '$.params.timestamp')) as last_frame_timestamp
     FROM events
     WHERE method IN ('Network.webSocketFrameSent', 'Network.webSocketFrameReceived')
     GROUP BY json_extract_string(event, '$.params.requestId')
@@ -207,6 +211,8 @@ http_entries AS (
         CAST(NULL AS BIGINT) as frames_sent,
         CAST(NULL AS BIGINT) as frames_received,
         CAST(NULL AS BIGINT) as ws_total_bytes,
+        req.started_datetime,
+        CAST(req.started_datetime AS DOUBLE) as last_activity,
         req.target
     FROM http_requests req
     LEFT JOIN request_extra reqx ON req.request_id = reqx.request_id
@@ -251,6 +257,13 @@ websocket_entries AS (
         wf.frames_sent,
         wf.frames_received,
         wf.total_bytes as ws_total_bytes,
+        hs.started_datetime,
+        -- last_activity: handshake_walltime + (frame_timestamp - handshake_timestamp) if frames exist
+        CASE
+            WHEN wf.last_frame_timestamp IS NOT NULL AND hs.started_datetime IS NOT NULL AND hs.started_timestamp IS NOT NULL
+            THEN CAST(hs.started_datetime AS DOUBLE) + (CAST(wf.last_frame_timestamp AS DOUBLE) - CAST(hs.started_timestamp AS DOUBLE))
+            ELSE CAST(hs.started_datetime AS DOUBLE)
+        END as last_activity,
         ws.target
     FROM ws_created ws
     LEFT JOIN ws_handshake hs ON ws.request_id = hs.request_id
@@ -282,6 +295,8 @@ SELECT
     paused_id,
     frames_sent,
     frames_received,
+    started_datetime,
+    last_activity,
     target
 FROM har_entries
 """

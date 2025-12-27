@@ -24,7 +24,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-BASE_DAEMON_PORT = 8765
+BASE_DAEMON_PORT = 37650
 MAX_PORT_TRIES = 10
 
 STATE_DIR = Path("~/.local/state/webtap").expanduser()
@@ -71,7 +71,7 @@ def _check_health(port: int) -> bool:
 def find_available_port() -> int:
     """Find an available port for the daemon.
 
-    Tries ports 8765-8774 until one is available.
+    Tries ports 37650-37659 until one is available.
 
     Returns:
         Available port number
@@ -124,7 +124,7 @@ def get_daemon_url() -> str:
     """Get the daemon URL, discovering port if needed.
 
     Returns:
-        Daemon URL (e.g., "http://localhost:8765")
+        Daemon URL (e.g., "http://localhost:37650")
 
     Raises:
         RuntimeError: If daemon is not running
@@ -251,18 +251,26 @@ def start_daemon() -> None:
     """Run daemon in foreground (--daemon flag).
 
     This function blocks until the daemon is shut down. It:
-    1. Finds available port
-    2. Creates pidfile and portfile
-    3. Starts API server
-    4. Cleans up on exit
+    1. Checks for existing daemon (pidfile OR port scan)
+    2. Finds available port
+    3. Creates pidfile and portfile
+    4. Starts API server
+    5. Cleans up on exit
 
     The API server initialization is handled in api.py.
     Uvicorn handles SIGINT/SIGTERM signals for graceful shutdown.
     """
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Check pidfile first
     if daemon_running():
         print(f"Daemon already running (pid: {PIDFILE.read_text().strip()})")
+        sys.exit(1)
+
+    # Scan ports for orphaned daemon (pidfile missing but daemon alive)
+    existing_port = discover_daemon_port()
+    if existing_port is not None:
+        print(f"Daemon already running on port {existing_port} (pidfile was missing)")
         sys.exit(1)
 
     port = find_available_port()

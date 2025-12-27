@@ -57,22 +57,21 @@ uv tool uninstall webtap-tool
 uv tool install webtap-tool
 
 # 2. Optional: Setup helpers (first time only)
-webtap --cli setup-filters       # Download default filter configurations
-webtap --cli setup-extension     # Download Chrome extension files
-webtap --cli setup-chrome        # Install Chrome wrapper for debugging
+webtap setup-extension     # Download Chrome extension files
+webtap setup-chrome        # Install Chrome wrapper for debugging
 
 # 3. Launch Chrome with debugging
-webtap --cli run-chrome          # Or manually: google-chrome-stable --remote-debugging-port=9222
+webtap run-chrome          # Or manually: google-chrome-stable --remote-debugging-port=9222
 
 # 4. Start webtap REPL (auto-starts daemon)
 webtap
 
 # 5. Connect and explore
->>> pages()                          # List available Chrome pages
->>> connect(0)                       # Connect to first page
->>> network()                        # View network requests (filtered)
->>> network(url="*api*")             # Filter by URL pattern
->>> request(123, ["response.content"])  # Get response body by row ID
+>>> pages()                              # List Chrome pages with target IDs
+>>> connect("9222:f8134d")               # Connect by target from pages()
+>>> network()                            # View network requests (filtered)
+>>> network(url="*api*")                 # Filter by URL pattern
+>>> request(123, ["response.content"])   # Get response body by row ID
 ```
 
 ## 🔌 MCP Setup for Claude
@@ -104,17 +103,20 @@ webtap --mcp               # Start as MCP server
 
 ### CLI Commands
 ```bash
-webtap --cli setup-filters      # Download filter configurations
-webtap --cli setup-extension    # Download Chrome extension
-webtap --cli setup-chrome       # Install Chrome wrapper script
-webtap --cli run-chrome         # Launch Chrome with debugging
-webtap --cli --help            # Show all CLI commands
+webtap --help              # Show help
+webtap --version           # Show version
+webtap status              # Daemon and connection status
+webtap setup-android -y    # Configure Android debugging
+webtap run-chrome          # Launch Chrome with debugging
+webtap setup-extension     # Download Chrome extension
+webtap setup-chrome        # Install Chrome wrapper script
+webtap daemon start|stop|status  # Manage daemon
 ```
 
 ### Commands
 ```python
->>> pages()                              # List available Chrome pages
->>> connect(0)                           # Connect to first page
+>>> pages()                              # List Chrome pages with target IDs
+>>> connect("9222:f8")                   # Connect by target from pages()
 >>> network()                            # View network requests (filtered)
 >>> network(status=404, url="*api*")     # Filter by status and URL
 >>> console()                            # View console messages
@@ -127,8 +129,8 @@ webtap --cli --help            # Show all CLI commands
 
 | Command | Description |
 |---------|------------|
-| `pages()` | List available Chrome pages |
-| `connect(page=0)` | Connect to page by index |
+| `pages()` | List Chrome pages with target IDs |
+| `connect("9222:f8")` | Connect by target ID from pages() |
 | `disconnect()` | Disconnect from current page |
 | `navigate(url)` | Navigate to URL |
 | `network(status, url, type, method)` | View network requests with filters |
@@ -140,15 +142,14 @@ webtap --cli --help            # Show all CLI commands
 | `to_model(id, output, model_name)` | Generate Pydantic models from responses |
 | `quicktype(id, output, type_name)` | Generate TypeScript/Go/Rust types |
 | `clear(events, console)` | Clear events/console |
+| `setup-android` | Configure ADB port forwarding for mobile debugging |
 
 ## Core Commands
 
 ### Connection & Navigation
 ```python
-pages()                      # List Chrome pages
-connect(0)                   # Connect by index (shorthand)
-connect(page=1)              # Connect by index (explicit)
-connect(page_id="xyz")       # Connect by page ID
+pages()                      # List Chrome pages with target IDs
+connect("9222:f8")           # Connect by target ID from pages()
 disconnect()                 # Disconnect from current page
 navigate("https://...")      # Navigate to URL
 reload(ignore_cache=False)   # Reload page
@@ -157,13 +158,26 @@ page()                       # Show current page info
 status()                     # Show connection and daemon status
 ```
 
+### Multi-Target Support
+
+Connect to multiple Chrome instances (desktop + Android) simultaneously:
+
+```python
+pages()                      # Shows all pages from all registered ports
+connect("9222:f8")           # Connect to desktop Chrome page
+connect("9224:24")           # Connect to Android Chrome page
+targets()                    # Show connected targets
+```
+
+Target IDs use format `{port}:{short-id}`. Filter events with `targets.set(["9222:f8"])`.
+
 ### Network Monitoring
 ```python
 network()                              # Filtered network requests (default)
-network(all=True)                      # Show everything (bypass filters)
+network(show_all=True)                 # Show everything (bypass filters)
 network(status=404)                    # Filter by HTTP status
 network(method="POST")                 # Filter by HTTP method
-network(type="xhr")                    # Filter by resource type
+network(resource_type="xhr")           # Filter by resource type
 network(url="*api*")                   # Filter by URL pattern
 network(status=200, url="*graphql*")   # Combine filters
 ```
@@ -235,7 +249,7 @@ clear(events=True, console=True)    # Clear everything
 
 ```
 REPL / MCP Client (webtap)
-    ↓ JSON-RPC 2.0 (localhost:8765/rpc)
+    ↓ JSON-RPC 2.0 (localhost:37650/rpc)
 WebTap Daemon (background process)
     ├── FastAPI Server + RPCFramework
     │   └── Single /rpc endpoint (22 methods)
@@ -310,15 +324,15 @@ Install the extension from `packages/webtap/extension/`:
 >>> pages()
 ## Chrome Pages
 
-| Index | Title                | URL                            | ID     | Connected |
-|:------|:---------------------|:-------------------------------|:-------|:----------|
-| 0     | Messenger            | https://www.m...1743198803269/ | DC8... | No        |
-| 1     | GitHub - replkit2    | https://githu...elsen/replkit2 | DD4... | No        |
-| 2     | YouTube Music        | https://music.youtube.com/     | F83... | No        |
+| Target      | Title                | URL                            | Connected |
+|:------------|:---------------------|:-------------------------------|:----------|
+| 9222:dc8f3a | Messenger            | https://www.m...1743198803269/ | No        |
+| 9222:dd4b2c | GitHub - replkit2    | https://githu...elsen/replkit2 | No        |
+| 9222:f83e1d | YouTube Music        | https://music.youtube.com/     | No        |
 
 _3 pages available_
 
->>> connect(1)
+>>> connect("9222:dd4b2c")
 ## Connection Established
 
 **Page:** GitHub - angelsen/replkit2
@@ -474,29 +488,11 @@ make lint          # Fix linting
 
 ## Daemon & API
 
-WebTap uses a daemon architecture. The daemon auto-starts when you run `webtap` and manages:
-
-- CDP WebSocket connection to Chrome
-- DuckDB event storage
-- FastAPI server on port 8765
-
-### Daemon Commands
 ```bash
-webtap --daemon          # Start in foreground (debugging)
-webtap --daemon status   # Show status
-webtap --daemon stop     # Stop daemon
+webtap daemon start|stop|status
 ```
 
-### API Endpoint (JSON-RPC 2.0)
-Single endpoint: `POST /rpc`
-
-```json
-{"jsonrpc": "2.0", "method": "connect", "params": {"page": 0}, "id": 1}
-{"jsonrpc": "2.0", "method": "network", "params": {"limit": 50}, "id": 2}
-{"jsonrpc": "2.0", "method": "request", "params": {"id": 123}, "id": 3}
-```
-
-Methods: `connect`, `disconnect`, `pages`, `status`, `network`, `request`, `console`, `js`, `navigate`, `reload`, `fetch.enable`, `fetch.disable`, `fetch.resume`, `filters.*`, etc.
+Daemon uses ports 37650-37659 (auto-discovery). See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation details.
 
 ## 📄 License
 

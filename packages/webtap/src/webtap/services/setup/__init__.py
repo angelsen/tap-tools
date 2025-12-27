@@ -1,4 +1,8 @@
-"""Setup service for installing WebTap components (cross-platform)."""
+"""Setup service for installing WebTap components (cross-platform).
+
+PUBLIC API:
+  - SetupService: Orchestrator for WebTap component installation
+"""
 
 from typing import Dict, Any
 

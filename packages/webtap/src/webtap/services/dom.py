@@ -1,14 +1,14 @@
-"""DOM inspection service using Chrome DevTools Protocol."""
+"""DOM inspection service using Chrome DevTools Protocol.
+
+PUBLIC API:
+  - DOMService: Element inspection and selection via CDP Overlay domain
+"""
 
 import logging
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from webtap.cdp.session import CDPSession
-    from webtap.daemon_state import DaemonState
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,49 +21,33 @@ class DOMService:
     - Click events via Overlay.inspectNodeRequested
     - Accurate element data via DOM.describeNode, CSS.getComputedStyleForNode
 
-    Selections are stored in state.browser_data (not DuckDB) as they are
+    Selections are stored in service.state.browser_data (not DuckDB) as they are
     ephemeral session data cleared after prompt submission.
 
     Attributes:
-        cdp: CDP session for executing commands
-        state: WebTap state for storing selections
-        _inspection_active: Whether inspect mode is currently active
+        service: WebTapService reference for multi-target operations and state access
+        _inspect_target: Currently inspected target ID
         _next_id: Counter for assigning selection IDs
     """
 
-    def __init__(self, cdp: "CDPSession | None" = None, state: "DaemonState | None" = None):
-        """Initialize DOM service.
-
-        Args:
-            cdp: CDPSession instance. Can be None initially, set via set_cdp().
-            state: WebTapState instance. Can be None initially, set via set_state().
-        """
-        self.cdp = cdp
-        self.state = state
-        self._inspection_active = False
+    def __init__(self):
+        """Initialize DOM service."""
+        self.service: "Any" = None  # WebTapService reference
+        self._inspect_target: str | None = None  # Currently inspected target
         self._next_id = 1
-        self._broadcast_callback: "Any | None" = None  # Callback to service._trigger_broadcast()
         self._state_lock = threading.Lock()  # Protect state mutations
         self._pending_selections = 0  # Track in-flight selection processing
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
         self._shutdown = False  # Prevent executor submissions after cleanup
         self._generation = 0  # Incremented on clear to invalidate stale pending selections
 
-    def set_cdp(self, cdp: "CDPSession") -> None:
-        """Set CDP session after initialization."""
-        self.cdp = cdp
-
-    def set_state(self, state: "DaemonState") -> None:
-        """Set state after initialization."""
-        self.state = state
-
-    def set_broadcast_callback(self, callback: "Any") -> None:
-        """Set callback for broadcasting state changes.
+    def set_service(self, service: "Any") -> None:
+        """Set service reference.
 
         Args:
-            callback: Function to call when state changes (service._trigger_broadcast)
+            service: WebTapService instance
         """
-        self._broadcast_callback = callback
+        self.service = service
 
     def reset(self) -> None:
         """Reset service state for new connection.
@@ -72,7 +56,7 @@ class DOMService:
         Creates fresh executor and clears shutdown flag.
         """
         self._shutdown = False
-        self._inspection_active = False
+        self._inspect_target = None
         self._pending_selections = 0
         self._generation += 1  # Invalidate stale pending work
 
@@ -85,8 +69,11 @@ class DOMService:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
         logger.info("DOMService reset for new connection")
 
-    def start_inspect(self) -> dict[str, Any]:
-        """Enable CDP element inspection mode.
+    def start_inspect(self, target: str) -> dict[str, Any]:
+        """Enable CDP element inspection mode on a specific target.
+
+        Args:
+            target: Target ID to inspect
 
         Enables Overlay.setInspectMode with searchForNode mode, which:
         - Shows native Chrome highlight on hover
@@ -95,28 +82,41 @@ class DOMService:
         Returns:
             Success status dictionary.
         """
-        if not self.cdp or not self.cdp.ws_app:
-            return {"error": "Not connected to page"}
+        if not self.service:
+            return {"error": "No service"}
 
-        if self._inspection_active:
-            return {"error": "Inspection already active"}
+        conn = self.service.connections.get(target)
+        if not conn or not conn.cdp.ws_app:
+            return {"error": f"Target {target} not connected"}
+
+        # Disable on previous target if different
+        if self._inspect_target and self._inspect_target != target:
+            self._disable_inspect_on_target(self._inspect_target)
+
+        # If already inspecting THIS target, unregister callbacks first to prevent duplicates
+        if self._inspect_target == target:
+            cdp = conn.cdp
+            cdp.unregister_event_callback("Overlay.inspectNodeRequested", self.handle_inspect_node_requested)
+            cdp.unregister_event_callback("Page.frameNavigated", self.handle_frame_navigated)
+
+        cdp = conn.cdp
 
         try:
             # Enable DOM domain first (Overlay depends on it)
-            self.cdp.execute("DOM.enable")
+            cdp.execute("DOM.enable")
 
             # Request document to establish DOM tree context
             # REQUIRED: BackendNodeIds only work after getDocument() is called
-            self.cdp.execute("DOM.getDocument", {"depth": -1})
+            cdp.execute("DOM.getDocument", {"depth": -1})
 
             # Enable CSS domain (needed for computed styles)
-            self.cdp.execute("CSS.enable")
+            cdp.execute("CSS.enable")
 
             # Enable Overlay domain
-            self.cdp.execute("Overlay.enable")
+            cdp.execute("Overlay.enable")
 
             # Set inspect mode with native Chrome highlighting
-            self.cdp.execute(
+            cdp.execute(
                 "Overlay.setInspectMode",
                 {
                     "mode": "searchForNode",
@@ -131,43 +131,69 @@ class DOMService:
                 },
             )
 
-            self._inspection_active = True
-            logger.info("Element inspection mode enabled")
+            # Register event callbacks for this target
+            cdp.register_event_callback("Overlay.inspectNodeRequested", self.handle_inspect_node_requested)
+            cdp.register_event_callback("Page.frameNavigated", self.handle_frame_navigated)
+
+            self._inspect_target = target
+            logger.info(f"Element inspection mode enabled on {target}")
 
             self._trigger_broadcast()
-            return {"success": True, "inspect_active": True}
+            return {"success": True, "inspect_active": True, "target": target}
 
         except Exception as e:
             logger.error(f"Failed to enable inspection mode: {e}")
             return {"error": str(e)}
 
     def stop_inspect(self) -> dict[str, Any]:
-        """Disable CDP element inspection mode.
+        """Disable CDP element inspection mode on current target.
 
         Returns:
             Success status dictionary.
         """
-        if not self.cdp or not self.cdp.ws_app:
-            return {"error": "Not connected to page"}
-
-        if not self._inspection_active:
+        if not self._inspect_target:
             return {"success": True, "inspect_active": False}
+
+        result = self._disable_inspect_on_target(self._inspect_target)
+        self._inspect_target = None
+        self._trigger_broadcast()
+        return result
+
+    def _disable_inspect_on_target(self, target: str) -> dict[str, Any]:
+        """Disable inspect mode on a specific target.
+
+        Args:
+            target: Target ID to disable inspection on
+
+        Returns:
+            Status dictionary
+        """
+        if not self.service:
+            return {"error": "No service"}
+
+        conn = self.service.connections.get(target)
+        if not conn or not conn.cdp.ws_app:
+            return {"success": True, "inspect_active": False}  # Already disconnected
 
         try:
             # Disable inspect mode
             # NOTE: highlightConfig required even for mode=none, otherwise CDP throws:
             # "Internal error: highlight configuration parameter is missing"
-            self.cdp.execute("Overlay.setInspectMode", {"mode": "none", "highlightConfig": {}})
+            conn.cdp.execute("Overlay.setInspectMode", {"mode": "none", "highlightConfig": {}})
 
-            self._inspection_active = False
-            logger.info("Element inspection mode disabled")
-
-            self._trigger_broadcast()
+            logger.info(f"Element inspection mode disabled on {target}")
             return {"success": True, "inspect_active": False}
 
         except Exception as e:
-            logger.error(f"Failed to disable inspection mode: {e}")
+            logger.error(f"Failed to disable inspection mode on {target}: {e}")
             return {"error": str(e)}
+
+    def _get_inspect_cdp(self):
+        """Get CDPSession for current inspect target."""
+        if not self.service or not self._inspect_target:
+            return None
+        conn = self.service.connections.get(self._inspect_target)
+        return conn.cdp if conn else None
 
     def handle_inspect_node_requested(self, event: dict) -> None:
         """Handle Overlay.inspectNodeRequested event (user clicked element).
@@ -178,7 +204,8 @@ class DOMService:
         Args:
             event: CDP event with method and params
         """
-        if not self.cdp or not self.state:
+        cdp = self._get_inspect_cdp()
+        if not cdp or not self.service.state:
             logger.error("DOMService not properly initialized (missing cdp or state)")
             return
 
@@ -244,33 +271,36 @@ class DOMService:
                     logger.debug(f"Dropping stale selection (gen {expected_generation} != {self._generation})")
                     return
 
-                if not self.state:
+                if not self.service.state:
                     logger.error("DOMService state not initialized")
                     return
 
                 selection_id = str(self._next_id)
                 self._next_id += 1
 
-                if not self.state.browser_data:
-                    self.state.browser_data = {"selections": {}, "prompt": ""}
-                if "selections" not in self.state.browser_data:
-                    self.state.browser_data["selections"] = {}
+                if not self.service.state.browser_data:
+                    self.service.state.browser_data = {"selections": {}, "prompt": ""}
+                if "selections" not in self.service.state.browser_data:
+                    self.service.state.browser_data["selections"] = {}
 
-                self.state.browser_data["selections"][selection_id] = data
+                self.service.state.browser_data["selections"][selection_id] = data
 
             logger.info(f"Element selected: {selection_id} - {data.get('preview', {}).get('tag', 'unknown')}")
 
         except Exception as e:
             logger.error(f"Failed to process node selection: {e}")
             # Set error state for UI display
-            if self.state:
+            if self.service.state:
                 import time
 
                 error_msg = str(e)
                 # Provide user-friendly message for common errors
                 if "timed out" in error_msg.lower() or isinstance(e, TimeoutError):
                     error_msg = "Element selection timed out - page may be unresponsive"
-                self.state.error_state = {"message": error_msg, "timestamp": time.time()}
+                # Use per-target error format
+                if not isinstance(self.service.state.error_state, dict):
+                    self.service.state.error_state = {}
+                self.service.state.error_state["global"] = {"message": error_msg, "timestamp": time.time()}
         finally:
             # Decrement pending counter (thread-safe)
             with self._state_lock:
@@ -278,10 +308,10 @@ class DOMService:
             self._trigger_broadcast()
 
     def _trigger_broadcast(self) -> None:
-        """Trigger SSE broadcast via service callback (ensures snapshot update)."""
-        if self._broadcast_callback:
+        """Trigger SSE broadcast via service (ensures snapshot update)."""
+        if self.service:
             try:
-                self._broadcast_callback()
+                self.service._trigger_broadcast()
             except Exception as e:
                 logger.debug(f"Failed to trigger broadcast: {e}")
 
@@ -298,7 +328,8 @@ class DOMService:
             RuntimeError: If CDP is not connected or commands fail
             TimeoutError: If CDP commands timeout (page busy, heavy load)
         """
-        if not self.cdp:
+        cdp = self._get_inspect_cdp()
+        if not cdp:
             raise RuntimeError("CDP session not initialized")
 
         # Use 15s timeout for interactive operations (balanced between responsiveness and heavy pages)
@@ -307,7 +338,7 @@ class DOMService:
 
         try:
             # Describe node directly with backendNodeId (no need for resolveNode first!)
-            describe_result = self.cdp.execute("DOM.describeNode", {"backendNodeId": backend_node_id}, timeout=timeout)
+            describe_result = cdp.execute("DOM.describeNode", {"backendNodeId": backend_node_id}, timeout=timeout)
 
             if "node" not in describe_result:
                 raise RuntimeError(f"Failed to describe node {backend_node_id}")
@@ -316,11 +347,11 @@ class DOMService:
             node_id = node["nodeId"]
 
             # Get outer HTML
-            html_result = self.cdp.execute("DOM.getOuterHTML", {"nodeId": node_id}, timeout=timeout)
+            html_result = cdp.execute("DOM.getOuterHTML", {"nodeId": node_id}, timeout=timeout)
             outer_html = html_result.get("outerHTML", "")
 
             # Get computed styles
-            styles_result = self.cdp.execute("CSS.getComputedStyleForNode", {"nodeId": node_id}, timeout=timeout)
+            styles_result = cdp.execute("CSS.getComputedStyleForNode", {"nodeId": node_id}, timeout=timeout)
 
             # Convert styles to dict
             styles = {}
@@ -402,10 +433,11 @@ class DOMService:
         # Add nth-child for uniqueness within parent
         # This is key to distinguishing elements with same tag/class
         parent_id = node.get("parentId")
-        if parent_id and self.cdp:
+        cdp = self._get_inspect_cdp()
+        if parent_id and cdp:
             try:
                 # Get parent node to count children
-                parent_result = self.cdp.execute("DOM.describeNode", {"nodeId": parent_id}, timeout=5.0)
+                parent_result = cdp.execute("DOM.describeNode", {"nodeId": parent_id}, timeout=5.0)
 
                 if "node" in parent_result:
                     parent_node = parent_result["node"]
@@ -481,20 +513,21 @@ class DOMService:
         """Get current DOM service state (thread-safe).
 
         Returns:
-            State dictionary with inspect_active, selections, and pending count
+            State dictionary with inspect_active, inspecting target, selections, and pending count
         """
         # Thread-safe read: protect against concurrent writes from WebSocket thread
         with self._state_lock:
             selections = {}
             prompt = ""
 
-            if self.state is not None and self.state.browser_data:
+            if self.service.state is not None and self.service.state.browser_data:
                 # Deep copy to prevent mutations during SSE broadcast
-                selections = dict(self.state.browser_data.get("selections", {}))
-                prompt = self.state.browser_data.get("prompt", "")
+                selections = dict(self.service.state.browser_data.get("selections", {}))
+                prompt = self.service.state.browser_data.get("prompt", "")
 
         return {
-            "inspect_active": self._inspection_active,
+            "inspect_active": self._inspect_target is not None,
+            "inspecting": self._inspect_target,  # Which target is being inspected
             "selections": selections,
             "prompt": prompt,
             "pending_count": self._pending_selections,  # For progress indicator
@@ -509,8 +542,8 @@ class DOMService:
         with self._state_lock:
             # Increment generation FIRST to invalidate all pending workers
             self._generation += 1
-            if self.state is not None and self.state.browser_data:
-                self.state.browser_data["selections"] = {}
+            if self.service.state is not None and self.service.state.browser_data:
+                self.service.state.browser_data["selections"] = {}
             self._next_id = 1
         logger.info(f"Selections cleared (generation {self._generation})")
         self._trigger_broadcast()
@@ -533,15 +566,15 @@ class DOMService:
             except Exception as e:
                 logger.debug(f"Executor shutdown error (non-fatal): {e}")
 
-        # Clear inspection state (only if connected)
-        if self._inspection_active and self.cdp and self.cdp.is_connected:
+        # Clear inspection state (only if inspecting)
+        if self._inspect_target:
             try:
                 self.stop_inspect()
             except Exception as e:
                 logger.debug(f"Failed to stop inspect on cleanup: {e}")
 
-        # Force clear inspection flag even if CDP call failed
-        self._inspection_active = False
+        # Force clear inspection target even if CDP call failed
+        self._inspect_target = None
 
 
 __all__ = ["DOMService"]

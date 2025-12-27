@@ -1,7 +1,4 @@
-"""State management for SSE broadcasting.
-
-Functions in this module build state snapshots for SSE clients.
-"""
+"""State snapshot building for SSE broadcasting."""
 
 import hashlib
 from typing import Any, Dict
@@ -57,9 +54,8 @@ def get_full_state() -> Dict[str, Any]:
     selections_hash = _stable_hash(str(sorted(snapshot.selections.keys())))
     filters_hash = _stable_hash(f"{sorted(snapshot.enabled_filters)}")
     fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.response_stage}:{snapshot.paused_count}")
-    page_hash = _stable_hash(f"{snapshot.connected}:{snapshot.page_id}")
-    error_hash = _stable_hash(snapshot.error_message) if snapshot.error_message else ""
-    targets_hash = _stable_hash(f"{sorted(snapshot.active_targets)}:{len(snapshot.connections)}")
+    errors_hash = _stable_hash(str(sorted(snapshot.errors.items())))
+    targets_hash = _stable_hash(f"{sorted(snapshot.tracked_targets)}:{len(snapshot.connections)}")
 
     # Convert snapshot to frontend format
     return {
@@ -68,13 +64,6 @@ def get_full_state() -> Dict[str, Any]:
         "daemon_version": daemon_version,
         "clients": clients,
         "connected": snapshot.connected,
-        "page": {
-            "id": snapshot.page_id,
-            "title": snapshot.page_title,
-            "url": snapshot.page_url,
-        }
-        if snapshot.connected
-        else None,
         "events": {"total": snapshot.event_count},
         "fetch": {
             "enabled": snapshot.fetch_enabled,
@@ -82,24 +71,22 @@ def get_full_state() -> Dict[str, Any]:
             "paused_count": snapshot.paused_count,
         },
         "filters": {"enabled": list(snapshot.enabled_filters), "disabled": list(snapshot.disabled_filters)},
-        # Multi-target state
-        "active_targets": list(snapshot.active_targets),
+        # Multi-target state (connections now include state field)
+        "tracked_targets": list(snapshot.tracked_targets),
         "connections": list(snapshot.connections),
         "browser": {
             "inspect_active": snapshot.inspect_active,
+            "inspecting": snapshot.inspecting_target,
             "selections": snapshot.selections,
             "prompt": snapshot.prompt,
             "pending_count": snapshot.pending_count,
         },
-        "error": {"message": snapshot.error_message, "timestamp": snapshot.error_timestamp}
-        if snapshot.error_message
-        else None,
+        "errors": snapshot.errors,
         "notices": snapshot.notices,
         # Content hashes for efficient change detection
         "selections_hash": selections_hash,
         "filters_hash": filters_hash,
         "fetch_hash": fetch_hash,
-        "page_hash": page_hash,
-        "error_hash": error_hash,
+        "errors_hash": errors_hash,
         "targets_hash": targets_hash,
     }

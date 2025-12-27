@@ -1,4 +1,7 @@
-"""Browser console message monitoring and display commands."""
+"""Browser console message monitoring and display commands.
+
+Commands: console
+"""
 
 from replkit2.types import ExecutionContext
 
@@ -22,22 +25,32 @@ _MCP_TRUNCATE = {
     display="markdown",
     fastmcp={"type": "resource", "mime_type": "text/markdown"},
 )
-def console(state, limit: int = 50, _ctx: ExecutionContext = None) -> dict:  # pyright: ignore[reportArgumentType]
+def console(
+    state,
+    target: str = None,  # pyright: ignore[reportArgumentType]
+    limit: int = 50,
+    _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
+) -> dict:
     """Show console messages with full data.
 
     Args:
+        target: Target ID (e.g., "9222:abc123"). None for all targets.
         limit: Max results (default: 50)
 
     Examples:
-        console()           # Recent console messages
-        console(limit=100)  # Show more messages
+        console()                  # All targets (aggregated)
+        console("9222:abc")        # Recent console messages from target
+        console("9222:abc", 100)   # Show more messages
 
     Returns:
         Table of console messages with full data
     """
     # Get console messages via RPC
     try:
-        result = state.client.call("console", limit=limit)
+        params: dict = {"limit": limit}
+        if target:
+            params["target"] = target
+        result = state.client.call("console", **params)
         messages = result.get("messages", [])
     except RPCError as e:
         return error_response(e.message)

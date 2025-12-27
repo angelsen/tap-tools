@@ -1,4 +1,7 @@
-"""Browser navigation commands."""
+"""Browser navigation commands.
+
+Commands: navigate, reload, back, forward, page, history
+"""
 
 from webtap.app import app
 from webtap.client import RPCError
@@ -10,17 +13,19 @@ from webtap.commands._tips import get_tips
     display="markdown",
     fastmcp={"type": "tool", "mime_type": "text/markdown"},
 )
-def navigate(state, url: str) -> dict:
+def navigate(state, url: str, target: str) -> dict:
     """Navigate to URL.
 
     Args:
         url: URL to navigate to
+        target: Target ID (e.g., "9222:abc123")
 
     Returns:
         Navigation result with frame and loader IDs
     """
     try:
-        result = state.client.call("navigate", url=url)
+        params: dict = {"url": url, "target": target}
+        result = state.client.call("navigate", **params)
 
         if result.get("error"):
             return error_response(f"Navigation error: {result['error']}")
@@ -44,14 +49,16 @@ def navigate(state, url: str) -> dict:
     display="markdown",
     fastmcp={"type": "tool", "mime_type": "text/markdown"},
 )
-def reload(state, ignore_cache: bool = False) -> dict:
+def reload(state, target: str, ignore_cache: bool = False) -> dict:
     """Reload the current page.
 
     Args:
+        target: Target ID (e.g., "9222:abc123")
         ignore_cache: Force reload ignoring cache
     """
     try:
-        result = state.client.call("reload", ignore_cache=ignore_cache)
+        params: dict = {"target": target, "ignore_cache": ignore_cache}
+        result = state.client.call("reload", **params)
 
         return info_response(
             title="Page Reload",
@@ -71,10 +78,15 @@ def reload(state, ignore_cache: bool = False) -> dict:
     display="markdown",
     fastmcp={"type": "tool", "mime_type": "text/markdown"},
 )
-def back(state) -> dict:
-    """Navigate back in history."""
+def back(state, target: str) -> dict:
+    """Navigate back in history.
+
+    Args:
+        target: Target ID (e.g., "9222:abc123")
+    """
     try:
-        result = state.client.call("back")
+        params: dict = {"target": target}
+        result = state.client.call("back", **params)
 
         if not result.get("navigated"):
             return info_response(
@@ -102,10 +114,15 @@ def back(state) -> dict:
     display="markdown",
     fastmcp={"type": "tool", "mime_type": "text/markdown"},
 )
-def forward(state) -> dict:
-    """Navigate forward in history."""
+def forward(state, target: str) -> dict:
+    """Navigate forward in history.
+
+    Args:
+        target: Target ID (e.g., "9222:abc123")
+    """
     try:
-        result = state.client.call("forward")
+        params: dict = {"target": target}
+        result = state.client.call("forward", **params)
 
         if not result.get("navigated"):
             return info_response(

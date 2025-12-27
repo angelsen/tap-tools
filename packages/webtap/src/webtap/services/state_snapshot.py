@@ -1,4 +1,8 @@
-"""Immutable state snapshots for thread-safe SSE broadcasting."""
+"""Immutable state snapshots for thread-safe SSE broadcasting.
+
+PUBLIC API:
+  - StateSnapshot: Frozen dataclass for thread-safe state access
+"""
 
 from dataclasses import dataclass
 from typing import Any, List, Dict
@@ -24,14 +28,13 @@ class StateSnapshot:
         paused_count: Number of paused requests (if fetch enabled)
         enabled_filters: Tuple of enabled filter category names
         disabled_filters: Tuple of disabled filter category names
-        active_targets: Tuple of target IDs being filtered to (empty = all)
+        tracked_targets: Tuple of target IDs for default aggregation scope (empty = all)
         connections: Tuple of connection info dicts (target, title, url)
         inspect_active: Whether element inspection mode is active
         selections: Dict of selected elements (id -> element data)
         prompt: Browser prompt text (unused, reserved)
         pending_count: Number of pending element selections being processed
-        error_message: Current error message or None
-        error_timestamp: Error timestamp or None
+        errors: Dict of errors by target ID (target_id -> {message, timestamp})
         notices: List of active notices for multi-surface display
     """
 
@@ -54,18 +57,18 @@ class StateSnapshot:
     disabled_filters: tuple[str, ...]
 
     # Multi-target state
-    active_targets: tuple[str, ...]  # Target IDs being filtered to (empty = all)
+    tracked_targets: tuple[str, ...]  # Default scope for aggregation (empty = all)
     connections: tuple[dict, ...]  # Connection info: [{target, title, url}, ...]
 
     # Browser/DOM state
     inspect_active: bool
+    inspecting_target: str | None  # Which target is being inspected
     selections: dict[str, Any]  # Dict is mutable but replaced atomically
     prompt: str
     pending_count: int
 
-    # Error state
-    error_message: str | None
-    error_timestamp: float | None
+    # Error state - per-target errors
+    errors: dict[str, dict[str, Any]]  # {target_id: {message: str, timestamp: float}}
 
     # Notice state
     notices: List[Dict[str, Any]]
@@ -84,14 +87,14 @@ class StateSnapshot:
             paused_count=0,
             enabled_filters=(),
             disabled_filters=(),
-            active_targets=(),
+            tracked_targets=(),
             connections=(),
             inspect_active=False,
+            inspecting_target=None,
             selections={},
             prompt="",
             pending_count=0,
-            error_message=None,
-            error_timestamp=None,
+            errors={},
             notices=[],
         )
 

@@ -82,6 +82,7 @@ def main():
 
     if arg in ("--version", "-v"):
         from webtap.daemon import daemon_running, get_daemon_version
+
         print(f"webtap {__version__}")
         if daemon_running():
             ver = get_daemon_version()
@@ -93,6 +94,7 @@ def main():
     # Status command (no daemon needed)
     if arg == "status":
         from webtap.daemon import daemon_status
+
         status = daemon_status()
         if not status["running"]:
             print("Daemon: not running")
@@ -116,24 +118,28 @@ def main():
     # Daemon subcommand
     if arg == "daemon":
         from webtap.daemon import handle_cli
+
         handle_cli(sys.argv[2:])
         return
 
     # Internal daemon flag (used by spawning)
     if arg == "--daemon":
         from webtap.daemon import start_daemon
+
         start_daemon()
         return
 
     # App-based CLI commands
     if arg in _APP_COMMANDS:
         from webtap.daemon import ensure_daemon
+
         ensure_daemon()
         _get_app().cli()
         return
 
     # Default: REPL or MCP mode
     from webtap.daemon import ensure_daemon
+
     ensure_daemon()
 
     if sys.stdin.isatty():
@@ -141,6 +147,7 @@ def main():
         try:
             from webtap.daemon import get_daemon_url
             import httpx
+
             response = httpx.get(f"{get_daemon_url()}/status", timeout=1.0)
             notices = response.json().get("notices", []) if response.status_code == 200 else []
         except Exception:

@@ -20,6 +20,37 @@ Implementation guide for WebTap's RPC-based daemon architecture.
 - Automatic epoch synchronization
 - `RPCError` exception for structured errors
 
+## Multi-Target Architecture
+
+Simultaneous connections to multiple Chrome instances:
+
+```
+┌─────────────────┐     ┌─────────────────┐
+│ Chrome :9222    │     │ Chrome :9223    │
+│  ├─ page abc123 │     │  ├─ page def456 │
+│  └─ page xyz789 │     │  └─ page ghi012 │
+└────────┬────────┘     └────────┬────────┘
+         │                       │
+         └───────┬───────────────┘
+                 ▼
+         ┌───────────────┐
+         │    Daemon     │
+         │ cdp_sessions: │
+         │  9222: CDPSession
+         │  9223: CDPSession
+         └───────────────┘
+```
+
+**Target ID format:** `{port}:{6-char-short-id}` (e.g., `9222:abc123`)
+
+**Filtering:** `targets.set(["9222:abc123"])` filters events to specific targets.
+
+## Daemon Lifecycle
+
+- **Port discovery:** Scans 37650-37659, writes to `~/.local/state/webtap/daemon.port`
+- **Version check:** Health endpoint returns version; clients auto-restart outdated daemons
+- **Port management:** `ports.add(port)` validates Chrome availability, creates CDPSession
+
 ## Request Flow
 
 ```
@@ -47,16 +78,12 @@ def network(ctx: RPCContext, limit: int = 50, status: int = None) -> dict:
     )
     return {"requests": requests}
 
-def connect(ctx: RPCContext, page: int = None, page_id: str = None) -> dict:
-    """Connect to Chrome page - manages state transitions."""
-    # Validate params
-    if page is None and page_id is None:
-        raise RPCError(ErrorCode.INVALID_PARAMS, "Must specify page or page_id")
-
+def connect(ctx: RPCContext, target: str) -> dict:
+    """Connect to Chrome page by target ID (e.g., "9222:f8134d")."""
     # State transition
     ctx.machine.start_connect()
     try:
-        result = ctx.service.connect_to_page(page_index=page, page_id=page_id)
+        result = ctx.service.connect_to_page(target=target)
         ctx.machine.connect_success()  # Increments epoch
         return {"connected": True, **result}
     except Exception as e:
@@ -130,12 +157,15 @@ Prevents stale requests after reconnection:
 ## File Structure
 
 ```
-rpc/
-├── __init__.py      # Exports: RPCFramework, RPCError, ErrorCode, ConnectionState
-├── framework.py     # RPCFramework, RPCContext, HandlerMeta
-├── handlers.py      # 22 RPC method handlers
-├── machine.py       # ConnectionMachine, ConnectionState
-└── errors.py        # ErrorCode, RPCError
+webtap/
+├── targets.py       # Target ID utilities ({port}:{short-id})
+├── notices.py       # Multi-surface warning system
+├── rpc/
+│   ├── __init__.py      # Exports: RPCFramework, RPCError, ErrorCode, ConnectionState
+│   ├── framework.py     # RPCFramework, RPCContext, HandlerMeta
+│   ├── handlers.py      # 22+ RPC method handlers
+│   ├── machine.py       # ConnectionMachine, ConnectionState
+│   └── errors.py        # ErrorCode, RPCError
 ```
 
 ## Adding New RPC Methods

@@ -1,16 +1,21 @@
 """Chrome launch commands for WebTap.
 
-Commands for launching Chrome with debugging enabled and setting up Android device connections.
+Commands: run_chrome, setup_android
 """
 
+import signal
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
+from typing import Annotated
+
+import typer
 
 from webtap.app import app
-from webtap.commands._builders import success_response, error_response, warning_response
+from webtap.commands._builders import success_response, error_response
 
 
 def _is_port_in_use(port: int) -> bool:
@@ -27,20 +32,27 @@ def _register_port_with_daemon(state, port: int) -> dict | None:
         return None
 
 
+def _unregister_port(state, port: int) -> None:
+    """Unregister port from daemon, ignore errors."""
+    try:
+        state.client.call("ports.remove", port=port)
+    except Exception:
+        pass
+
+
 @app.command(
     display="markdown",
     typer={"name": "run-chrome", "help": "Launch Chrome with debugging enabled"},
     fastmcp={"enabled": False},
 )
-def run_chrome(state, detach: bool = True, port: int = 9222) -> dict:
-    """Launch Chrome with debugging enabled for WebTap.
+def run_chrome(state, port: int = 9222) -> dict:
+    """Launch Chrome with debugging enabled. Blocks until Ctrl+C.
 
     Args:
-        detach: Run Chrome in background (default: True)
         port: Debugging port (default: 9222)
 
     Returns:
-        Status message
+        Status message when Chrome exits
     """
     # Check for port conflict before launching
     if _is_port_in_use(port):
@@ -76,51 +88,50 @@ def run_chrome(state, detach: bool = True, port: int = 9222) -> dict:
             ],
         )
 
-    # Simple: use clean temp profile for debugging
+    # Use clean temp profile for debugging
     temp_config = Path("/tmp/webtap-chrome-debug")
     temp_config.mkdir(parents=True, exist_ok=True)
 
-    # Launch Chrome
+    # Launch Chrome (blocking mode - same process group)
     cmd = [chrome_exe, f"--remote-debugging-port={port}", "--remote-allow-origins=*", f"--user-data-dir={temp_config}"]
+    process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    if detach:
-        subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Wait for Chrome to start
+    time.sleep(1.0)
 
-        # Wait briefly for Chrome to start the debug port
-        time.sleep(1.0)
+    # Register port with daemon
+    _register_port_with_daemon(state, port)
 
-        # Register port with daemon
-        reg_result = _register_port_with_daemon(state, port)
-        if reg_result and reg_result.get("status") == "registered":
-            registered = "daemon notified"
-        elif reg_result and reg_result.get("warning"):
-            # Chrome may still be starting up
-            return warning_response(
-                f"Launched {chrome_exe} but port not responding yet",
-                suggestions=[
-                    "Chrome may still be starting up",
-                    f"Verify: curl http://localhost:{port}/json",
-                    "Run connect() to attach WebTap",
-                ],
-            )
-        else:
-            registered = "daemon unavailable"
+    # Setup cleanup handler
+    def cleanup(signum, frame):
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        _unregister_port(state, port)
+        sys.exit(0)
 
-        return success_response(
-            f"Launched {chrome_exe}",
-            details={
-                "Port": str(port),
-                "Mode": "Background (detached)",
-                "Registered": registered,
-                "Next step": "Run connect() to attach WebTap",
-            },
-        )
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    # Print status
+    print(f"Chrome running on port {port}. Press Ctrl+C to stop.")
+
+    # Block until Chrome exits or signal received
+    try:
+        returncode = process.wait()
+    except KeyboardInterrupt:
+        cleanup(None, None)
+        returncode = 0
+
+    # Unregister on normal exit
+    _unregister_port(state, port)
+
+    if returncode == 0:
+        return success_response("Chrome closed normally")
     else:
-        result = subprocess.run(cmd)
-        if result.returncode == 0:
-            return success_response("Chrome closed normally")
-        else:
-            return error_response(f"Chrome exited with code {result.returncode}")
+        return error_response(f"Chrome exited with code {returncode}")
 
 
 def _get_connected_devices() -> list[tuple[str, str]]:
@@ -171,7 +182,12 @@ def _get_device_name(serial: str) -> str:
     typer={"name": "setup-android", "help": "Set up Android device debugging"},
     fastmcp={"enabled": False},
 )
-def setup_android(state, yes: bool = False, port: int = 9223, device: str | None = None) -> dict:
+def setup_android(
+    state,
+    yes: Annotated[bool, typer.Option("-y", "--yes", help="Auto-configure without prompts")] = False,
+    port: Annotated[int, typer.Option("-p", "--port", help="Local port to forward")] = 9223,
+    device: Annotated[str | None, typer.Option("-d", "--device", help="Device serial")] = None,
+) -> dict:
     """Set up Android device for Chrome debugging.
 
     Args:
@@ -276,20 +292,32 @@ def setup_android(state, yes: bool = False, port: int = 9223, device: str | None
         return error_response("adb forward timed out")
 
     # Register port with daemon
-    reg_result = _register_port_with_daemon(state, port)
-    if reg_result and reg_result.get("status") == "registered":
-        registered = "daemon notified"
-    else:
-        registered = "daemon unavailable"
+    _register_port_with_daemon(state, port)
 
-    return success_response(
-        f"Device connected: {device_name}",
-        details={
-            "Port forwarded": f"tcp:{port} to chrome_devtools_remote",
-            "Registered": registered,
-            "Next": f"connect(chrome_port={port}) or pages(chrome_port={port})",
-        },
-    )
+    # Setup cleanup handler
+    def cleanup(signum, frame):
+        # Remove adb forward
+        subprocess.run(
+            ["adb", "-s", target_device, "forward", "--remove", f"tcp:{port}"],
+            capture_output=True,
+            timeout=5,
+        )
+        _unregister_port(state, port)
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    # Print status and block
+    print(f"Android debugging active: {device_name} on port {port}. Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        cleanup(None, None)
+
+    return success_response("Android debugging stopped")
 
 
 __all__ = ["run_chrome", "setup_android"]

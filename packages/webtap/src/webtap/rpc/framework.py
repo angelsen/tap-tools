@@ -1,10 +1,4 @@
-"""RPC framework for JSON-RPC 2.0 request handling.
-
-PUBLIC API:
-  - RPCFramework: Core RPC request/response handler with method registration
-  - RPCContext: Context passed to RPC handlers
-  - HandlerMeta: Metadata for RPC handler registration
-"""
+"""RPC framework for JSON-RPC 2.0 request handling."""
 
 import asyncio
 import hashlib
@@ -132,6 +126,9 @@ class RPCFramework:
         is_stale = version < __version__
 
         async with self._client_lock:
+            # Check if this is a newly detected stale client
+            was_known_stale = client_id in self._clients and self._clients[client_id].get("is_stale")
+
             self._clients[client_id] = {
                 "version": version,
                 "client_type": client_type,
@@ -143,6 +140,15 @@ class RPCFramework:
             # Prune stale clients (>5min since last seen)
             cutoff = time.time() - 300  # 5 minutes
             self._clients = {k: v for k, v in self._clients.items() if v["last_seen"] > cutoff}
+
+        # Notify about stale client (only once per client)
+        if is_stale and not was_known_stale:
+            self.service.notices.add(
+                "client_stale",
+                client_type=client_type,
+                version=version,
+                context=context,
+            )
 
     def get_tracked_clients(self) -> dict[str, dict[str, Any]]:
         """Get all tracked clients (thread-safe snapshot).
@@ -188,14 +194,35 @@ class RPCFramework:
             handler, meta = self.handlers[method]
 
             # Validate state requirements
-            current_state = self.machine.state
-            if meta.requires_state and current_state not in meta.requires_state:
-                return self._error_response(
-                    request_id,
-                    ErrorCode.INVALID_STATE,
-                    f"Method {method} requires state {meta.requires_state}, current: {current_state}",
-                    {"current_state": current_state, "required_states": meta.requires_state},
-                )
+            # Per-target validation when target param present
+            target_param = params.get("target")
+            if target_param and meta.requires_state:
+                conn = self.service.get_connection(target_param)
+                if conn:
+                    target_state = conn.state.value
+                    if target_state not in meta.requires_state:
+                        return self._error_response(
+                            request_id,
+                            ErrorCode.INVALID_STATE,
+                            f"Target {target_param} in state {target_state}, requires {meta.requires_state}",
+                            {
+                                "target": target_param,
+                                "current_state": target_state,
+                                "required_states": meta.requires_state,
+                            },
+                        )
+                # If target not found, fall through to global check (connect may be creating it)
+
+            # Global state validation (backward compatible)
+            if meta.requires_state:
+                current_state = self.machine.state
+                if current_state not in meta.requires_state:
+                    return self._error_response(
+                        request_id,
+                        ErrorCode.INVALID_STATE,
+                        f"Method {method} requires state {meta.requires_state}, current: {current_state}",
+                        {"current_state": current_state, "required_states": meta.requires_state},
+                    )
 
             # Validate epoch (if provided)
             request_epoch = request.get("epoch")

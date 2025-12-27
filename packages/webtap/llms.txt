@@ -6,8 +6,8 @@ WebTap is a Chrome DevTools Protocol (CDP) client for browser debugging via REPL
 
 ```python
 # Connect to Chrome (must be running with --remote-debugging-port=9222)
-pages()                              # List available tabs
-connect(0)                           # Connect by index
+pages()                              # List pages with target IDs
+connect("9222:f8134d")               # Connect by target from pages()
 network()                            # View network requests (filtered)
 network(url="*api*")                 # Filter by URL pattern
 request(123, ["response.content"])   # Get response body by row ID
@@ -34,9 +34,8 @@ REPL/MCP Client → RPCClient.call() → POST /rpc → RPCFramework → Services
 ### Connection & Navigation
 
 ```python
-pages()                      # List Chrome pages
-connect(0)                   # Connect by index
-connect(page_id="xyz")       # Connect by page ID
+pages()                      # List Chrome pages with target IDs
+connect("9222:f8")           # Connect by target from pages()
 disconnect()                 # Disconnect
 status()                     # Show daemon/connection status
 
@@ -50,10 +49,10 @@ page()                       # Current page info
 
 ```python
 network()                              # Filtered requests (default)
-network(all=True)                      # Bypass filters, show everything
+network(show_all=True)                 # Bypass filters, show everything
 network(status=404)                    # Filter by HTTP status
 network(method="POST")                 # Filter by method
-network(type="xhr")                    # Filter by resource type
+network(resource_type="xhr")           # Filter by resource type
 network(url="*api*")                   # Filter by URL pattern
 network(status=200, url="*graphql*")   # Combine filters
 network(limit=50)                      # Show more results
@@ -169,7 +168,7 @@ clear(events=True, console=True)    # Clear everything
 
 ```python
 pages()
-connect(0)
+connect("9222:f8")                   # Connect by target
 network(url="*api*")                 # Find API calls
 # Note the ID column
 request(3264, ["response.content"])  # Get response body
@@ -202,7 +201,7 @@ fetch("disable")
 ### Parse HTML Responses
 
 ```python
-network(type="document")
+network(resource_type="document")
 request(123, ["response.content"], expr="""
 BeautifulSoup(data['response']['content']['text'], 'html.parser').find_all('a', href=True)
 """)

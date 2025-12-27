@@ -238,9 +238,8 @@ def check_connection(state):
             return error_response(
                 "Not connected to Chrome",
                 suggestions=[
-                    "Run `pages()` to see available tabs",
-                    "Use `connect(0)` to connect to first tab",
-                    "Or `connect(page_id='...')` for specific tab",
+                    "Run `pages()` to see available targets",
+                    "Use `connect('9222:...')` to connect",
                 ],
             )
     except Exception as e:

@@ -1,7 +1,6 @@
 """Browser element selection and prompt analysis commands.
 
-PUBLIC API:
-  - browser: Analyze browser element selections with prompt
+Commands: selections
 """
 
 from webtap.app import app
@@ -52,7 +51,12 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
             ],
         )
 
-    data = {"prompt": browser.get("prompt", ""), "selections": browser.get("selections", {})}
+    # Include target info for multi-target awareness
+    data = {
+        "prompt": browser.get("prompt", ""),
+        "selections": browser.get("selections", {}),
+        "target": browser.get("inspecting"),
+    }
 
     # No expression - RESOURCE MODE: Return formatted view
     if not expr:
@@ -97,6 +101,11 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
 def _format_browser_data(data: dict) -> dict:
     """Format browser data as markdown for resource view."""
     elements = []
+
+    # Show target info
+    target = data.get("target")
+    if target:
+        elements.append({"type": "text", "content": f"**Target:** `{target}`"})
 
     # Show prompt
     elements.append({"type": "heading", "content": "Browser Prompt", "level": 2})

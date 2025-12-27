@@ -1,12 +1,12 @@
-"""Network monitoring service using HAR views."""
+"""Network monitoring service using HAR views.
+
+PUBLIC API:
+  - NetworkService: Network event queries using HAR views
+"""
 
 import json
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from webtap.cdp import CDPSession
-    from webtap.filters import FilterManager
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,19 +16,33 @@ class NetworkService:
 
     def __init__(self):
         """Initialize network service."""
-        self.cdp: CDPSession | None = None
-        self.filters: FilterManager | None = None
+        self.service: "Any" = None  # WebTapService reference
+
+    def set_service(self, service: "Any") -> None:
+        """Set service reference.
+
+        Args:
+            service: WebTapService instance
+        """
+        self.service = service
 
     @property
     def request_count(self) -> int:
-        """Count of all network requests."""
-        if not self.cdp:
+        """Count of all network requests across all connections."""
+        if not self.service:
             return 0
-        result = self.cdp.query("SELECT COUNT(*) FROM har_summary")
-        return result[0][0] if result else 0
+        total = 0
+        for conn in self.service.connections.values():
+            try:
+                result = conn.cdp.query("SELECT COUNT(*) FROM har_summary")
+                total += result[0][0] if result else 0
+            except Exception:
+                pass
+        return total
 
     def get_requests(
         self,
+        targets: list[str] | None = None,
         limit: int = 20,
         status: int | None = None,
         method: str | None = None,
@@ -37,10 +51,12 @@ class NetworkService:
         state: str | None = None,
         apply_groups: bool = True,
         order: str = "desc",
+        target: str | list[str] | None = None,
     ) -> list[dict]:
-        """Get network requests from HAR summary view.
+        """Get network requests from HAR summary view, aggregated from multiple targets.
 
         Args:
+            targets: Explicit target list, or None for tracked/all
             limit: Maximum results.
             status: Filter by HTTP status code.
             method: Filter by HTTP method.
@@ -49,11 +65,21 @@ class NetworkService:
             state: Filter by state (pending, loading, complete, failed, paused).
             apply_groups: Apply enabled filter groups.
             order: Sort order - "desc" (newest first) or "asc" (oldest first).
+            target: Legacy parameter - use targets instead
 
         Returns:
-            List of request summary dicts.
+            List of request summary dicts with target field.
         """
-        if not self.cdp:
+        if not self.service:
+            return []
+
+        # Use targets parameter (new) or target (legacy)
+        if targets is None and target is not None:
+            targets = [target] if isinstance(target, str) else target
+
+        # Get CDPSessions for specified or tracked/all targets
+        cdps = self.service.get_cdps(targets)
+        if not cdps:
             return []
 
         # Build SQL query
@@ -72,19 +98,23 @@ class NetworkService:
             pause_stage,
             paused_id,
             frames_sent,
-            frames_received
+            frames_received,
+            started_datetime,
+            last_activity,
+            target
         FROM har_summary
         """
 
-        # Build filter conditions
+        # Build filter conditions (without target filter - we handle that via get_cdps)
         conditions = ""
-        if self.filters:
-            conditions = self.filters.build_filter_sql(
+        if self.service and self.service.filters:
+            conditions = self.service.filters.build_filter_sql(
                 status=status,
                 method=method,
                 type_filter=type_filter,
                 url=url,
                 apply_groups=apply_groups,
+                target=None,  # Don't filter by target in SQL
             )
 
         # Add state filter
@@ -103,10 +133,22 @@ class NetworkService:
             sql += f" WHERE {' AND '.join(all_conditions)}"
 
         sort_dir = "ASC" if order.lower() == "asc" else "DESC"
-        sql += f" ORDER BY id {sort_dir} LIMIT {limit}"
+        sql += f" ORDER BY last_activity {sort_dir}"
 
-        # Execute query and convert to dicts
-        rows = self.cdp.query(sql)
+        # Aggregate from all CDPSessions
+        all_rows = []
+        for cdp in cdps:
+            try:
+                rows = cdp.query(sql)
+                all_rows.extend(rows)
+            except Exception as e:
+                logger.warning(f"Failed to query network from {cdp.target}: {e}")
+
+        # Sort by last_activity (index 15) for proper cross-target ordering
+        all_rows.sort(key=lambda r: r[15] or "", reverse=(order.lower() == "desc"))
+        all_rows = all_rows[:limit]
+
+        # Convert to dicts
         columns = [
             "id",
             "request_id",
@@ -122,15 +164,19 @@ class NetworkService:
             "paused_id",
             "frames_sent",
             "frames_received",
+            "started_datetime",
+            "last_activity",
+            "target",
         ]
 
-        return [dict(zip(columns, row)) for row in rows]
+        return [dict(zip(columns, row)) for row in all_rows]
 
-    def get_request_details(self, row_id: int) -> dict | None:
+    def get_request_details(self, row_id: int, target: str | None = None) -> dict | None:
         """Get HAR entry with proper nested structure.
 
         Args:
             row_id: Row ID from har_summary.
+            target: Target ID - required to find the correct CDPSession
 
         Returns:
             HAR-structured dict or None if not found.
@@ -146,7 +192,11 @@ class NetworkService:
                 ...
             }
         """
-        if not self.cdp:
+        if not self.service:
+            return None
+
+        cdp = self.service.resolve_cdp(row_id, "har_summary", target=target)
+        if not cdp:
             return None
 
         sql = """
@@ -177,7 +227,7 @@ class NetworkService:
         WHERE id = ?
         """
 
-        rows = self.cdp.query(sql, [row_id])
+        rows = cdp.query(sql, [row_id])
         if not rows:
             return None
 
@@ -261,44 +311,159 @@ class NetworkService:
 
         return har
 
-    def fetch_body(self, request_id: str) -> dict | None:
+    def fetch_body(self, request_id: str, target: str | None = None) -> dict | None:
         """Fetch response body for a request.
 
         Args:
             request_id: CDP request ID.
+            target: Target ID. If None, searches all connections.
 
         Returns:
             Dict with 'body' and 'base64Encoded' keys, or None.
         """
-        if not self.cdp:
+        if not self.service:
             return None
-        return self.cdp.fetch_body(request_id)
 
-    def get_request_by_row_id(self, row_id: int) -> str | None:
+        if target:
+            conn = self.service.connections.get(target)
+            if not conn:
+                return None
+            return conn.cdp.fetch_body(request_id)
+        else:
+            # Search all connections for this request_id
+            for conn in self.service.connections.values():
+                try:
+                    result = conn.cdp.fetch_body(request_id)
+                    if result:
+                        return result
+                except Exception:
+                    pass
+            return None
+
+    def fetch_websocket_frames(self, request_id: str, target: str | None = None) -> dict | None:
+        """Fetch WebSocket frames for a request.
+
+        Args:
+            request_id: CDP request ID.
+            target: Target ID. If None, searches all connections.
+
+        Returns:
+            Dict with 'sent' and 'received' lists of frames, or None.
+            Each frame has: opcode, payloadData, mask, timestamp
+        """
+        if not self.service:
+            return None
+
+        sql = """
+        SELECT
+            method,
+            json_extract_string(event, '$.params.timestamp') as timestamp,
+            json_extract(event, '$.params.response') as frame
+        FROM events
+        WHERE method IN ('Network.webSocketFrameSent', 'Network.webSocketFrameReceived')
+          AND json_extract_string(event, '$.params.requestId') = ?
+        ORDER BY timestamp ASC
+        """
+
+        def query_frames(cdp):
+            rows = cdp.query(sql, [request_id])
+            sent = []
+            received = []
+            for method, timestamp, frame_json in rows:
+                frame = json.loads(frame_json) if isinstance(frame_json, str) else frame_json
+                frame_data = {
+                    "opcode": frame.get("opcode") if frame else None,
+                    "payloadData": frame.get("payloadData") if frame else None,
+                    "mask": frame.get("mask") if frame else None,
+                    "timestamp": float(timestamp) if timestamp else None,
+                }
+                if method == "Network.webSocketFrameSent":
+                    sent.append(frame_data)
+                else:
+                    received.append(frame_data)
+            return {"sent": sent, "received": received}
+
+        if target:
+            conn = self.service.connections.get(target)
+            if conn:
+                return query_frames(conn.cdp)
+            return None
+
+        # Search all connections
+        for conn in self.service.connections.values():
+            try:
+                result = query_frames(conn.cdp)
+                if result["sent"] or result["received"]:
+                    return result
+            except Exception:
+                pass
+        return None
+
+    def get_request_by_row_id(self, row_id: int, target: str | None = None) -> str | None:
         """Get request_id for a row ID.
 
         Args:
             row_id: Row ID from har_summary.
+            target: Target ID. If None, searches all connections.
 
         Returns:
             CDP request ID or None.
         """
-        if not self.cdp:
+        if not self.service:
             return None
 
-        result = self.cdp.query("SELECT request_id FROM har_summary WHERE id = ?", [row_id])
+        cdp = self.service.resolve_cdp(row_id, "har_summary", target=target)
+        if not cdp:
+            return None
+        result = cdp.query("SELECT request_id FROM har_summary WHERE id = ?", [row_id])
         return result[0][0] if result else None
 
-    def get_request_id(self, row_id: int) -> str | None:
+    def get_request_id(self, row_id: int, target: str | None = None) -> str | None:
         """Get CDP request_id for a row ID.
 
         Args:
             row_id: Row ID from network table.
+            target: Target ID - required to find the correct CDPSession
 
         Returns:
             CDP request ID or None.
         """
-        return self.get_request_by_row_id(row_id)
+        return self.get_request_by_row_id(row_id, target)
+
+    def get_har_id_by_request_id(self, request_id: str, target: str | None = None) -> int | None:
+        """Find HAR summary row ID by CDP request_id.
+
+        Args:
+            request_id: CDP request ID (from Network.responseReceived).
+            target: Target ID. If None, searches all connections.
+
+        Returns:
+            HAR summary row ID or None if not found.
+        """
+        if not self.service:
+            return None
+
+        if target:
+            conn = self.service.connections.get(target)
+            if not conn:
+                return None
+            result = conn.cdp.query(
+                "SELECT id FROM har_summary WHERE request_id = ? LIMIT 1",
+                [request_id],
+            )
+            return result[0][0] if result else None
+        else:
+            for conn in self.service.connections.values():
+                try:
+                    result = conn.cdp.query(
+                        "SELECT id FROM har_summary WHERE request_id = ? LIMIT 1",
+                        [request_id],
+                    )
+                    if result:
+                        return result[0][0]
+                except Exception:
+                    pass
+            return None
 
     def select_fields(self, har_entry: dict, patterns: list[str] | None) -> dict:
         """Apply ES-style field selection to HAR entry.
@@ -353,6 +518,23 @@ class NetworkService:
                         _set_nested(result, ["response", "content"], content)
                     else:
                         _set_nested(result, ["response", "content"], {"text": None})
+                continue
+
+            # Special case: websocket.frames triggers frame fetch
+            if pattern == "websocket.frames" or pattern.startswith("websocket.frames."):
+                # Only fetch frames for WebSocket connections
+                if har_entry.get("protocol") == "websocket":
+                    request_id = har_entry.get("request_id")
+                    if request_id:
+                        frames_result = self.fetch_websocket_frames(request_id)
+                        if frames_result:
+                            websocket_data = result.get("websocket", {})
+                            websocket_data["frames"] = frames_result
+                            result["websocket"] = websocket_data
+                        else:
+                            websocket_data = result.get("websocket", {})
+                            websocket_data["frames"] = {"sent": [], "received": []}
+                            result["websocket"] = websocket_data
                 continue
 
             # Wildcard: "request.headers.*" -> get all under that path

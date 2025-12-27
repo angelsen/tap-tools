@@ -1,4 +1,9 @@
-"""JSON-RPC 2.0 client for WebTap daemon communication."""
+"""JSON-RPC 2.0 client for WebTap daemon communication.
+
+PUBLIC API:
+  - RPCClient: JSON-RPC 2.0 client for daemon communication
+  - RPCError: Exception raised for RPC errors
+"""
 
 import logging
 import os

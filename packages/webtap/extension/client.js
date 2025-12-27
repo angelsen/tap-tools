@@ -10,15 +10,34 @@
  */
 
 // Port discovery constants
-const BASE_DAEMON_PORT = 8765;
+const BASE_DAEMON_PORT = 37650;
 const MAX_PORT_TRIES = 10;
 
 class WebTapClient {
   /**
-   * Discover the daemon port by scanning
+   * Discover the daemon port (cached first, then scan)
    * @returns {Promise<number|null>} Daemon port if found, null otherwise
    */
   static async discoverDaemon() {
+    // Try cached port first
+    try {
+      const cached = await chrome.storage.local.get('daemonPort');
+      if (cached.daemonPort) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 500);
+        const response = await fetch(`http://localhost:${cached.daemonPort}/health`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (response.ok) {
+          return cached.daemonPort;
+        }
+      }
+    } catch {
+      // Cached port stale or unavailable
+    }
+
+    // Scan for daemon
     for (let i = 0; i < MAX_PORT_TRIES; i++) {
       const port = BASE_DAEMON_PORT + i;
       try {
@@ -29,12 +48,38 @@ class WebTapClient {
         });
         clearTimeout(timeoutId);
         if (response.ok) {
+          // Cache for next time
+          await chrome.storage.local.set({ daemonPort: port });
           return port;
         }
       } catch {
-        // Port not available, try next
+        // Port not available
       }
     }
+    return null;
+  }
+
+  /**
+   * Retry daemon discovery with exponential backoff
+   * @param {number} maxRetries - Maximum number of retries (default 3)
+   * @returns {Promise<number|null>} Port if found, null if all retries exhausted
+   */
+  static async discoverDaemonWithRetry(maxRetries = 3) {
+    const delays = [500, 1000, 2000];
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const port = await WebTapClient.discoverDaemon();
+      if (port !== null) {
+        return port;
+      }
+
+      if (attempt < maxRetries) {
+        console.log(`[WebTap] Daemon not found, retry ${attempt + 1}/${maxRetries} in ${delays[attempt]}ms`);
+        await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      }
+    }
+
+    console.log('[WebTap] Daemon discovery failed after retries');
     return null;
   }
 
@@ -43,7 +88,7 @@ class WebTapClient {
    * @returns {Promise<WebTapClient|null>} Client instance if daemon found, null otherwise
    */
   static async create() {
-    const port = await WebTapClient.discoverDaemon();
+    const port = await WebTapClient.discoverDaemonWithRetry();
     if (port === null) {
       return null;
     }
@@ -51,9 +96,9 @@ class WebTapClient {
   }
 
   /**
-   * @param {string} baseUrl - Base URL for WebTap daemon (default: http://localhost:8765)
+   * @param {string} baseUrl - Base URL for WebTap daemon (default: http://localhost:37650)
    */
-  constructor(baseUrl = "http://localhost:8765") {
+  constructor(baseUrl = "http://localhost:37650") {
     this.baseUrl = baseUrl;
     this.debug = false;
 
@@ -62,7 +107,7 @@ class WebTapClient {
       connectionState: "disconnected",
       epoch: 0,
       connected: false,
-      page: null,
+      connections: [],
       events: { total: 0 },
       fetch: { enabled: false, paused_count: 0 },
       filters: { enabled: [], disabled: [] },
@@ -107,7 +152,12 @@ class WebTapClient {
 
       const response = await fetch(`${this.baseUrl}/rpc`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-webtap-client-type": "extension",
+          "x-webtap-version": chrome.runtime.getManifest().version,
+          "x-webtap-context": "sidepanel"
+        },
         body: JSON.stringify(request),
         signal: controller.signal
       });
@@ -131,6 +181,14 @@ class WebTapClient {
 
       // Handle RPC error
       if (data.error) {
+        // Handle STALE_EPOCH with automatic retry
+        if (data.error.code === "STALE_EPOCH" && !options._isRetry) {
+          // Wait for next SSE state update
+          await this._waitForStateUpdate();
+          // Retry once with _isRetry flag
+          return this.call(method, params, { ...options, _isRetry: true });
+        }
+
         const err = new Error(data.error.message);
         err.code = data.error.code;
         err.data = data.error.data;
@@ -147,6 +205,23 @@ class WebTapClient {
     }
   }
 
+  async _waitForStateUpdate(timeout = 2000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.off("state", handler);
+        reject(new Error("State update timeout after STALE_EPOCH"));
+      }, timeout);
+
+      const handler = () => {
+        clearTimeout(timer);
+        this.off("state", handler);
+        resolve();
+      };
+
+      this.on("state", handler);
+    });
+  }
+
   /**
    * Check if a method can be called in current state
    * @param {string} method - RPC method name
@@ -159,9 +234,9 @@ class WebTapClient {
     const anyState = ["pages", "status", "filters.status", "errors.dismiss"];
     if (anyState.includes(method)) return true;
 
-    // connect only works in disconnected
+    // connect works in any state except connecting (multi-target support)
     if (method === "connect") {
-      return state === "disconnected";
+      return state !== "connecting";
     }
 
     // Methods that need connected or inspecting
@@ -291,7 +366,5 @@ class WebTapClient {
   }
 }
 
-// Export for use in extension
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = WebTapClient;
-}
+// ES6 export
+export { WebTapClient };

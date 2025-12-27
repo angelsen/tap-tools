@@ -8,8 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multi-target support**: Simultaneous Chrome connections with unified target IDs (`{port}:{short-id}`)
+  - `targets.set/clear/get` RPC methods for filtering active targets
+  - Extension UI: Targets section with connection indicators
+- **Port management**: `ports.add(port)` / `ports.remove(port)` RPC handlers
+- **setup-android command**: ADB port forwarding for mobile debugging (`-y`, `-p`, `-d` flags)
+- **CLI improvements**: `--help`, `--version`, `status` commands; lazy app loading
+- **Daemon lifecycle**: Dynamic port discovery (37650-37659), version checking, client tracking
 
 ### Changed
+- **Daemon port**: Changed from 8765-8774 to 37650-37659 (reduces conflicts with dev servers)
+- **Extension**: Caches discovered daemon port in chrome.storage.local for faster startup
+- **run-chrome**: Port conflict detection, automatic daemon registration
+- **CLI**: Daemon subcommand moved to `webtap daemon [start|stop|status]`
+- **Commands with dict/list params**: Disabled typer (MCP-only)
 
 ### Fixed
 

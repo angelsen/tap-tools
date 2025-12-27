@@ -72,17 +72,21 @@
       >
         Network
       </button>
+      <button
+        class="tab-button"
+        data-tab="console"
+        role="tab"
+        aria-selected="false"
+      >
+        Console
+      </button>
     </nav>
 
-    <!-- Tab 1: Pages & Selection -->
+    <!-- Tab 1: Pages, Targets & Selection -->
     <main class="tab-content active" data-tab="pages" role="tabpanel">
       <section class="section">
-        <select id="pageList" size="12" aria-label="Available pages">
-          <option disabled>Loading pages...</option>
-        </select>
-
-        <div class="button-row">
-          <button id="connectToggle" class="btn-sm">Connect</button>
+        <div class="section-header flex-row">
+          <span class="section-title">Available Pages</span>
           <button
             id="reloadPages"
             class="icon-btn"
@@ -90,13 +94,24 @@
             aria-label="Reload pages"
           ></button>
         </div>
+
+        <div id="pageList" class="list-box"></div>
+      </section>
+
+      <!-- Targets Section (shown when connected) -->
+      <section id="targetsSection" class="section hidden">
+        <div class="section-header flex-row">
+          <span class="section-title">Connected Targets</span>
+          <span id="targetsCount" class="section-meta">0</span>
+        </div>
+        <div id="targetsList"></div>
       </section>
 
       <div class="divider"></div>
 
       <section class="section selection-section">
-        <div class="selection-row flex-row">
-          <button id="startSelection" class="btn-sm">Select Elements</button>
+        <div class="section-header flex-row">
+          <span class="section-title">Selections</span>
           <button
             id="clearSelections"
             class="btn-sm"
@@ -108,7 +123,6 @@
 
         <div
           id="selectionList"
-          class="selection-list list-box"
           data-show="browser.selections.length > 0"
         ></div>
 
@@ -125,15 +139,6 @@
 
     <!-- Tab 2: Network & Filters -->
     <main class="tab-content" data-tab="network" role="tabpanel">
-      <section class="section targets-section">
-        <div class="section-header">
-          <span class="section-title">Targets</span>
-        </div>
-        <div id="targetsList" class="targets-list"></div>
-      </section>
-
-      <hr class="hairline-separator" />
-
       <details class="filter-accordion" open>
         <summary class="section-header flex-row">
           <span class="section-title">Filters</span>
@@ -155,7 +160,7 @@
           </div>
           <span id="filterStats" class="section-meta">0/0</span>
         </summary>
-        <div id="filterList" class="filter-list"></div>
+        <div id="filterList"></div>
       </details>
 
       <div class="divider"></div>
@@ -166,14 +171,26 @@
           <span id="networkCount" class="section-meta">0 requests</span>
         </div>
 
-        <div id="networkTable" class="network-table list-box"></div>
+        <div id="networkTable"></div>
 
         <div id="requestDetails" class="request-details hidden"></div>
       </section>
     </main>
 
-    <script src="client.js"></script>
-    <script src="bind.js"></script>
-    <script src="sidepanel.js"></script>
+    <!-- Tab 3: Console -->
+    <main class="tab-content" data-tab="console" role="tabpanel">
+      <section class="console-section">
+        <div class="section-header flex-row">
+          <span class="section-title">Console Messages</span>
+          <span id="consoleCount" class="section-meta">0 messages</span>
+        </div>
+
+        <div id="consoleTable"></div>
+
+        <div id="consoleDetails" class="console-details hidden"></div>
+      </section>
+    </main>
+
+    <script type="module" src="main.js"></script>
   </body>
 </html>

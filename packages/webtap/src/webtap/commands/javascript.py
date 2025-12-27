@@ -1,4 +1,7 @@
-"""JavaScript code execution in browser context."""
+"""JavaScript code execution in browser context.
+
+Commands: js
+"""
 
 import json
 
@@ -22,6 +25,7 @@ mcp_desc = get_mcp_description("js")
 def js(
     state,
     code: str,
+    target: str,
     output: str = None,  # pyright: ignore[reportArgumentType]
     selection: int = None,  # pyright: ignore[reportArgumentType]
     persist: bool = False,
@@ -33,6 +37,7 @@ def js(
 
     Args:
         code: JavaScript code to execute (single expression by default, multi-statement with persist=True)
+        target: Target ID (e.g., "9222:abc123")
         output: Write result to file instead of displaying
         selection: Browser selection number to bind to 'element' variable. Defaults to None.
         persist: Keep variables in global scope. Defaults to False.
@@ -48,14 +53,15 @@ def js(
         js("setEquipment.toString()", output="out/fn.js")  # Export to file
     """
     try:
-        result = state.client.call(
-            "js",
-            code=code,
-            selection=selection,
-            persist=persist,
-            await_promise=await_promise,
-            return_value=wait_return or bool(output),
-        )
+        params = {
+            "code": code,
+            "target": target,
+            "selection": selection,
+            "persist": persist,
+            "await_promise": await_promise,
+            "return_value": wait_return or bool(output),
+        }
+        result = state.client.call("js", **params)
 
         value = result.get("value")
 

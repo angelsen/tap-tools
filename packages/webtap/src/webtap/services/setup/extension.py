@@ -1,4 +1,10 @@
-"""Chrome extension setup service (cross-platform)."""
+"""Chrome extension setup service (cross-platform).
+
+PUBLIC API:
+  - ExtensionSetupService: Chrome extension installation
+  - ExtensionStatus: Status of extension installation
+  - auto_update_extension: Auto-install or update extension if needed
+"""
 
 import hashlib
 import json
@@ -18,10 +24,25 @@ _EXTENSION_FILES = [
     "manifest.json",
     "background.js",
     "sidepanel.html",
-    "sidepanel.js",
     "sidepanel.css",
+    "main.js",
+    "datatable.js",
     "bind.js",
     "client.js",
+    "lib/ui.js",
+]
+_EXTENSION_CONTROLLERS = [
+    "controllers/console.js",
+    "controllers/filters.js",
+    "controllers/header.js",
+    "controllers/intercept.js",
+    "controllers/network.js",
+    "controllers/notices.js",
+    "controllers/pages.js",
+    "controllers/selections.js",
+    "controllers/tabs.js",
+    "controllers/targets.js",
+    "controllers/theme.js",
 ]
 _EXTENSION_ASSETS = [
     "assets/icon-16.png",
@@ -41,6 +62,22 @@ class ExtensionStatus:
     manifest_changed: bool
 
 
+def _is_editable_install() -> bool:
+    """Check if webtap is installed in editable/dev mode.
+
+    Uses importlib.metadata to check for direct_url.json (PEP 660).
+    """
+    try:
+        import importlib.metadata
+
+        dist = importlib.metadata.distribution("webtap")
+        # Editable installs have origin pointing to local source
+        origin = getattr(dist, "origin", None)
+        return origin is not None
+    except Exception:
+        return False
+
+
 def compute_extension_hash(extension_dir: Path) -> tuple[str, str]:
     """Compute hash of extension files.
 
@@ -50,7 +87,8 @@ def compute_extension_hash(extension_dir: Path) -> tuple[str, str]:
     all_hasher = hashlib.md5()
     manifest_hash = ""
 
-    for filename in _EXTENSION_FILES + _EXTENSION_ASSETS:
+    all_files = _EXTENSION_FILES + _EXTENSION_CONTROLLERS + _EXTENSION_ASSETS
+    for filename in all_files:
         filepath = extension_dir / filename
         if filepath.exists():
             content = filepath.read_bytes()
@@ -78,6 +116,15 @@ def get_expected_hash() -> tuple[str, str]:
 
 def check_extension_status() -> ExtensionStatus:
     """Check if extension needs install/update."""
+    # Dev mode: editable install, skip auto-update
+    if _is_editable_install():
+        return ExtensionStatus(
+            status="dev_mode",
+            installed_hash=None,
+            expected_hash="",
+            manifest_changed=False,
+        )
+
     info = get_platform_info()
     extension_dir = info["paths"]["data_dir"] / "extension"
 
@@ -149,14 +196,16 @@ class ExtensionSetupService:
             shutil.rmtree(self.extension_dir)
             logger.info(f"Cleaned old extension directory: {self.extension_dir}")
 
-        # Create extension directory
+        # Create extension directory and subdirectories
         self.extension_dir.mkdir(parents=True, exist_ok=True)
+        (self.extension_dir / "lib").mkdir(exist_ok=True)
+        (self.extension_dir / "controllers").mkdir(exist_ok=True)
 
-        # Download text files
+        # Download text files (main files + controllers)
         downloaded = []
         failed = []
 
-        for filename in _EXTENSION_FILES:
+        for filename in _EXTENSION_FILES + _EXTENSION_CONTROLLERS:
             url = f"{_EXTENSION_BASE_URL}/{filename}"
             target_file = self.extension_dir / filename
 
@@ -178,7 +227,7 @@ class ExtensionSetupService:
 
         # Download binary assets (icons)
         assets_dir = self.extension_dir / "assets"
-        assets_dir.mkdir(exist_ok=True)
+        assets_dir.mkdir(parents=True, exist_ok=True)
 
         for asset_path in _EXTENSION_ASSETS:
             url = f"{_EXTENSION_BASE_URL}/{asset_path}"
@@ -205,7 +254,7 @@ class ExtensionSetupService:
                 "details": "Check network connection and try again",
             }
 
-        total_files = len(_EXTENSION_FILES) + len(_EXTENSION_ASSETS)
+        total_files = len(_EXTENSION_FILES) + len(_EXTENSION_CONTROLLERS) + len(_EXTENSION_ASSETS)
         if failed:
             # Partial success - some files downloaded
             return {
@@ -229,8 +278,8 @@ def auto_update_extension() -> ExtensionStatus:
     """Auto-install or update extension if needed."""
     status = check_extension_status()
 
-    # If already OK, nothing to do
-    if status.status == "ok":
+    # Dev mode or already OK - nothing to do
+    if status.status in ("ok", "dev_mode"):
         return status
 
     # Remember what operation we're performing
@@ -251,3 +300,6 @@ def auto_update_extension() -> ExtensionStatus:
         expected_hash=status.expected_hash,
         manifest_changed=status.manifest_changed,
     )
+
+
+__all__ = ["ExtensionSetupService", "ExtensionStatus", "auto_update_extension"]

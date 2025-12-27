@@ -1,4 +1,7 @@
-"""Chrome browser connection management commands."""
+"""Chrome browser connection management commands.
+
+Commands: connect, disconnect, pages, status, clear, targets, ports
+"""
 
 from replkit2.types import ExecutionContext
 
@@ -13,51 +16,48 @@ _clear_desc = get_mcp_description("clear")
 
 # Truncation values for pages() REPL mode (compact display)
 _PAGES_REPL_TRUNCATE = {
-    "Title": {"max": 20, "mode": "end"},
-    "URL": {"max": 30, "mode": "middle"},
-    "ID": {"max": 6, "mode": "end"},
+    "Title": {"max": 25, "mode": "end"},
+    "URL": {"max": 35, "mode": "middle"},
+    # Target is already short (e.g., "9222:f8134d")
 }
 
 # Truncation values for pages() MCP mode (generous for LLM context)
 _PAGES_MCP_TRUNCATE = {
     "Title": {"max": 100, "mode": "end"},
     "URL": {"max": 200, "mode": "middle"},
-    "ID": {"max": 50, "mode": "end"},
 }
 
 
 @app.command(
     display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _connect_desc or ""}
 )
-def connect(state, page: int = None, page_id: str = None) -> dict:  # pyright: ignore[reportArgumentType]
-    """Connect to Chrome page and enable all required domains.
+def connect(
+    state,
+    target: str = "",
+) -> dict:
+    """Connect to Chrome page by target ID.
 
     Args:
-        page: Connect by page index (0-based)
-        page_id: Connect by page ID
-
-    Note: If neither is specified, connects to first available page.
-          Cannot specify both page and page_id.
+        target: Target ID in format "port:short_id" (e.g., "9222:f8134d", "9224:24")
 
     Examples:
-        connect()                    # First page
-        connect(page=2)             # Third page (0-indexed)
-        connect(page_id="xyz")      # Specific page ID
+        connect("9222:f8")     # Connect by target (prefix match)
+        connect("9224:24")     # Connect to Android Chrome
 
     Returns:
         Connection status in markdown
     """
-    try:
-        # Build params - default to page=0 when no params given
-        params = {}
-        if page is not None:
-            params["page"] = page
-        if page_id is not None:
-            params["page_id"] = page_id
-        if not params:
-            params["page"] = 0  # Connect to first page by default
+    if not target:
+        return error_response(
+            "No target specified",
+            suggestions=[
+                "pages()             # List available targets",
+                "connect('9222:f8')  # Connect by target ID",
+            ],
+        )
 
-        result = state.client.call("connect", **params)
+    try:
+        result = state.client.call("connect", target=target)
     except RPCError as e:
         return error_response(e.message)
     except Exception as e:
@@ -73,10 +73,21 @@ def connect(state, page: int = None, page_id: str = None) -> dict:  # pyright: i
 @app.command(
     display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _disconnect_desc or ""}
 )
-def disconnect(state) -> dict:
-    """Disconnect from Chrome."""
+def disconnect(state, target: str = "") -> dict:
+    """Disconnect from Chrome.
+
+    Args:
+        target: Target ID to disconnect. If empty, disconnects all targets.
+
+    Examples:
+        disconnect()           # Disconnect all targets
+        disconnect("9222:f8")  # Disconnect specific target
+    """
     try:
-        state.client.call("disconnect")
+        if target:
+            state.client.call("disconnect", target=target)
+        else:
+            state.client.call("disconnect")
     except RPCError as e:
         # INVALID_STATE means not connected
         if e.code == "INVALID_STATE":
@@ -85,7 +96,8 @@ def disconnect(state) -> dict:
     except Exception as e:
         return error_response(str(e))
 
-    return info_response(title="Disconnect Status", fields={"Status": "Disconnected"})
+    status = f"Disconnected from {target}" if target else "Disconnected from all targets"
+    return info_response(title="Disconnect Status", fields={"Status": status})
 
 
 @app.command(
@@ -129,11 +141,14 @@ def clear(state, events: bool = True, console: bool = False) -> dict:
     display="markdown",
     fastmcp={"type": "resource", "mime_type": "text/markdown"},
 )
-def pages(state, _ctx: ExecutionContext = None) -> dict:  # pyright: ignore[reportArgumentType]
-    """List available Chrome pages.
+def pages(
+    state,
+    _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
+) -> dict:
+    """List available Chrome pages from all registered ports.
 
     Returns:
-        Table of available pages in markdown
+        Table of available pages with target IDs
     """
     try:
         result = state.client.call("pages")
@@ -143,35 +158,28 @@ def pages(state, _ctx: ExecutionContext = None) -> dict:  # pyright: ignore[repo
     except Exception as e:
         return error_response(str(e))
 
-    # Format rows for table with FULL data
+    # Format rows with Target first
     rows = [
         {
-            "Index": str(i),
-            "Title": p.get("title", "Untitled"),  # Full title
-            "URL": p.get("url", ""),  # Full URL
-            "ID": p.get("id", ""),  # Full ID
-            "Connected": "Yes" if p.get("is_connected") else "No",
+            "Target": p.get("target", ""),
+            "Title": p.get("title", "Untitled"),
+            "URL": p.get("url", ""),
+            "Connected": "Yes" if p.get("connected") else "No",
         }
-        for i, p in enumerate(pages_list)
+        for p in pages_list
     ]
 
-    # Get contextual tips
+    # Get contextual tips with target example
     tips = None
     if rows:
-        # Find connected page or first page
         connected_row = next((r for r in rows if r["Connected"] == "Yes"), rows[0])
-        page_index = connected_row["Index"]
-
-        # Get page_id for the example page
-        connected_page = next((p for p in pages_list if str(pages_list.index(p)) == page_index), None)
-        page_id = connected_page.get("id", "")[:6] if connected_page else ""
-
-        tips = get_tips("pages", context={"index": page_index, "page_id": page_id})
+        example_target = connected_row["Target"]
+        tips = get_tips("pages", context={"target": example_target})
 
     # Build contextual warnings
     warnings = []
     if any(r["Connected"] == "Yes" for r in rows):
-        warnings.append("Already connected - call connect(page=N) to switch pages")
+        warnings.append("Already connected - call connect('...') to switch")
 
     # Use mode-specific truncation
     is_repl = _ctx and _ctx.is_repl()
@@ -180,7 +188,7 @@ def pages(state, _ctx: ExecutionContext = None) -> dict:  # pyright: ignore[repo
     # Build markdown response
     return table_response(
         title="Chrome Pages",
-        headers=["Index", "Title", "URL", "ID", "Connected"],
+        headers=["Target", "Title", "URL", "Connected"],
         rows=rows,
         summary=f"{len(pages_list)} page{'s' if len(pages_list) != 1 else ''} available",
         warnings=warnings if warnings else None,
@@ -217,4 +225,90 @@ def status(state) -> dict:
             "Events": f"{status_data.get('events', {}).get('total', 0)} stored",
             "Fetch": "Enabled" if status_data.get("fetch", {}).get("enabled") else "Disabled",
         },
+    )
+
+
+@app.command(
+    display="markdown",
+    fastmcp={"enabled": False},
+    typer={"enabled": False},
+)
+def targets(state) -> dict:
+    """Show connected targets and active filter.
+
+    Returns:
+        Table of connected targets with their active status
+    """
+    try:
+        result = state.client.call("status")
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
+
+    connections = result.get("connections", [])
+    active = set(result.get("active_targets") or [])
+
+    if not connections:
+        return info_response(title="No Targets", fields={"Status": "No active connections"})
+
+    rows = []
+    for conn in connections:
+        target_id = conn.get("target", "")
+        rows.append(
+            {
+                "Target": target_id,
+                "Title": (conn.get("title") or "")[:40],
+                "URL": (conn.get("url") or "")[:50],
+                "Active": "Yes" if not active or target_id in active else "No",
+            }
+        )
+
+    return table_response(
+        title="Connected Targets",
+        headers=["Target", "Title", "URL", "Active"],
+        rows=rows,
+        summary=f"{len(connections)} target{'s' if len(connections) != 1 else ''} connected",
+    )
+
+
+@app.command(
+    display="markdown",
+    fastmcp={"enabled": False},
+    typer={"enabled": False},
+)
+def ports(state) -> dict:
+    """Show registered debug ports.
+
+    Returns:
+        Table of ports with page and connection counts
+    """
+    try:
+        result = state.client.call("ports.list")
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
+
+    ports_list = result.get("ports", [])
+
+    if not ports_list:
+        return info_response(title="No Ports", fields={"Status": "No ports registered"})
+
+    rows = []
+    for p in ports_list:
+        rows.append(
+            {
+                "Port": str(p.get("port")),
+                "Pages": str(p.get("page_count", 0)),
+                "Connected": str(p.get("connection_count", 0)),
+                "Status": p.get("status", "unknown"),
+            }
+        )
+
+    return table_response(
+        title="Registered Ports",
+        headers=["Port", "Pages", "Connected", "Status"],
+        rows=rows,
+        summary=f"{len(ports_list)} port{'s' if len(ports_list) != 1 else ''} registered",
     )

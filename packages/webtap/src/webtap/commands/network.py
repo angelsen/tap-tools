@@ -1,4 +1,7 @@
-"""Network request monitoring and display commands."""
+"""Network request monitoring and display commands.
+
+Commands: network
+"""
 
 from replkit2.types import ExecutionContext
 
@@ -26,6 +29,7 @@ _MCP_TRUNCATE = {
 )
 def network(
     state,
+    target: str = None,  # pyright: ignore[reportArgumentType]
     status: int = None,  # pyright: ignore[reportArgumentType]
     method: str = None,  # pyright: ignore[reportArgumentType]
     resource_type: str = None,  # pyright: ignore[reportArgumentType]
@@ -38,6 +42,7 @@ def network(
     """List network requests with inline filters.
 
     Args:
+        target: Target ID (e.g., "9222:abc123"). None for all targets.
         status: Filter by HTTP status code (e.g., 404, 500)
         method: Filter by HTTP method (e.g., "POST", "GET")
         resource_type: Filter by resource type (e.g., "xhr", "fetch", "websocket")
@@ -54,9 +59,12 @@ def network(
         network(url="*api*")         # URLs containing "api"
         network(req_state="paused")  # Only paused requests
         network(show_all=True)       # Show everything
+        network(target="9222:abc")   # Only from specific target
     """
     # Build params, omitting None values
     params = {"limit": limit, "show_all": show_all}
+    if target is not None:
+        params["target"] = target
     if status is not None:
         params["status"] = status
     if method is not None:
@@ -85,6 +93,15 @@ def network(
     # Build rows with mode-specific formatting
     rows = []
     for r in requests:
+        # Format Size: frame counts for WebSocket, size for HTTP
+        if r.get("protocol") == "websocket":
+            sent = r.get("frames_sent") or 0
+            recv = r.get("frames_received") or 0
+            size_display = f"↑{sent} ↓{recv}" if (sent or recv) else "-"
+        else:
+            # REPL: human-friendly format, MCP: raw bytes for LLM
+            size_display = format_size(r["size"]) if is_repl else (r["size"] or 0)
+
         row = {
             "ID": str(r["id"]),
             "ReqID": r["request_id"],
@@ -92,8 +109,7 @@ def network(
             "Status": str(r["status"]) if r["status"] else "-",
             "URL": r["url"],
             "Type": r["type"] or "-",
-            # REPL: human-friendly format, MCP: raw bytes for LLM
-            "Size": format_size(r["size"]) if is_repl else (r["size"] or 0),
+            "Size": size_display,
             "State": r.get("state", "-"),
         }
         # Add Pause column if relevant

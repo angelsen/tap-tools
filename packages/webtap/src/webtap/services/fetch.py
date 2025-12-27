@@ -1,12 +1,14 @@
-"""Fetch interception service for request/response debugging."""
+"""Fetch interception service for request/response debugging.
+
+PUBLIC API:
+  - FetchService: Request/response interception via CDP Fetch domain
+"""
 
 import json
 import logging
+import threading
 import time
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from webtap.cdp import CDPSession
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,47 +22,52 @@ class FetchService:
 
     Attributes:
         enabled: Whether fetch interception is currently enabled
-        cdp: CDP session for executing commands
+        service: WebTapService reference for multi-target operations
     """
 
     def __init__(self):
         """Initialize fetch service."""
+        self._lock = threading.Lock()  # Protects state mutations
         self.enabled = False
         self.enable_response_stage = False  # Config option for future
-        self.cdp: CDPSession | None = None
-        self._broadcast_callback: "Any | None" = None  # Callback to service._trigger_broadcast()
+        self.service: "Any" = None  # WebTapService reference
 
-    def set_broadcast_callback(self, callback: "Any") -> None:
-        """Set callback for broadcasting state changes.
+    def set_service(self, service: "Any") -> None:
+        """Set service reference.
 
         Args:
-            callback: Function to call when state changes (service._trigger_broadcast)
+            service: WebTapService instance
         """
-        self._broadcast_callback = callback
+        self.service = service
 
     def _trigger_broadcast(self) -> None:
-        """Trigger SSE broadcast via service callback (ensures snapshot update)."""
-        if self._broadcast_callback:
+        """Trigger SSE broadcast via service (ensures snapshot update)."""
+        if self.service:
             try:
-                self._broadcast_callback()
+                self.service._trigger_broadcast()
             except Exception as e:
                 logger.debug(f"Failed to trigger broadcast: {e}")
 
     # ============= Core State Queries =============
 
-    def get_paused_by_network_id(self, network_id: str) -> dict | None:
+    def get_paused_by_network_id(self, network_id: str, target: str | None = None) -> dict | None:
         """Get paused Fetch event by networkId.
 
         Args:
             network_id: Network request ID to lookup.
+            target: Target ID - required to find the correct CDPSession
 
         Returns:
             Dict with rowid, requestId, stage or None if not found/resolved.
         """
-        if not self.cdp:
+        if not self.service or not target:
             return None
 
-        results = self.cdp.query(
+        conn = self.service.connections.get(target)
+        if not conn:
+            return None
+
+        results = conn.cdp.query(
             """
             WITH paused_fetch AS (
                 SELECT
@@ -99,25 +106,36 @@ class FetchService:
 
     @property
     def paused_count(self) -> int:
-        """Count of paused requests from HAR view."""
-        if not self.cdp or not self.enabled:
+        """Count of paused requests from HAR view across all connections."""
+        if not self.service or not self.enabled:
             return 0
-        result = self.cdp.query("SELECT COUNT(*) FROM har_summary WHERE state = 'paused'")
-        return result[0][0] if result else 0
+        total = 0
+        for conn in self.service.connections.values():
+            try:
+                result = conn.cdp.query("SELECT COUNT(*) FROM har_summary WHERE state = 'paused'")
+                total += result[0][0] if result else 0
+            except Exception:
+                pass
+        return total
 
-    def get_paused_event(self, rowid: int) -> dict | None:
+    def get_paused_event(self, rowid: int, target: str | None = None) -> dict | None:
         """Get full event data for a paused request.
 
         Args:
             rowid: Row ID from the database
+            target: Target ID - required to find the correct CDPSession
 
         Returns:
             Full CDP event data or None if not found
         """
-        if not self.cdp:
+        if not self.service or not target:
             return None
 
-        result = self.cdp.query(
+        conn = self.service.connections.get(target)
+        if not conn:
+            return None
+
+        result = conn.cdp.query(
             """
             SELECT event
             FROM events
@@ -133,85 +151,107 @@ class FetchService:
 
     # ============= Enable/Disable =============
 
-    def enable(self, cdp: "CDPSession", response_stage: bool = False) -> dict[str, Any]:
-        """Enable fetch interception.
+    def enable(self, response_stage: bool = False) -> dict[str, Any]:
+        """Enable fetch interception on all connected targets.
 
         Args:
-            cdp: CDP session for executing commands
             response_stage: Whether to also pause at Response stage
 
         Returns:
             Status dict with enabled state and paused count
         """
-        if self.enabled:
-            return {"enabled": True, "message": "Already enabled"}
+        with self._lock:
+            if self.enabled:
+                return {"enabled": True, "message": "Already enabled"}
 
-        self.cdp = cdp
-        self.enable_response_stage = response_stage
+            if not self.service:
+                return {"enabled": False, "error": "No service"}
 
-        try:
-            patterns = [{"urlPattern": "*", "requestStage": "Request"}]
+            self.enable_response_stage = response_stage
 
-            if response_stage:
-                patterns.append({"urlPattern": "*", "requestStage": "Response"})
+            try:
+                patterns = [{"urlPattern": "*", "requestStage": "Request"}]
 
-            cdp.execute("Fetch.enable", {"patterns": patterns})
+                if response_stage:
+                    patterns.append({"urlPattern": "*", "requestStage": "Response"})
 
-            self.enabled = True
-            stage_msg = "Request and Response stages" if response_stage else "Request stage only"
-            logger.info(f"Fetch interception enabled ({stage_msg})")
+                # Enable on all current connections
+                for conn in self.service.connections.values():
+                    conn.cdp.execute("Fetch.enable", {"patterns": patterns})
 
-            self._trigger_broadcast()  # Update snapshot
-            return {"enabled": True, "stages": stage_msg, "paused": self.paused_count}
+                self.enabled = True
+                stage_msg = "Request and Response stages" if response_stage else "Request stage only"
+                logger.info(f"Fetch interception enabled ({stage_msg})")
 
-        except Exception as e:
-            logger.error(f"Failed to enable fetch: {e}")
-            return {"enabled": False, "error": str(e)}
+                self._trigger_broadcast()  # Update snapshot
+                return {"enabled": True, "stages": stage_msg, "paused": self.paused_count}
+
+            except Exception as e:
+                logger.error(f"Failed to enable fetch: {e}")
+                return {"enabled": False, "error": str(e)}
 
     def disable(self) -> dict[str, Any]:
-        """Disable fetch interception.
+        """Disable fetch interception on all connected targets.
 
         Returns:
             Status dict with disabled state
         """
-        if not self.enabled:
-            return {"enabled": False, "message": "Already disabled"}
+        with self._lock:
+            if not self.enabled:
+                return {"enabled": False, "message": "Already disabled"}
 
-        if not self.cdp:
-            return {"enabled": False, "error": "No CDP session"}
+            if not self.service:
+                return {"enabled": False, "error": "No service"}
 
-        try:
-            self.cdp.execute("Fetch.disable")
-            self.enabled = False
+            try:
+                # Disable on all connections
+                for conn in self.service.connections.values():
+                    try:
+                        conn.cdp.execute("Fetch.disable")
+                    except Exception as e:
+                        logger.warning(f"Failed to disable fetch on {conn.target}: {e}")
 
-            logger.info("Fetch interception disabled")
-            self._trigger_broadcast()  # Update snapshot
-            return {"enabled": False}
+                self.enabled = False
 
-        except Exception as e:
-            logger.error(f"Failed to disable fetch: {e}")
-            return {"enabled": self.enabled, "error": str(e)}
+                logger.info("Fetch interception disabled")
+                self._trigger_broadcast()  # Update snapshot
+                return {"enabled": False}
+
+            except Exception as e:
+                logger.error(f"Failed to disable fetch: {e}")
+                return {"enabled": self.enabled, "error": str(e)}
 
     # ============= Explicit Actions =============
 
     def continue_request(
-        self, rowid: int, modifications: dict[str, Any] | None = None, wait_for_next: float = 0.5
+        self,
+        rowid: int,
+        target: str,
+        modifications: dict[str, Any] | None = None,
+        wait_for_next: float = 0.5,
     ) -> dict[str, Any]:
         """Continue a specific paused request.
 
         Args:
             rowid: Row ID from requests() table
+            target: Target ID for the CDP session
             modifications: Optional modifications to apply
             wait_for_next: Time to wait for follow-up events (0 to disable)
 
         Returns:
             Dict with continuation status and optional next event info
         """
-        if not self.enabled or not self.cdp:
+        if not self.enabled or not self.service:
             return {"error": "Fetch not enabled"}
 
+        conn = self.service.connections.get(target)
+        if not conn:
+            return {"error": f"Target {target} not connected"}
+
+        cdp = conn.cdp
+
         # Get the event
-        event = self.get_paused_event(rowid)
+        event = self.get_paused_event(rowid, target)
         if not event:
             return {"error": f"Event {rowid} not found"}
 
@@ -222,24 +262,24 @@ class FetchService:
         # Determine stage and continue
         if params.get("responseStatusCode"):
             # Response stage
-            cdp_params = {"requestId": request_id}
+            cdp_params: dict[str, Any] = {"requestId": request_id}
             if modifications:
                 cdp_params.update(modifications)
-            self.cdp.execute("Fetch.continueResponse", cdp_params)
+            cdp.execute("Fetch.continueResponse", cdp_params)
             stage = "response"
         else:
             # Request stage
             cdp_params = {"requestId": request_id}
             if modifications:
                 cdp_params.update(modifications)
-            self.cdp.execute("Fetch.continueRequest", cdp_params)
+            cdp.execute("Fetch.continueRequest", cdp_params)
             stage = "request"
 
-        result = {"resumed_from": stage, "network_id": network_id}
+        result: dict[str, Any] = {"resumed_from": stage, "network_id": network_id}
 
         # Wait for follow-up if requested
         if wait_for_next > 0 and network_id:
-            next_event = self._wait_for_next_event(request_id, network_id, rowid, wait_for_next)
+            next_event = self._wait_for_next_event(cdp, request_id, network_id, rowid, wait_for_next)
             if next_event:
                 result["outcome"] = next_event["type"]  # "response", "redirect", or "complete"
                 if next_event.get("status"):
@@ -255,11 +295,12 @@ class FetchService:
         return result
 
     def _wait_for_next_event(
-        self, request_id: str, network_id: str, after_rowid: int, timeout: float
+        self, cdp: Any, request_id: str, network_id: str, after_rowid: int, timeout: float
     ) -> dict[str, Any] | None:
         """Wait for the next event in the chain (response stage or redirect).
 
         Args:
+            cdp: CDPSession instance
             request_id: The request ID that was just continued
             network_id: The network ID for tracking redirects
             after_rowid: Row ID to search after
@@ -268,15 +309,12 @@ class FetchService:
         Returns:
             Dict with next event info or None if nothing found
         """
-        if not self.cdp:
-            return None
-
         start = time.time()
 
         while time.time() - start < timeout:
             try:
                 # Check for response stage (same requestId)
-                response = self.cdp.query(
+                response = cdp.query(
                     """
                     SELECT 
                         rowid,
@@ -300,7 +338,7 @@ class FetchService:
                     }
 
                 # Check for redirect (new requestId, same networkId)
-                redirect = self.cdp.query(
+                redirect = cdp.query(
                     """
                     SELECT 
                         rowid,
@@ -333,27 +371,34 @@ class FetchService:
 
         return None
 
-    def fail_request(self, rowid: int, reason: str = "BlockedByClient") -> dict[str, Any]:
+    def fail_request(self, rowid: int, target: str, reason: str = "BlockedByClient") -> dict[str, Any]:
         """Explicitly fail a request.
 
         Args:
             rowid: Row ID from requests() table
+            target: Target ID for the CDP session
             reason: CDP error reason
 
         Returns:
             Dict with failure status
         """
-        if not self.enabled or not self.cdp:
+        if not self.enabled or not self.service:
             return {"error": "Fetch not enabled"}
 
-        event = self.get_paused_event(rowid)
+        conn = self.service.connections.get(target)
+        if not conn:
+            return {"error": f"Target {target} not connected"}
+
+        cdp = conn.cdp
+
+        event = self.get_paused_event(rowid, target)
         if not event:
             return {"error": f"Event {rowid} not found"}
 
         request_id = event["params"]["requestId"]
 
         try:
-            self.cdp.execute("Fetch.failRequest", {"requestId": request_id, "errorReason": reason})
+            cdp.execute("Fetch.failRequest", {"requestId": request_id, "errorReason": reason})
 
             return {"failed": rowid, "reason": reason, "remaining": self.paused_count - 1}
 
@@ -364,6 +409,7 @@ class FetchService:
     def fulfill_request(
         self,
         rowid: int,
+        target: str,
         response_code: int = 200,
         response_headers: list[dict[str, str]] | None = None,
         body: str = "",
@@ -372,6 +418,7 @@ class FetchService:
 
         Args:
             rowid: Row ID from requests() table
+            target: Target ID for the CDP session
             response_code: HTTP response code
             response_headers: Response headers
             body: Response body
@@ -379,10 +426,16 @@ class FetchService:
         Returns:
             Dict with fulfillment status
         """
-        if not self.enabled or not self.cdp:
+        if not self.enabled or not self.service:
             return {"error": "Fetch not enabled"}
 
-        event = self.get_paused_event(rowid)
+        conn = self.service.connections.get(target)
+        if not conn:
+            return {"error": f"Target {target} not connected"}
+
+        cdp = conn.cdp
+
+        event = self.get_paused_event(rowid, target)
         if not event:
             return {"error": f"Event {rowid} not found"}
 
@@ -394,7 +447,7 @@ class FetchService:
             # Encode body to base64
             body_base64 = base64.b64encode(body.encode()).decode()
 
-            params = {
+            params: dict[str, Any] = {
                 "requestId": request_id,
                 "responseCode": response_code,
                 "body": body_base64,
@@ -403,7 +456,7 @@ class FetchService:
             if response_headers:
                 params["responseHeaders"] = response_headers
 
-            self.cdp.execute("Fetch.fulfillRequest", params)
+            cdp.execute("Fetch.fulfillRequest", params)
 
             return {"fulfilled": rowid, "response_code": response_code, "remaining": self.paused_count - 1}
 
@@ -412,4 +465,4 @@ class FetchService:
             return {"error": str(e)}
 
 
-# No exports - internal service only
+__all__ = ["FetchService"]

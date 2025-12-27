@@ -1,4 +1,8 @@
-"""CDP Session with native event storage."""
+"""CDP Session with native event storage.
+
+PUBLIC API:
+  - CDPSession: WebSocket CDP client with DuckDB event storage
+"""
 
 import json
 import logging
@@ -204,7 +208,12 @@ class CDPSession:
             logger.error(f"Failed to list pages: {e}")
             return []
 
-    def connect(self, page_index: int | None = None, page_id: str | None = None) -> None:
+    def connect(
+        self,
+        page_index: int | None = None,
+        page_id: str | None = None,
+        page_info: dict | None = None,
+    ) -> None:
         """Connect to Chrome page via WebSocket.
 
         Establishes WebSocket connection and starts event collection.
@@ -213,6 +222,7 @@ class CDPSession:
         Args:
             page_index: Index of page to connect to. Defaults to 0.
             page_id: Stable page ID across tab reordering.
+            page_info: Pre-resolved page dict with webSocketDebuggerUrl (avoids HTTP call).
 
         Raises:
             RuntimeError: If already connected or no pages available.
@@ -223,22 +233,26 @@ class CDPSession:
         if self.ws_app:
             raise RuntimeError("Already connected")
 
-        pages = self.list_pages()
-        if not pages:
-            raise RuntimeError("No pages available")
-
-        # Find the page by ID or index
-        if page_id:
-            page = next((p for p in pages if p.get("id") == page_id), None)
-            if not page:
-                raise ValueError(f"Page with ID {page_id} not found")
-        elif page_index is not None:
-            if page_index >= len(pages):
-                raise IndexError(f"Page {page_index} out of range")
-            page = pages[page_index]
+        # Use provided page_info directly if available (avoids duplicate list_pages call)
+        if page_info and "webSocketDebuggerUrl" in page_info:
+            page = page_info
         else:
-            # Default to first page
-            page = pages[0]
+            pages = self.list_pages()
+            if not pages:
+                raise RuntimeError("No pages available")
+
+            # Find the page by ID or index
+            if page_id:
+                page = next((p for p in pages if p.get("id") == page_id), None)
+                if not page:
+                    raise ValueError(f"Page with ID {page_id} not found")
+            elif page_index is not None:
+                if page_index >= len(pages):
+                    raise IndexError(f"Page {page_index} out of range")
+                page = pages[page_index]
+            else:
+                # Default to first page
+                page = pages[0]
 
         ws_url = page["webSocketDebuggerUrl"]
         self.page_info = page
@@ -252,10 +266,11 @@ class CDPSession:
         self.ws_thread = threading.Thread(
             target=self.ws_app.run_forever,
             kwargs={
-                "ping_interval": 30,  # Ping every 30s
-                "ping_timeout": 20,  # Wait 20s for pong (increased from 10s for heavy CDP load)
+                "ping_interval": 120,  # Ping every 2 min
+                "ping_timeout": 60,  # Wait 60s for pong (handles heavy page loads)
                 # No auto-reconnect - make disconnects explicit
                 "skip_utf8_validation": True,  # Faster
+                "suppress_origin": True,  # Required for Android Chrome (rejects localhost origin)
             },
         )
         self.ws_thread.daemon = True
@@ -614,8 +629,10 @@ class CDPSession:
         """
         if method not in self._event_callbacks:
             self._event_callbacks[method] = []
-        self._event_callbacks[method].append(callback)
-        logger.debug(f"Registered callback for {method}")
+        # Prevent duplicate registrations (defense in depth)
+        if callback not in self._event_callbacks[method]:
+            self._event_callbacks[method].append(callback)
+            logger.debug(f"Registered callback for {method}")
 
     def unregister_event_callback(self, method: str, callback) -> None:
         """Unregister event callback.
@@ -675,3 +692,6 @@ class CDPSession:
                 self._broadcast_callback()
             except Exception as e:
                 logger.debug(f"Failed to trigger broadcast: {e}")
+
+
+__all__ = ["CDPSession"]

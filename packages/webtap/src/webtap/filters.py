@@ -43,7 +43,6 @@ class FilterManager:
             self.filter_path = Path(filter_path)
         self.groups: dict[str, FilterGroup] = {}
         self.enabled: set[str] = set()
-        self.active_targets: set[str] | None = None
 
     def load(self) -> bool:
         """Load group definitions from file. All disabled by default.
@@ -146,6 +145,10 @@ class FilterManager:
             return True
         return False
 
+    def disable_all(self) -> None:
+        """Disable all filter groups (in-memory only)."""
+        self.enabled.clear()
+
     def get_active_filters(self) -> dict:
         """Get consolidated filters from enabled groups (deduplicated).
 
@@ -174,26 +177,6 @@ class FilterManager:
             for name, group in self.groups.items()
         }
 
-    def set_targets(self, targets: list[str]) -> None:
-        """Set active targets for inclusion filtering.
-
-        Args:
-            targets: List of target IDs (e.g., ["9222:8c5f3a"]). Empty = all.
-        """
-        self.active_targets = set(targets) if targets else None
-
-    def clear_targets(self) -> None:
-        """Clear active targets (show all)."""
-        self.active_targets = None
-
-    def get_targets(self) -> list[str]:
-        """Get active targets list.
-
-        Returns:
-            List of target IDs, empty if all targets.
-        """
-        return list(self.active_targets) if self.active_targets else []
-
     def build_filter_sql(
         self,
         status: int | None = None,
@@ -201,7 +184,7 @@ class FilterManager:
         type_filter: str | None = None,
         url: str | None = None,
         apply_groups: bool = True,
-        target: str | None = None,
+        target: str | list[str] | None = None,
     ) -> str:
         """Build SQL WHERE conditions for har_summary filtering.
 
@@ -211,19 +194,22 @@ class FilterManager:
             type_filter: Filter by resource type.
             url: Filter by URL pattern (supports * wildcard).
             apply_groups: Apply enabled filter groups.
-            target: Explicit target override (takes priority over active_targets).
+            target: Filter by target ID (single or list).
 
         Returns:
             SQL WHERE clause conditions (without WHERE keyword).
         """
         conditions = []
 
+        # Target filtering
         if target:
-            conditions.append(f"target = '{target}'")
-        elif self.active_targets:
-            escaped_targets = [t.replace("'", "''") for t in self.active_targets]
-            targets_sql = ", ".join(f"'{t}'" for t in escaped_targets)
-            conditions.append(f"target IN ({targets_sql})")
+            if isinstance(target, str):
+                escaped = target.replace("'", "''")
+                conditions.append(f"target = '{escaped}'")
+            else:
+                escaped = [t.replace("'", "''") for t in target]
+                targets_sql = ", ".join(f"'{t}'" for t in escaped)
+                conditions.append(f"target IN ({targets_sql})")
 
         if status is not None:
             conditions.append(f"status = {status}")

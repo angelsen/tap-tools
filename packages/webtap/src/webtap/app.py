@@ -54,6 +54,7 @@ from webtap.commands import javascript  # noqa: E402, F401
 from webtap.commands import network  # noqa: E402, F401
 from webtap.commands import request  # noqa: E402, F401
 from webtap.commands import console  # noqa: E402, F401
+from webtap.commands import entry  # noqa: E402, F401
 from webtap.commands import filters  # noqa: E402, F401
 from webtap.commands import fetch  # noqa: E402, F401
 from webtap.commands import to_model  # noqa: E402, F401
