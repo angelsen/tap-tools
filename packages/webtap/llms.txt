@@ -229,11 +229,13 @@ request(123, ["response.content"], expr="re.findall(r'api_key=([^&]+)', data['re
 
 ```bash
 webtap                    # Start REPL (auto-starts daemon)
-webtap --mcp              # Start as MCP server
-webtap --daemon           # Start daemon in foreground
-webtap --daemon status    # Show daemon status
-webtap --daemon stop      # Stop daemon
+webtap daemon start       # Start daemon explicitly
+webtap daemon status      # Show daemon status
+webtap daemon stop        # Stop daemon
+webtap status             # Show daemon and connection status
 ```
+
+MCP mode is auto-detected when stdin is piped (no flags needed).
 
 ## Tips
 

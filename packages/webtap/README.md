@@ -78,7 +78,7 @@ webtap
 
 ```bash
 # Quick setup with Claude CLI
-claude mcp add webtap -- webtap --mcp
+claude mcp add webtap -- webtap
 ```
 
 Or manually configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
@@ -86,19 +86,19 @@ Or manually configure Claude Desktop (`~/Library/Application Support/Claude/clau
 {
   "mcpServers": {
     "webtap": {
-      "command": "webtap",
-      "args": ["--mcp"]
+      "command": "webtap"
     }
   }
 }
 ```
 
+MCP mode is auto-detected when stdin is piped (no flags needed).
+
 ## 🎮 Usage
 
 ### Interactive REPL
 ```bash
-webtap                     # Start REPL
-webtap --mcp               # Start as MCP server
+webtap                     # Start REPL (or MCP server when piped)
 ```
 
 ### CLI Commands
@@ -281,9 +281,10 @@ Chrome Browser (--remote-debugging-port=9222)
 
 ### Daemon Management
 ```bash
-webtap --daemon          # Start daemon in foreground (for debugging)
-webtap --daemon status   # Show daemon status (PID, connected page, events)
-webtap --daemon stop     # Stop running daemon
+webtap daemon start      # Start daemon explicitly
+webtap daemon status     # Show daemon status (PID, connections, events)
+webtap daemon stop       # Stop running daemon
+webtap status            # Quick status check
 ```
 
 ### Expression Evaluation

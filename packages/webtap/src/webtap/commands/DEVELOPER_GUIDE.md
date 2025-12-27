@@ -265,7 +265,7 @@ return code_result_response(
 # Error with suggestions
 return error_response(
     "Not connected to Chrome",
-    suggestions=["Run pages()", "Use connect(0)"]
+    suggestions=["Run pages()", "Use connect('9222:abc123')"]
 )
 ```
 
@@ -336,7 +336,7 @@ Use explicit text instead of symbols for clarity:
 1. **Type checking**: Run `basedpyright` to ensure types are correct
 2. **Linting**: Run `ruff check` for code style
 3. **REPL mode**: Test with `webtap` command
-4. **MCP mode**: Test with `webtap --mcp` command
+4. **MCP mode**: Test with piped input (MCP auto-detected when stdin is not a TTY)
 5. **Markdown rendering**: Verify output displays correctly
 
 ## TIPS.md Integration
