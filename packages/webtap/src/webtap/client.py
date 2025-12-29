@@ -2,7 +2,7 @@
 
 PUBLIC API:
   - RPCClient: JSON-RPC 2.0 client for daemon communication
-  - RPCError: Exception raised for RPC errors
+  - RPCError: Re-exported from rpc.errors for convenience
 """
 
 import logging
@@ -13,18 +13,9 @@ from typing import Any
 
 import httpx
 
+from webtap.rpc.errors import RPCError
 
 logger = logging.getLogger(__name__)
-
-
-class RPCError(Exception):
-    """RPC error with code, message, and optional data."""
-
-    def __init__(self, code: str, message: str, data: dict | None = None):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.data = data
 
 
 class RPCClient:

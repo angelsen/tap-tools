@@ -1,4 +1,8 @@
-"""Daemon server lifecycle management."""
+"""Daemon server lifecycle management.
+
+PUBLIC API:
+  - run_daemon_server: Run daemon server in foreground (blocking)
+"""
 
 import asyncio
 import logging
@@ -7,9 +11,11 @@ import uvicorn
 
 from webtap.api.app import api
 from webtap.api.sse import broadcast_processor, get_broadcast_queue, set_broadcast_ready_event, router as sse_router
-from webtap.daemon_state import DaemonState
+from webtap.services.daemon_state import DaemonState
 from webtap.rpc import RPCFramework
 from webtap.rpc.handlers import register_handlers
+
+__all__ = ["run_daemon_server"]
 
 logger = logging.getLogger(__name__)
 

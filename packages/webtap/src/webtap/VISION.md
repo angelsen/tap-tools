@@ -190,7 +190,7 @@ ConsoleSummary(
 webtap/
 ├── VISION.md           # This file
 ├── __init__.py         # Module initialization
-├── app.py              # REPL app with WebTapState
+├── app.py              # REPL app entry point
 ├── client.py           # RPCClient for JSON-RPC communication
 ├── daemon.py           # Background daemon process
 ├── filters.py          # Filter management system

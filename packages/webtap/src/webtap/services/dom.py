@@ -35,7 +35,7 @@ class DOMService:
         self.service: "Any" = None  # WebTapService reference
         self._inspect_target: str | None = None  # Currently inspected target
         self._next_id = 1
-        self._state_lock = threading.Lock()  # Protect state mutations
+        self._state_lock = threading.RLock()  # Protect state mutations (RLock for re-entry)
         self._pending_selections = 0  # Track in-flight selection processing
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dom-worker")
         self._shutdown = False  # Prevent executor submissions after cleanup
@@ -278,12 +278,7 @@ class DOMService:
                 selection_id = str(self._next_id)
                 self._next_id += 1
 
-                if not self.service.state.browser_data:
-                    self.service.state.browser_data = {"selections": {}, "prompt": ""}
-                if "selections" not in self.service.state.browser_data:
-                    self.service.state.browser_data["selections"] = {}
-
-                self.service.state.browser_data["selections"][selection_id] = data
+                self.service.set_browser_selection(selection_id, data)
 
             logger.info(f"Element selected: {selection_id} - {data.get('preview', {}).get('tag', 'unknown')}")
 
@@ -517,13 +512,10 @@ class DOMService:
         """
         # Thread-safe read: protect against concurrent writes from WebSocket thread
         with self._state_lock:
-            selections = {}
-            prompt = ""
-
-            if self.service.state is not None and self.service.state.browser_data:
-                # Deep copy to prevent mutations during SSE broadcast
-                selections = dict(self.service.state.browser_data.get("selections", {}))
-                prompt = self.service.state.browser_data.get("prompt", "")
+            if self.service.state is not None:
+                selections, prompt = self.service.get_browser_data()
+            else:
+                selections, prompt = {}, ""
 
         return {
             "inspect_active": self._inspect_target is not None,
@@ -542,11 +534,10 @@ class DOMService:
         with self._state_lock:
             # Increment generation FIRST to invalidate all pending workers
             self._generation += 1
-            if self.service.state is not None and self.service.state.browser_data:
-                self.service.state.browser_data["selections"] = {}
+            if self.service.state is not None:
+                self.service.clear_browser_selections()
             self._next_id = 1
         logger.info(f"Selections cleared (generation {self._generation})")
-        self._trigger_broadcast()
 
     def cleanup(self) -> None:
         """Cleanup resources (executor, callbacks).

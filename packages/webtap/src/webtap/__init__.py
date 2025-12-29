@@ -102,11 +102,12 @@ def main():
                 print(f"Error: {status['error']}")
         else:
             print(f"Daemon: running (pid {status['pid']})")
-            if status.get("connected"):
-                print(f"Connected: {status.get('page_title', 'Unknown')}")
-                print(f"URL: {status.get('page_url', 'Unknown')}")
+            connections = status.get("connections", [])
+            if status.get("connected") and connections:
+                first = connections[0]
+                print(f"Connected: {first.get('title', 'Unknown')}")
+                print(f"URL: {first.get('url', 'Unknown')}")
                 print(f"Events: {status.get('event_count', 0)}")
-                connections = status.get("connections", [])
                 if len(connections) > 1:
                     print(f"Targets: {len(connections)} connected")
                     for conn in connections:

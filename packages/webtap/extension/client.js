@@ -120,17 +120,68 @@ class WebTapClient {
 
     // SSE connection
     this._eventSource = null;
+    this._reconnectAttempts = 0;
+    this._maxReconnectDelay = 30000; // 30s max
+    this._reconnecting = false;
   }
 
   /**
-   * Call an RPC method
+   * Check if error is transient (network issue, timeout)
+   * @private
+   */
+  _isTransientError(err) {
+    return (
+      err.name === "AbortError" ||
+      err.name === "TypeError" ||  // fetch failed
+      err.message?.includes("fetch failed") ||
+      err.message?.includes("network") ||
+      err.message?.includes("Network")
+    );
+  }
+
+  /**
+   * Delay helper
+   * @private
+   */
+  _delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Call an RPC method with automatic retry for transient errors
    * @param {string} method - RPC method name
    * @param {Object} params - Method parameters
-   * @param {Object} options - Call options { timeout: number }
+   * @param {Object} options - Call options { timeout: number, maxRetries: number }
    * @returns {Promise<any>} Method result
    * @throws {Error} RPC error with .code, .message, .data properties
    */
   async call(method, params = {}, options = {}) {
+    const maxRetries = options.maxRetries ?? 3;
+    const timeout = options.timeout || 30000;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this._doCall(method, params, { ...options, timeout });
+      } catch (err) {
+        // Retry transient errors
+        if (this._isTransientError(err) && attempt < maxRetries) {
+          const backoff = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+          if (this.debug) {
+            console.log(`[WebTap] Retrying ${method} in ${backoff}ms (attempt ${attempt + 1}/${maxRetries})`);
+          }
+          await this._delay(backoff);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Internal call implementation
+   * @private
+   */
+  async _doCall(method, params = {}, options = {}) {
     const id = this._generateId();
     const timeout = options.timeout || 30000;
 
@@ -186,7 +237,7 @@ class WebTapClient {
           // Wait for next SSE state update
           await this._waitForStateUpdate();
           // Retry once with _isRetry flag
-          return this.call(method, params, { ...options, _isRetry: true });
+          return this._doCall(method, params, { ...options, _isRetry: true });
         }
 
         const err = new Error(data.error.message);
@@ -199,7 +250,9 @@ class WebTapClient {
 
     } catch (err) {
       if (err.name === "AbortError") {
-        throw new Error(`RPC timeout after ${timeout}ms`);
+        const timeoutErr = new Error(`RPC timeout after ${timeout}ms`);
+        timeoutErr.name = "AbortError";
+        throw timeoutErr;
       }
       throw err;
     }
@@ -223,51 +276,27 @@ class WebTapClient {
   }
 
   /**
-   * Check if a method can be called in current state
-   * @param {string} method - RPC method name
-   * @returns {boolean} True if method is allowed
+   * Reconnect SSE with exponential backoff
+   * @private
    */
-  canCall(method) {
-    const state = this.state.connectionState;
+  _reconnectSSE() {
+    if (this._reconnecting) return;
+    this._reconnecting = true;
 
-    // Methods that work in any state
-    const anyState = ["pages", "status", "filters.status", "errors.dismiss"];
-    if (anyState.includes(method)) return true;
+    const backoff = Math.min(
+      this._maxReconnectDelay,
+      1000 * Math.pow(2, this._reconnectAttempts)
+    );
 
-    // connect works in any state except connecting (multi-target support)
-    if (method === "connect") {
-      return state !== "connecting";
+    if (this.debug) {
+      console.log(`[WebTap] SSE reconnect in ${backoff}ms (attempt ${this._reconnectAttempts + 1})`);
     }
 
-    // Methods that need connected or inspecting
-    const connectedMethods = [
-      "disconnect", "clear",
-      "browser.startInspect", "browser.clear",
-      "fetch.enable", "fetch.disable", "fetch.resume", "fetch.fail", "fetch.fulfill",
-      "network", "request", "console",
-      "filters.enable", "filters.disable", "filters.enableAll", "filters.disableAll",
-      "cdp"
-    ];
-    if (connectedMethods.includes(method)) {
-      return state === "connected" || state === "inspecting";
-    }
-
-    // browser.startInspect only works in connected
-    if (method === "browser.startInspect") {
-      return state === "connected";
-    }
-
-    // browser.stopInspect only works in inspecting
-    if (method === "browser.stopInspect") {
-      return state === "inspecting";
-    }
-
-    // Connecting state blocks everything
-    if (state === "connecting") {
-      return false;
-    }
-
-    return true;
+    setTimeout(() => {
+      this._reconnectAttempts++;
+      this._reconnecting = false;
+      this.connect();
+    }, backoff);
   }
 
   /**
@@ -279,6 +308,16 @@ class WebTapClient {
     }
 
     this._eventSource = new EventSource(`${this.baseUrl}/events/stream`);
+
+    this._eventSource.onopen = () => {
+      // Reset reconnect state on successful connection
+      this._reconnectAttempts = 0;
+      this.state.epoch = 0;  // Reset epoch to sync with server
+
+      if (this.debug) {
+        console.log("[WebTap] SSE connected");
+      }
+    };
 
     this._eventSource.onmessage = (event) => {
       try {
@@ -298,17 +337,24 @@ class WebTapClient {
     this._eventSource.onerror = (err) => {
       console.error("[WebTap] SSE connection error");
       this._emit("error", err);
-    };
 
-    if (this.debug) {
-      console.log("[WebTap] SSE connected");
-    }
+      // Attempt reconnection with exponential backoff
+      if (this._eventSource) {
+        this._eventSource.close();
+        this._eventSource = null;
+      }
+      this._reconnectSSE();
+    };
   }
 
   /**
    * Disconnect from SSE stream
    */
   disconnect() {
+    // Stop reconnection attempts
+    this._reconnecting = false;
+    this._reconnectAttempts = 0;
+
     if (this._eventSource) {
       this._eventSource.close();
       this._eventSource = null;

@@ -5,10 +5,9 @@ PUBLIC API:
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    pass
+from webtap.services._utils import aggregate_query
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +135,7 @@ class ConsoleService:
         sql += " ORDER BY rowid DESC"
 
         # Aggregate from all CDPSessions
-        all_rows = []
-        for cdp in cdps:
-            try:
-                rows = cdp.query(sql)
-                all_rows.extend(rows)
-            except Exception as e:
-                logger.warning(f"Failed to query console from {cdp.target}: {e}")
+        all_rows = aggregate_query(cdps, sql, error_context="query console")
 
         # Sort by timestamp (index 4) for proper cross-target ordering
         all_rows.sort(key=lambda r: r[4] or "", reverse=True)
@@ -254,25 +247,10 @@ class ConsoleService:
             Entry with only selected fields
         """
         if patterns is None:
-            return {k: entry[k] for k in ["type", "message", "source", "timestamp"] if k in entry}
-
-        if patterns == ["*"] or "*" in patterns:
+            return {k: entry.get(k) for k in ["type", "message", "source", "timestamp"] if entry.get(k) is not None}
+        if "*" in patterns:
             return entry
-
-        result = {}
-        for pattern in patterns:
-            parts = pattern.split(".")
-            if pattern.endswith(".*"):
-                # Wildcard: args.* -> get all of args
-                prefix = pattern[:-2].split(".")
-                value = _get_nested(entry, prefix)
-                if value is not None:
-                    _set_nested(result, prefix, value)
-            else:
-                value = _get_nested(entry, parts)
-                if value is not None:
-                    _set_nested(result, parts, value)
-        return result
+        return {k: entry.get(k) for k in patterns if entry.get(k) is not None}
 
     def _extract_message(self, args: list) -> str:
         """Extract message from console args."""
@@ -280,28 +258,6 @@ class ConsoleService:
             return ""
         first = args[0]
         return first.get("value") or first.get("description") or str(first)
-
-
-def _get_nested(obj: dict | None, path: list[str]):
-    """Get nested value by path."""
-    for key in path:
-        if obj is None:
-            return None
-        if isinstance(obj, dict):
-            obj = obj.get(key)
-        else:
-            return None
-    return obj
-
-
-def _set_nested(result: dict, path: list[str], value) -> None:
-    """Set nested value by path, creating intermediate dicts."""
-    current = result
-    for key in path[:-1]:
-        if key not in current:
-            current[key] = {}
-        current = current[key]
-    current[path[-1]] = value
 
 
 __all__ = ["ConsoleService"]

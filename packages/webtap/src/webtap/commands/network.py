@@ -6,8 +6,7 @@ Commands: network
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
-from webtap.client import RPCError
-from webtap.commands._builders import table_response, error_response, format_size
+from webtap.commands._builders import table_response, format_size, rpc_call
 from webtap.commands._tips import get_tips
 
 # Truncation values for REPL mode (compact display)
@@ -76,13 +75,10 @@ def network(
     if req_state is not None:
         params["state"] = req_state
 
-    try:
-        result = state.client.call("network", **params)
-        requests = result.get("requests", [])
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    result, error = rpc_call(state, "network", **params)
+    if error:
+        return error
+    requests = result.get("requests", [])
 
     # Mode-specific configuration
     is_repl = _ctx and _ctx.is_repl()

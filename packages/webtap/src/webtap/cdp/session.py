@@ -1,7 +1,7 @@
 """CDP Session with native event storage.
 
 PUBLIC API:
-  - CDPSession: WebSocket CDP client with DuckDB event storage
+  - CDPSession: WebSocket-based CDP client with DuckDB event storage
 """
 
 import json
@@ -16,6 +16,8 @@ import requests
 import websocket
 
 from webtap.cdp.har import _create_har_views
+
+__all__ = ["CDPSession"]
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,6 @@ class CDPSession:
         port: Chrome debugging port.
         timeout: Default timeout for execute() calls.
         db: DuckDB connection for event storage.
-        field_paths: Live field lookup for query building.
     """
 
     def __init__(self, port: int = 9222, timeout: float = 30):
@@ -96,9 +97,8 @@ class CDPSession:
         # Event count for pruning (approximate, updated periodically)
         self._event_count = 0
 
-        # Live field path lookup for fast discovery
-        # Maps lowercase field names to their full paths with original case
-        self.field_paths: dict[str, set[str]] = {}
+        # Paused request count (incremented on Fetch.requestPaused, decremented on resolution)
+        self._paused_count = 0
 
         # Event callbacks for real-time handling
         # Maps event method (e.g. "Overlay.inspectNodeRequested") to list of callbacks
@@ -109,6 +109,23 @@ class CDPSession:
 
         # Disconnect callback for service-level cleanup
         self._disconnect_callback: "Any | None" = None
+
+    # Event method prefixes that affect displayed state (trigger SSE broadcast)
+    _STATE_AFFECTING_PREFIXES = (
+        "Network.",  # Network requests table
+        "Fetch.",  # Fetch interception
+        "Runtime.consoleAPI",  # Console messages
+        "Overlay.",  # DOM inspection
+        "DOM.",  # DOM changes
+    )
+
+    def _is_state_affecting_event(self, method: str) -> bool:
+        """Check if an event method affects displayed state.
+
+        Only state-affecting events trigger SSE broadcasts to reduce latency
+        from noisy CDP events (like Page.frameNavigated, Target.*, etc.)
+        """
+        return method.startswith(self._STATE_AFFECTING_PREFIXES)
 
     def _db_worker(self) -> None:
         """Dedicated thread for all database operations.
@@ -307,6 +324,11 @@ class CDPSession:
         self.page_info = None
         self.target = None
 
+    def decrement_paused_count(self) -> None:
+        """Decrement paused request counter (called when request is resumed/failed/fulfilled)."""
+        if self._paused_count > 0:
+            self._paused_count -= 1
+
     def cleanup(self) -> None:
         """Shutdown DB thread and disconnect (call on app exit only).
 
@@ -415,7 +437,10 @@ class CDPSession:
                     wait_result=False,
                 )
                 self._event_count += 1
-                self._update_field_lookup(data)
+
+                # Track paused request count for fast access
+                if method == "Fetch.requestPaused":
+                    self._paused_count += 1
 
                 # Prune old events periodically to prevent unbounded growth
                 if self._event_count % PRUNE_CHECK_INTERVAL == 0:
@@ -424,8 +449,10 @@ class CDPSession:
                 # Call registered event callbacks
                 self._dispatch_event_callbacks(data)
 
-                # Trigger SSE broadcast (debounced)
-                self._trigger_state_broadcast()
+                # Trigger SSE broadcast only for state-affecting events
+                # Skip noisy events that don't affect displayed state
+                if self._is_state_affecting_event(method):
+                    self._trigger_state_broadcast()
 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
@@ -494,68 +521,9 @@ class CDPSession:
         self._event_count -= delete_count
         logger.debug(f"Pruned {delete_count} old events, ~{self._event_count} remaining")
 
-    def _extract_paths(self, obj, parent_key=""):
-        """Extract all JSON paths from nested dict structure.
-
-        Args:
-            obj: Dictionary to extract paths from.
-            parent_key: Current path prefix.
-        """
-        paths = []
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                new_key = f"{parent_key}.{k}" if parent_key else k
-                paths.append(new_key)
-                if isinstance(v, dict):
-                    paths.extend(self._extract_paths(v, new_key))
-        return paths
-
-    def _update_field_lookup(self, data):
-        """Update field_paths lookup with new event data.
-
-        Args:
-            data: CDP event dictionary.
-        """
-        event_type = data.get("method", "unknown")
-        paths = self._extract_paths(data)
-
-        for path in paths:
-            # Store with event type prefix using colon separator
-            full_path = f"{event_type}:{path}"
-
-            # Index by each part of the path for flexible searching
-            parts = path.split(".")
-            for part in parts:
-                key = part.lower()
-                if key not in self.field_paths:
-                    self.field_paths[key] = set()
-                self.field_paths[key].add(full_path)  # Store with event type and original case
-
-    def discover_field_paths(self, search_key: str) -> list[str]:
-        """Discover all JSON paths containing the search key.
-
-        Used by build_query for dynamic field discovery.
-
-        Args:
-            search_key: Field name to search for like "url" or "status".
-
-        Returns:
-            Sorted list of full paths with event type prefixes.
-        """
-        search_key = search_key.lower()
-        paths = set()
-
-        # Find all field names that contain our search key
-        for field_name, field_paths in self.field_paths.items():
-            if search_key in field_name:
-                paths.update(field_paths)
-
-        return sorted(list(paths))  # Sort for consistent results
-
     def clear_events(self) -> None:
-        """Clear all stored events and reset field lookup."""
+        """Clear all stored events."""
         self._db_execute("DELETE FROM events", wait_result=False)
-        self.field_paths.clear()
         self._event_count = 0
 
     def query(self, sql: str, params: list | None = None) -> list:
@@ -577,20 +545,50 @@ class CDPSession:
         """
         return self._db_execute(sql, params)
 
-    def fetch_body(self, request_id: str) -> dict | None:
+    def fetch_body(self, request_id: str) -> dict:
         """Fetch response body via Network.getResponseBody CDP call.
+
+        Note: Bodies may be evicted by Chrome after page navigation.
+        For guaranteed capture, use fetch("capture") mode which intercepts
+        at response stage and grabs bodies before they can be evicted.
 
         Args:
             request_id: Network request ID from CDP events.
 
         Returns:
-            Dict with 'body' and 'base64Encoded' keys, or None if failed.
+            Dict with either:
+            - {"body": str, "base64Encoded": bool} on success
+            - {"error": str} on failure (body evicted, not found, timeout, etc.)
         """
         try:
             return self.execute("Network.getResponseBody", {"requestId": request_id})
         except Exception as e:
-            logger.debug(f"Failed to fetch body for {request_id}: {e}")
-            return None
+            error_msg = str(e)
+            logger.debug(f"Failed to fetch body for {request_id}: {error_msg}")
+            return {"error": error_msg}
+
+    def store_response_body(self, request_id: str, body: str, base64_encoded: bool = False) -> None:
+        """Store captured response body from extension capture.
+
+        Args:
+            request_id: CDP request ID
+            body: Response body (base64 or raw)
+            base64_encoded: Whether body is base64 encoded
+        """
+        event = {
+            "method": "Network.responseBodyCaptured",
+            "params": {
+                "requestId": request_id,
+                "body": body,
+                "base64Encoded": base64_encoded,
+            },
+        }
+        event_json = json.dumps(event)
+        self._db_execute(
+            "INSERT INTO events (event, method, target) VALUES (?, ?, ?)",
+            [event_json, event["method"], self.target],
+            wait_result=False,
+        )
 
     @property
     def is_connected(self) -> bool:
@@ -692,6 +690,3 @@ class CDPSession:
                 self._broadcast_callback()
             except Exception as e:
                 logger.debug(f"Failed to trigger broadcast: {e}")
-
-
-__all__ = ["CDPSession"]

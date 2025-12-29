@@ -48,10 +48,17 @@ function devToolsButton(row) {
   btn.onclick = (e) => {
     e.stopPropagation();
     if (!row.devtools_url) return;
-    // Chrome's devtoolsFrontendUrl is relative, make it absolute
-    const url = row.devtools_url.startsWith("/")
-      ? `devtools://devtools${row.devtools_url}`
-      : row.devtools_url;
+    // Convert to local devtools:// protocol for reliable connection
+    let url = row.devtools_url;
+    if (url.startsWith("/")) {
+      url = `devtools://devtools${url}`;
+    } else if (url.includes("chrome-devtools-frontend.appspot.com")) {
+      // Replace hosted frontend with local bundled version
+      url = url.replace(
+        /https:\/\/chrome-devtools-frontend\.appspot\.com\/serve_rev\/@[^/]+/,
+        "devtools://devtools/bundled"
+      );
+    }
     chrome.tabs.create({ url });
   };
   return btn;
@@ -116,6 +123,7 @@ export function update(state) {
 }
 
 async function toggleFilter(row, checked) {
+  targetsTable.setLoading("Updating...");
   try {
     const connections = client.state.connections || [];
     const connectedTargets = new Set(connections.map((c) => c.target));
@@ -142,5 +150,7 @@ async function toggleFilter(row, checked) {
     }
   } catch (err) {
     onError(err);
+  } finally {
+    targetsTable.clearLoading();
   }
 }

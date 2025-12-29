@@ -8,15 +8,24 @@ import json
 import logging
 from typing import Any
 
+from webtap.services._utils import aggregate_query, get_nested, set_nested
+
 logger = logging.getLogger(__name__)
 
 
 class NetworkService:
-    """Network event queries using HAR views."""
+    """Network event queries using HAR views.
+
+    Provides network request/response monitoring via CDP Network domain events
+    aggregated into HAR (HTTP Archive) format views stored in DuckDB.
+
+    Attributes:
+        service: WebTapService reference for multi-target operations.
+    """
 
     def __init__(self):
         """Initialize network service."""
-        self.service: "Any" = None  # WebTapService reference
+        self.service: "Any" = None
 
     def set_service(self, service: "Any") -> None:
         """Set service reference.
@@ -136,13 +145,7 @@ class NetworkService:
         sql += f" ORDER BY last_activity {sort_dir}"
 
         # Aggregate from all CDPSessions
-        all_rows = []
-        for cdp in cdps:
-            try:
-                rows = cdp.query(sql)
-                all_rows.extend(rows)
-            except Exception as e:
-                logger.warning(f"Failed to query network from {cdp.target}: {e}")
+        all_rows = aggregate_query(cdps, sql, error_context="query network")
 
         # Sort by last_activity (index 15) for proper cross-target ordering
         all_rows.sort(key=lambda r: r[15] or "", reverse=(order.lower() == "desc"))
@@ -319,7 +322,9 @@ class NetworkService:
             target: Target ID. If None, searches all connections.
 
         Returns:
-            Dict with 'body' and 'base64Encoded' keys, or None.
+            - {"body": str, "base64Encoded": bool} on success
+            - {"error": str} if fetch failed
+            - None if no service/connection available
         """
         if not self.service:
             return None
@@ -331,13 +336,17 @@ class NetworkService:
             return conn.cdp.fetch_body(request_id)
         else:
             # Search all connections for this request_id
+            errors = []
             for conn in self.service.connections.values():
-                try:
-                    result = conn.cdp.fetch_body(request_id)
-                    if result:
-                        return result
-                except Exception:
-                    pass
+                result = conn.cdp.fetch_body(request_id)
+                if result and "error" not in result:
+                    return result
+                if result and "error" in result:
+                    errors.append(result["error"])
+
+            # All failed - return first error
+            if errors:
+                return {"error": errors[0]}
             return None
 
     def fetch_websocket_frames(self, request_id: str, target: str | None = None) -> dict | None:
@@ -399,8 +408,8 @@ class NetworkService:
                 pass
         return None
 
-    def get_request_by_row_id(self, row_id: int, target: str | None = None) -> str | None:
-        """Get request_id for a row ID.
+    def get_request_id(self, row_id: int, target: str | None = None) -> str | None:
+        """Get CDP request_id for a row ID.
 
         Args:
             row_id: Row ID from har_summary.
@@ -417,18 +426,6 @@ class NetworkService:
             return None
         result = cdp.query("SELECT request_id FROM har_summary WHERE id = ?", [row_id])
         return result[0][0] if result else None
-
-    def get_request_id(self, row_id: int, target: str | None = None) -> str | None:
-        """Get CDP request_id for a row ID.
-
-        Args:
-            row_id: Row ID from network table.
-            target: Target ID - required to find the correct CDPSession
-
-        Returns:
-            CDP request ID or None.
-        """
-        return self.get_request_by_row_id(row_id, target)
 
     def get_har_id_by_request_id(self, request_id: str, target: str | None = None) -> int | None:
         """Find HAR summary row ID by CDP request_id.
@@ -465,6 +462,108 @@ class NetworkService:
                     pass
             return None
 
+    def _find_redirect_chain(
+        self,
+        request_id: str,
+        request_url: str,
+        target: str | None = None,
+        max_hops: int = 5,
+    ) -> list[tuple[str, int]]:
+        """Find the redirect chain starting from a request.
+
+        Walks the chain by finding Network.requestWillBeSent events where
+        redirectResponse.url matches the current request's URL.
+
+        Args:
+            request_id: Starting request ID (the 3xx response)
+            request_url: URL of the starting request
+            target: Target ID for CDP session
+            max_hops: Maximum redirects to follow (default 5)
+
+        Returns:
+            List of (request_id, har_row_id) tuples in chain order.
+            First element is the original request, last is the final.
+            Returns empty list if chain walking fails.
+        """
+        if not self.service:
+            return []
+
+        # Get CDPSession
+        cdp = None
+        if target:
+            conn = self.service.connections.get(target)
+            if conn:
+                cdp = conn.cdp
+        else:
+            # Find connection with this request_id
+            for conn in self.service.connections.values():
+                result = conn.cdp.query(
+                    "SELECT 1 FROM har_summary WHERE request_id = ? LIMIT 1",
+                    [request_id],
+                )
+                if result:
+                    cdp = conn.cdp
+                    break
+
+        if not cdp:
+            return []
+
+        # Get HAR row ID for starting request
+        start_har_id = self.get_har_id_by_request_id(request_id, target)
+        if start_har_id is None:
+            return []
+
+        chain: list[tuple[str, int]] = [(request_id, start_har_id)]
+        seen_ids: set[str] = {request_id}
+        current_url = request_url
+
+        for _ in range(max_hops):
+            # Find next request: look for requestWillBeSent where redirectResponse.url
+            # matches current URL (meaning this request was triggered by redirecting from current)
+            result = cdp.query(
+                """
+                SELECT
+                    json_extract_string(event, '$.params.requestId') as next_id
+                FROM events
+                WHERE method = 'Network.requestWillBeSent'
+                  AND json_extract_string(event, '$.params.redirectResponse.url') = ?
+                ORDER BY rowid ASC
+                LIMIT 1
+                """,
+                [current_url],
+            )
+
+            if not result or not result[0][0]:
+                # No more redirects - chain complete
+                break
+
+            next_id = result[0][0]
+
+            # Check for loops
+            if next_id in seen_ids:
+                logger.warning(f"Redirect loop detected: {next_id} already in chain")
+                break
+
+            # Get HAR row ID and URL for next request
+            next_har_id = self.get_har_id_by_request_id(next_id, target)
+            if next_har_id is None:
+                # Can't find HAR entry - chain broken
+                break
+
+            # Get URL of next request for continuing the chain
+            url_result = cdp.query(
+                "SELECT url FROM har_summary WHERE request_id = ? LIMIT 1",
+                [next_id],
+            )
+            if not url_result:
+                break
+
+            chain.append((next_id, next_har_id))
+            seen_ids.add(next_id)
+            current_url = url_result[0][0]
+
+        return chain
+
     def select_fields(self, har_entry: dict, patterns: list[str] | None) -> dict:
         """Apply ES-style field selection to HAR entry.
 
@@ -476,27 +575,23 @@ class NetworkService:
             - None: minimal default fields
             - ["*"]: all fields
             - ["request.*"]: all request fields
-            - ["request.headers.*"]: all request headers
-            - ["request.headers.content-type"]: specific header
             - ["response.content"]: fetch response body on-demand
 
         Returns:
             HAR entry with only selected fields.
         """
-        # Minimal fields for default view
         minimal_fields = ["request.method", "request.url", "response.status", "time", "state"]
 
         if patterns is None:
-            # Minimal default - extract specific paths
             result: dict = {}
-            for pattern in minimal_fields:
-                parts = pattern.split(".")
-                value = _get_nested(har_entry, parts)
+            for field in minimal_fields:
+                parts = field.split(".")
+                value = get_nested(har_entry, parts, case_insensitive=True)
                 if value is not None:
-                    _set_nested(result, parts, value)
+                    set_nested(result, parts, value)
             return result
 
-        if patterns == ["*"]:
+        if patterns == ["*"] or "*" in patterns:
             return har_entry
 
         result = {}
@@ -504,80 +599,78 @@ class NetworkService:
             if pattern == "*":
                 return har_entry
 
-            parts = pattern.split(".")
-
-            # Special case: response.content triggers body fetch
+            # Special: response.content triggers body fetch
             if pattern == "response.content" or pattern.startswith("response.content."):
-                request_id = har_entry.get("request_id")
-                if request_id:
-                    body_result = self.fetch_body(request_id)
-                    if body_result:
-                        content = har_entry.get("response", {}).get("content", {}).copy()
-                        content["text"] = body_result.get("body")
-                        content["encoding"] = "base64" if body_result.get("base64Encoded") else None
-                        _set_nested(result, ["response", "content"], content)
-                    else:
-                        _set_nested(result, ["response", "content"], {"text": None})
+                self._fetch_response_content(har_entry, result)
                 continue
 
-            # Special case: websocket.frames triggers frame fetch
+            # Special: websocket.frames triggers frame fetch
             if pattern == "websocket.frames" or pattern.startswith("websocket.frames."):
-                # Only fetch frames for WebSocket connections
-                if har_entry.get("protocol") == "websocket":
-                    request_id = har_entry.get("request_id")
-                    if request_id:
-                        frames_result = self.fetch_websocket_frames(request_id)
-                        if frames_result:
-                            websocket_data = result.get("websocket", {})
-                            websocket_data["frames"] = frames_result
-                            result["websocket"] = websocket_data
-                        else:
-                            websocket_data = result.get("websocket", {})
-                            websocket_data["frames"] = {"sent": [], "received": []}
-                            result["websocket"] = websocket_data
+                self._fetch_websocket_frames_for_entry(har_entry, result)
                 continue
 
-            # Wildcard: "request.headers.*" -> get all under that path
+            # Standard field selection
+            parts = pattern.split(".")
             if pattern.endswith(".*"):
-                prefix = pattern[:-2]
-                prefix_parts = prefix.split(".")
-                obj = _get_nested(har_entry, prefix_parts)
-                if obj is not None:
-                    _set_nested(result, prefix_parts, obj)
-            else:
-                # Specific path
-                value = _get_nested(har_entry, parts)
+                prefix_parts = pattern[:-2].split(".")
+                value = get_nested(har_entry, prefix_parts, case_insensitive=True)
                 if value is not None:
-                    _set_nested(result, parts, value)
+                    set_nested(result, prefix_parts, value)
+            else:
+                value = get_nested(har_entry, parts, case_insensitive=True)
+                if value is not None:
+                    set_nested(result, parts, value)
 
         return result
 
+    def _fetch_response_content(self, har_entry: dict, result: dict) -> None:
+        """Fetch response body and add to result dict."""
+        request_id = har_entry.get("request_id")
+        if not request_id:
+            return
 
-def _get_nested(obj: dict | None, path: list[str]):
-    """Get nested value by path, case-insensitive for headers."""
-    for key in path:
-        if obj is None:
-            return None
-        if isinstance(obj, dict):
-            # Case-insensitive lookup
-            matching_key = next((k for k in obj.keys() if k.lower() == key.lower()), None)
-            if matching_key:
-                obj = obj.get(matching_key)
-            else:
-                return None
+        status = har_entry.get("response", {}).get("status", 0)
+        request_url = har_entry.get("request", {}).get("url", "")
+        chain_ids: list[int] | None = None
+        fetch_id = request_id
+
+        # For 3xx redirects, find chain and fetch from final
+        if 300 <= status < 400 and request_url:
+            chain_result = self._find_redirect_chain(request_id, request_url)
+            if chain_result and len(chain_result) > 1:
+                chain_ids = [har_id for _, har_id in chain_result]
+                fetch_id = chain_result[-1][0]
+
+        body_result = self.fetch_body(fetch_id)
+
+        content = har_entry.get("response", {}).get("content", {}).copy()
+        if body_result and "error" not in body_result:
+            content["text"] = body_result.get("body")
+            content["encoding"] = "base64" if body_result.get("base64Encoded") else None
+        elif body_result and "error" in body_result:
+            content["text"] = None
+            content["error"] = body_result["error"]
         else:
-            return None
-    return obj
+            content["text"] = None
 
+        if chain_ids:
+            content["chain"] = chain_ids
 
-def _set_nested(result: dict, path: list[str], value) -> None:
-    """Set nested value by path, creating intermediate dicts."""
-    current = result
-    for key in path[:-1]:
-        if key not in current:
-            current[key] = {}
-        current = current[key]
-    current[path[-1]] = value
+        set_nested(result, ["response", "content"], content)
+
+    def _fetch_websocket_frames_for_entry(self, har_entry: dict, result: dict) -> None:
+        """Fetch WebSocket frames and add to result dict."""
+        if har_entry.get("protocol") != "websocket":
+            return
+
+        request_id = har_entry.get("request_id")
+        if not request_id:
+            return
+
+        frames_result = self.fetch_websocket_frames(request_id)
+        websocket_data = result.get("websocket", {})
+        websocket_data["frames"] = frames_result or {"sent": [], "received": []}
+        result["websocket"] = websocket_data
 
 
 __all__ = ["NetworkService"]

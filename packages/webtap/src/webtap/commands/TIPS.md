@@ -289,13 +289,13 @@ selections(expr="{k: v['selector'] for k, v in data['selections'].items()}")  # 
 - **Inspect in prompts:** Use `@webtap:webtap://selections` resource in Claude Code for AI analysis
 
 ### targets
-Show connected targets and filter active ones.
+Show connected targets and their tracking status.
 
 #### Tips
-- **List targets:** Shows all connected pages across ports
-- **Filter:** `targets.set(["9222:abc"])` - only receive events from specified targets
-- **Clear filter:** `targets.clear()` - receive events from all targets
-- **Target ID format:** `{port}:{6-char-id}` from pages() output
+- **Filter queries:** `network(target="{target}")` - query specific target
+- **Multi-target:** When tracked, queries aggregate from tracked targets only
+- **Target format:** `{port}:{short-id}` from `pages()` output
+- **Check pages:** `pages()` - see all available pages including disconnected
 
 ### setup-android
 Configure ADB port forwarding for Android Chrome debugging.

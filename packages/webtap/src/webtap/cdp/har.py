@@ -311,6 +311,3 @@ def _create_har_views(db_execute) -> None:
     db_execute(_HAR_ENTRIES_SQL, wait_result=True)
     db_execute(_HAR_SUMMARY_SQL, wait_result=True)
     logger.debug("HAR views created")
-
-
-__all__ = ["_create_har_views"]

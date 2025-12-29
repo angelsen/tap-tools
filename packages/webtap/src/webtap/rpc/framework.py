@@ -1,4 +1,10 @@
-"""RPC framework for JSON-RPC 2.0 request handling."""
+"""RPC framework for JSON-RPC 2.0 request handling.
+
+PUBLIC API:
+  - RPCFramework: Core RPC request/response handler
+  - RPCContext: Context passed to RPC handlers
+  - HandlerMeta: Metadata for RPC handler registration
+"""
 
 import asyncio
 import hashlib
@@ -6,15 +12,12 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from webtap.rpc.errors import ErrorCode, RPCError
+from webtap.services.main import WebTapService
 
 __all__ = ["RPCFramework", "RPCContext", "HandlerMeta"]
-
-if TYPE_CHECKING:
-    from webtap.rpc.machine import ConnectionMachine
-    from webtap.services.main import WebTapService
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +28,11 @@ class RPCContext:
 
     Attributes:
         service: WebTapService instance for accessing CDP and domain services
-        machine: ConnectionMachine for state management
         epoch: Current connection epoch
         request_id: JSON-RPC request ID
     """
 
-    service: "WebTapService"
-    machine: "ConnectionMachine"
+    service: WebTapService
     epoch: int
     request_id: str
 
@@ -52,17 +53,14 @@ class HandlerMeta:
 
 
 class RPCFramework:
-    """JSON-RPC 2.0 framework with state machine integration.
+    """JSON-RPC 2.0 framework for request routing and validation.
 
     Handles JSON-RPC 2.0 request routing, validation, and response formatting.
-    Integrates with ConnectionMachine for state management.
+    Uses per-target state from ConnectionManager for validation.
     """
 
     def __init__(self, service: "WebTapService"):
         self.service = service
-        from webtap.rpc.machine import ConnectionMachine
-
-        self.machine = ConnectionMachine()
         self.handlers: dict[str, tuple[Callable, HandlerMeta]] = {}
 
         # Client tracking: {client_id: {version, type, context, last_seen, is_stale}}
@@ -193,8 +191,7 @@ class RPCFramework:
 
             handler, meta = self.handlers[method]
 
-            # Validate state requirements
-            # Per-target validation when target param present
+            # Validate state requirements (per-target only)
             target_param = params.get("target")
             if target_param and meta.requires_state:
                 conn = self.service.get_connection(target_param)
@@ -211,33 +208,31 @@ class RPCFramework:
                                 "required_states": meta.requires_state,
                             },
                         )
-                # If target not found, fall through to global check (connect may be creating it)
-
-            # Global state validation (backward compatible)
-            if meta.requires_state:
-                current_state = self.machine.state
-                if current_state not in meta.requires_state:
+            elif meta.requires_state:
+                # No target param but requires state - check if any connection exists
+                if not self.service.connections:
                     return self._error_response(
                         request_id,
-                        ErrorCode.INVALID_STATE,
-                        f"Method {method} requires state {meta.requires_state}, current: {current_state}",
-                        {"current_state": current_state, "required_states": meta.requires_state},
+                        ErrorCode.NOT_CONNECTED,
+                        f"Method {method} requires connection",
+                        {"required_states": meta.requires_state},
                     )
+
+            # Get current epoch from service
+            current_epoch = self.service.conn_mgr.epoch
 
             # Validate epoch (if provided)
             request_epoch = request.get("epoch")
-            if request_epoch is not None and request_epoch != self.machine.epoch:
+            if request_epoch is not None and request_epoch != current_epoch:
                 return self._error_response(
                     request_id,
                     ErrorCode.STALE_EPOCH,
-                    f"Request epoch {request_epoch} does not match current {self.machine.epoch}",
-                    {"request_epoch": request_epoch, "current_epoch": self.machine.epoch},
+                    f"Request epoch {request_epoch} does not match current {current_epoch}",
+                    {"request_epoch": request_epoch, "current_epoch": current_epoch},
                 )
 
             # Create context
-            ctx = RPCContext(
-                service=self.service, machine=self.machine, epoch=self.machine.epoch, request_id=request_id
-            )
+            ctx = RPCContext(service=self.service, epoch=current_epoch, request_id=request_id)
 
             # Auto-lookup paused request if required
             if meta.requires_paused_request:
@@ -288,7 +283,7 @@ class RPCFramework:
             request_id: JSON-RPC request ID
             result: Result data to return
         """
-        return {"jsonrpc": "2.0", "id": request_id, "result": result, "epoch": self.machine.epoch}
+        return {"jsonrpc": "2.0", "id": request_id, "result": result, "epoch": self.service.conn_mgr.epoch}
 
     def _error_response(self, request_id: str, code: str, message: str, data: dict | None = None) -> dict:
         """Build JSON-RPC 2.0 error response.
@@ -302,4 +297,4 @@ class RPCFramework:
         error: dict[str, Any] = {"code": code, "message": message}
         if data:
             error["data"] = data
-        return {"jsonrpc": "2.0", "id": request_id, "error": error, "epoch": self.machine.epoch}
+        return {"jsonrpc": "2.0", "id": request_id, "error": error, "epoch": self.service.conn_mgr.epoch}

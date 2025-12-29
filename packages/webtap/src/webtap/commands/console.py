@@ -6,8 +6,7 @@ Commands: console
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
-from webtap.client import RPCError
-from webtap.commands._builders import table_response, error_response, format_timestamp
+from webtap.commands._builders import table_response, format_timestamp, rpc_call
 from webtap.commands._tips import get_tips
 
 # Truncation values for REPL mode (compact display)
@@ -46,16 +45,13 @@ def console(
         Table of console messages with full data
     """
     # Get console messages via RPC
-    try:
-        params: dict = {"limit": limit}
-        if target:
-            params["target"] = target
-        result = state.client.call("console", **params)
-        messages = result.get("messages", [])
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    params: dict = {"limit": limit}
+    if target:
+        params["target"] = target
+    result, error = rpc_call(state, "console", **params)
+    if error:
+        return error
+    messages = result.get("messages", [])
 
     # Mode-specific configuration
     is_repl = _ctx and _ctx.is_repl()

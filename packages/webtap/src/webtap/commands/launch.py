@@ -1,7 +1,4 @@
-"""Chrome launch commands for WebTap.
-
-Commands: run_chrome, setup_android
-"""
+"""Chrome and Android device launch commands."""
 
 import signal
 import shutil
@@ -27,8 +24,12 @@ def _is_port_in_use(port: int) -> bool:
 def _register_port_with_daemon(state, port: int) -> dict | None:
     """Register port with daemon, return result or None if daemon unavailable."""
     try:
-        return state.client.call("ports.add", port=port)
-    except Exception:
+        result = state.client.call("ports.add", port=port)
+        if result.get("status") == "unreachable":
+            print(f"Warning: {result.get('warning', 'Port unreachable')}")
+        return result
+    except Exception as e:
+        print(f"Warning: Could not register port with daemon: {e}")
         return None
 
 

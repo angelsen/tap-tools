@@ -43,11 +43,14 @@ export function update(filters) {
 }
 
 async function toggle(name, checked) {
+  filterTable.setLoading("Updating...");
   try {
     const method = checked ? "filters.enable" : "filters.disable";
     await client.call(method, { name });
   } catch (err) {
     onError(err);
+  } finally {
+    filterTable.clearLoading();
   }
 }
 

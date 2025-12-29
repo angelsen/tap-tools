@@ -1,8 +1,7 @@
 """Main application entry point for WebTap browser debugger.
 
 PUBLIC API:
-  - WebTapState: Application state class with daemon client
-  - app: Main ReplKit2 App instance (imported by commands and __init__)
+  - app: Main ReplKit2 App instance
 """
 
 from dataclasses import dataclass, field
@@ -13,15 +12,8 @@ from webtap.client import RPCClient
 
 
 @dataclass
-class WebTapState:
-    """Application state for WebTap browser debugging.
-
-    Client-side state that communicates with the daemon via HTTP.
-    All CDP operations and data storage happen in the daemon.
-
-    Attributes:
-        client: RPCClient for JSON-RPC communication with daemon
-    """
+class _WebTapState:
+    """Application state for WebTap browser debugging."""
 
     client: RPCClient = field(init=False)
 
@@ -37,7 +29,7 @@ class WebTapState:
 
 app = App(
     "webtap",
-    WebTapState,
+    _WebTapState,
     mcp_config={
         "uri_scheme": "webtap",
         "instructions": "Chrome DevTools Protocol debugger",
@@ -57,10 +49,11 @@ from webtap.commands import console  # noqa: E402, F401
 from webtap.commands import entry  # noqa: E402, F401
 from webtap.commands import filters  # noqa: E402, F401
 from webtap.commands import fetch  # noqa: E402, F401
+from webtap.commands import capture  # noqa: E402, F401
 from webtap.commands import to_model  # noqa: E402, F401
 from webtap.commands import quicktype  # noqa: E402, F401
 from webtap.commands import selections  # noqa: E402, F401
 from webtap.commands import setup  # noqa: E402, F401
 from webtap.commands import launch  # noqa: E402, F401
 
-__all__ = ["WebTapState", "app"]
+__all__ = ["app"]

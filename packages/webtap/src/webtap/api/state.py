@@ -1,17 +1,19 @@
-"""State snapshot building for SSE broadcasting."""
+"""State snapshot building for SSE broadcasting.
+
+PUBLIC API:
+  - get_full_state: Get complete WebTap state for SSE broadcasting
+"""
 
 import hashlib
 from typing import Any, Dict
 
 import webtap.api.app as app_module
 
+__all__ = ["get_full_state"]
+
 
 def _stable_hash(data: str) -> str:
-    """Generate deterministic hash for frontend change detection.
-
-    Uses MD5 for speed (not security). Returns 16-char hex digest.
-    Ensures hashes remain stable across process restarts (unlike Python's hash()).
-    """
+    """Generate deterministic hash for frontend change detection."""
     return hashlib.md5(data.encode()).hexdigest()[:16]
 
 
@@ -22,7 +24,9 @@ def get_full_state() -> Dict[str, Any]:
     No blocking I/O - returns cached snapshot immediately.
 
     Returns:
-        Dictionary with all state information for SSE clients
+        Dictionary with connection state, events, fetch status, filters,
+        browser state (selections, inspect mode), errors, and content hashes
+        for efficient frontend change detection.
     """
     if not app_module.app_state:
         return {
@@ -38,10 +42,9 @@ def get_full_state() -> Dict[str, Any]:
 
     snapshot = app_module.app_state.service.get_state_snapshot()
 
-    # Get connection state and epoch from RPC machine
-    machine = app_module.app_state.service.rpc.machine if app_module.app_state.service.rpc else None
-    connection_state = machine.state if machine else "disconnected"
-    epoch = machine.epoch if machine else 0
+    # Get connection state from snapshot and epoch from ConnectionManager
+    connection_state = "connected" if snapshot.connected else "disconnected"
+    epoch = app_module.app_state.service.conn_mgr.epoch
 
     # Get tracked clients from RPC framework
     clients = app_module.app_state.service.rpc.get_tracked_clients() if app_module.app_state.service.rpc else {}
@@ -53,7 +56,9 @@ def get_full_state() -> Dict[str, Any]:
     # Compute content hashes for frontend change detection
     selections_hash = _stable_hash(str(sorted(snapshot.selections.keys())))
     filters_hash = _stable_hash(f"{sorted(snapshot.enabled_filters)}")
-    fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.response_stage}:{snapshot.paused_count}")
+    fetch_hash = _stable_hash(
+        f"{snapshot.fetch_enabled}:{snapshot.response_stage}:{snapshot.paused_count}:{snapshot.capture_enabled}"
+    )
     errors_hash = _stable_hash(str(sorted(snapshot.errors.items())))
     targets_hash = _stable_hash(f"{sorted(snapshot.tracked_targets)}:{len(snapshot.connections)}")
 
@@ -69,6 +74,7 @@ def get_full_state() -> Dict[str, Any]:
             "enabled": snapshot.fetch_enabled,
             "response_stage": snapshot.response_stage,
             "paused_count": snapshot.paused_count,
+            "capture_enabled": snapshot.capture_enabled,
         },
         "filters": {"enabled": list(snapshot.enabled_filters), "disabled": list(snapshot.disabled_filters)},
         # Multi-target state (connections now include state field)

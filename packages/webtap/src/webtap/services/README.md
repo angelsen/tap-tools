@@ -67,7 +67,7 @@ Queries console messages and browser logs.
 
 ## Usage
 
-Services are accessed through the WebTapState:
+Services are accessed through the application state:
 
 ```python
 # In commands (via RPC)

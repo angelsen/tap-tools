@@ -1,13 +1,10 @@
-"""Chrome browser connection management commands.
-
-Commands: connect, disconnect, pages, status, clear, targets, ports
-"""
+"""Chrome browser connection management commands."""
 
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
 from webtap.client import RPCError
-from webtap.commands._builders import info_response, table_response, error_response
+from webtap.commands._builders import info_response, table_response, error_response, rpc_call
 from webtap.commands._tips import get_mcp_description, get_tips
 
 _connect_desc = get_mcp_description("connect")
@@ -23,6 +20,16 @@ _PAGES_REPL_TRUNCATE = {
 
 # Truncation values for pages() MCP mode (generous for LLM context)
 _PAGES_MCP_TRUNCATE = {
+    "Title": {"max": 100, "mode": "end"},
+    "URL": {"max": 200, "mode": "middle"},
+}
+
+# Truncation values for targets() - same pattern
+_TARGETS_REPL_TRUNCATE = {
+    "Title": {"max": 25, "mode": "end"},
+    "URL": {"max": 35, "mode": "middle"},
+}
+_TARGETS_MCP_TRUNCATE = {
     "Title": {"max": 100, "mode": "end"},
     "URL": {"max": 200, "mode": "middle"},
 }
@@ -56,12 +63,9 @@ def connect(
             ],
         )
 
-    try:
-        result = state.client.call("connect", target=target)
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    result, error = rpc_call(state, "connect", target=target)
+    if error:
+        return error
 
     # Success - return formatted info with full URL
     return info_response(
@@ -118,12 +122,9 @@ def clear(state, events: bool = True, console: bool = False) -> dict:
     Returns:
         Summary of what was cleared
     """
-    try:
-        result = state.client.call("clear", events=events, console=console)
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    result, error = rpc_call(state, "clear", events=events, console=console)
+    if error:
+        return error
 
     # Build cleared list from result
     cleared = result.get("cleared", [])
@@ -150,13 +151,10 @@ def pages(
     Returns:
         Table of available pages with target IDs
     """
-    try:
-        result = state.client.call("pages")
-        pages_list = result.get("pages", [])
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    result, error = rpc_call(state, "pages")
+    if error:
+        return error
+    pages_list = result.get("pages", [])
 
     # Format rows with Target first
     rows = [
@@ -204,12 +202,9 @@ def status(state) -> dict:
     Returns:
         Status information in markdown
     """
-    try:
-        status_data = state.client.call("status")
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    status_data, error = rpc_call(state, "status")
+    if error:
+        return error
 
     # Check if connected
     if not status_data.get("connected"):
@@ -230,45 +225,57 @@ def status(state) -> dict:
 
 @app.command(
     display="markdown",
-    fastmcp={"enabled": False},
-    typer={"enabled": False},
+    fastmcp={"type": "resource", "mime_type": "text/markdown"},
 )
-def targets(state) -> dict:
-    """Show connected targets and active filter.
+def targets(
+    state,
+    _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
+) -> dict:
+    """Show connected targets and their tracking status.
 
     Returns:
-        Table of connected targets with their active status
+        Table of connected targets with "Tracked" column
     """
-    try:
-        result = state.client.call("status")
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    result, error = rpc_call(state, "status")
+    if error:
+        return error
 
     connections = result.get("connections", [])
-    active = set(result.get("active_targets") or [])
+    tracked = set(result.get("active_targets") or [])
 
     if not connections:
         return info_response(title="No Targets", fields={"Status": "No active connections"})
 
+    # Build rows with full data (truncation handled by element config)
     rows = []
     for conn in connections:
         target_id = conn.get("target", "")
         rows.append(
             {
                 "Target": target_id,
-                "Title": (conn.get("title") or "")[:40],
-                "URL": (conn.get("url") or "")[:50],
-                "Active": "Yes" if not active or target_id in active else "No",
+                "Title": conn.get("title") or "",
+                "URL": conn.get("url") or "",
+                "Tracked": "Yes" if not tracked or target_id in tracked else "No",
             }
         )
 
+    # Get contextual tips with target example
+    tips = None
+    if rows:
+        example_target = rows[0]["Target"]
+        tips = get_tips("targets", context={"target": example_target})
+
+    # Use mode-specific truncation
+    is_repl = _ctx and _ctx.is_repl()
+    truncate = _TARGETS_REPL_TRUNCATE if is_repl else _TARGETS_MCP_TRUNCATE
+
     return table_response(
         title="Connected Targets",
-        headers=["Target", "Title", "URL", "Active"],
+        headers=["Target", "Title", "URL", "Tracked"],
         rows=rows,
         summary=f"{len(connections)} target{'s' if len(connections) != 1 else ''} connected",
+        tips=tips,
+        truncate=truncate,
     )
 
 
@@ -283,12 +290,9 @@ def ports(state) -> dict:
     Returns:
         Table of ports with page and connection counts
     """
-    try:
-        result = state.client.call("ports.list")
-    except RPCError as e:
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    result, error = rpc_call(state, "ports.list")
+    if error:
+        return error
 
     ports_list = result.get("ports", [])
 

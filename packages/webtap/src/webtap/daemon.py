@@ -4,10 +4,10 @@ PUBLIC API:
   - daemon_running: Check if daemon is running
   - ensure_daemon: Spawn daemon if not running
   - start_daemon: Run daemon in foreground (--daemon flag)
-  - stop_daemon: Gracefully shut down daemon
   - daemon_status: Get daemon status information
   - get_daemon_version: Get version from running daemon
-  - discover_daemon_port: Find daemon port from file or scanning
+  - get_daemon_url: Get daemon URL for HTTP requests
+  - handle_cli: Handle daemon CLI subcommand
 """
 
 import logging
@@ -68,17 +68,8 @@ def _check_health(port: int) -> bool:
         return False
 
 
-def find_available_port() -> int:
-    """Find an available port for the daemon.
-
-    Tries ports 37650-37659 until one is available.
-
-    Returns:
-        Available port number
-
-    Raises:
-        RuntimeError: If no port is available after MAX_PORT_TRIES attempts
-    """
+def _find_available_port() -> int:
+    """Find an available port for the daemon."""
     for offset in range(MAX_PORT_TRIES):
         port = BASE_DAEMON_PORT + offset
         if _is_port_available(port):
@@ -86,14 +77,8 @@ def find_available_port() -> int:
     raise RuntimeError(f"No available daemon port in range {BASE_DAEMON_PORT}-{BASE_DAEMON_PORT + MAX_PORT_TRIES - 1}")
 
 
-def discover_daemon_port() -> int | None:
-    """Discover the daemon port from file or by scanning.
-
-    First tries to read from PORT_FILE, then scans ports if needed.
-
-    Returns:
-        Daemon port if found, None otherwise
-    """
+def _discover_daemon_port() -> int | None:
+    """Discover the daemon port from file or by scanning."""
     global _cached_daemon_url
 
     if _cached_daemon_url:
@@ -134,7 +119,7 @@ def get_daemon_url() -> str:
     if _cached_daemon_url:
         return _cached_daemon_url
 
-    port = discover_daemon_port()
+    port = _discover_daemon_port()
     if port is None:
         raise RuntimeError("Daemon not found. Is it running?")
 
@@ -148,7 +133,7 @@ def get_daemon_version() -> str | None:
     Returns:
         Version string if daemon is running and responsive, None otherwise.
     """
-    port = discover_daemon_port()
+    port = _discover_daemon_port()
     if port is None:
         return None
 
@@ -164,23 +149,25 @@ def get_daemon_version() -> str | None:
 def daemon_running() -> bool:
     """Check if daemon is running.
 
-    Verifies both pidfile existence and health endpoint response.
+    Checks pidfile first, falls back to port scan for orphaned daemons.
 
     Returns:
         True if daemon is running and responsive, False otherwise.
     """
-    if not PIDFILE.exists():
-        return False
+    if PIDFILE.exists():
+        try:
+            pid = int(PIDFILE.read_text().strip())
+            os.kill(pid, 0)
+            # Process alive, verify health endpoint
+            port = _discover_daemon_port()
+            if port is not None:
+                return True
+        except (ValueError, ProcessLookupError, OSError):
+            PIDFILE.unlink(missing_ok=True)
+            PORT_FILE.unlink(missing_ok=True)
 
-    try:
-        pid = int(PIDFILE.read_text().strip())
-        os.kill(pid, 0)
-    except (ValueError, ProcessLookupError, OSError):
-        PIDFILE.unlink(missing_ok=True)
-        PORT_FILE.unlink(missing_ok=True)
-        return False
-
-    port = discover_daemon_port()
+    # Fallback: port scan for orphaned daemon (pidfile missing but alive)
+    port = _discover_daemon_port()
     return port is not None
 
 
@@ -215,7 +202,7 @@ def ensure_daemon() -> None:
 
         if daemon_ver and _version_lt(daemon_ver, __version__):
             logger.info(f"Restarting daemon: {daemon_ver} → {__version__}")
-            stop_daemon()
+            _stop_daemon()
         elif daemon_ver and _version_lt(__version__, daemon_ver):
             raise RuntimeError(
                 f"Daemon ({daemon_ver}) is newer than client ({__version__}). Please restart your webtap session."
@@ -268,12 +255,12 @@ def start_daemon() -> None:
         sys.exit(1)
 
     # Scan ports for orphaned daemon (pidfile missing but daemon alive)
-    existing_port = discover_daemon_port()
+    existing_port = _discover_daemon_port()
     if existing_port is not None:
         print(f"Daemon already running on port {existing_port} (pidfile was missing)")
         sys.exit(1)
 
-    port = find_available_port()
+    port = _find_available_port()
     logger.info(f"Using port {port}")
 
     PIDFILE.write_text(str(os.getpid()))
@@ -290,12 +277,8 @@ def start_daemon() -> None:
         logger.info("Daemon stopped")
 
 
-def stop_daemon() -> None:
-    """Send SIGTERM to daemon.
-
-    Raises:
-        RuntimeError: If daemon is not running.
-    """
+def _stop_daemon() -> None:
+    """Send SIGTERM to daemon."""
     if not PIDFILE.exists():
         raise RuntimeError("Daemon is not running (no pidfile)")
 
@@ -358,7 +341,7 @@ def handle_cli(args: list[str]) -> None:
         start_daemon()
     elif action == "stop":
         try:
-            stop_daemon()
+            _stop_daemon()
             print("Daemon stopped")
         except RuntimeError as e:
             print(f"Error: {e}")
@@ -367,8 +350,9 @@ def handle_cli(args: list[str]) -> None:
         status = daemon_status()
         if status["running"]:
             print(f"Daemon running (pid: {status['pid']})")
-            if status.get("connected"):
-                print(f"Connected to: {status.get('page_title', 'Unknown')}")
+            connections = status.get("connections", [])
+            if status.get("connected") and connections:
+                print(f"Connected to: {connections[0].get('title', 'Unknown')}")
                 print(f"Events: {status.get('event_count', 0)}")
             else:
                 print("Not connected to any page")
@@ -386,10 +370,8 @@ __all__ = [
     "daemon_running",
     "ensure_daemon",
     "start_daemon",
-    "stop_daemon",
     "daemon_status",
     "get_daemon_version",
-    "discover_daemon_port",
     "get_daemon_url",
     "handle_cli",
 ]

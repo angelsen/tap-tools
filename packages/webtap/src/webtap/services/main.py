@@ -2,41 +2,18 @@
 
 PUBLIC API:
   - WebTapService: Orchestrator for all domain services
-  - TargetState: Per-target connection state enum
-  - ActiveConnection: Tracks an active CDP connection
 """
 
 from typing import Any
-from dataclasses import dataclass
-from enum import Enum
-import time
 
 from webtap.filters import FilterManager
 from webtap.notices import NoticeManager
-from webtap.services.fetch import FetchService
-from webtap.services.network import NetworkService
+from webtap.services.connection import ActiveConnection, ConnectionManager
 from webtap.services.console import ConsoleService
 from webtap.services.dom import DOMService
+from webtap.services.fetch import FetchService
+from webtap.services.network import NetworkService
 from webtap.services.state_snapshot import StateSnapshot
-
-
-class TargetState(str, Enum):
-    """Per-target connection state."""
-
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    DISCONNECTING = "disconnecting"
-
-
-@dataclass
-class ActiveConnection:
-    """Tracks an active CDP connection."""
-
-    target: str
-    cdp: "Any"  # CDPSession
-    page_info: dict
-    connected_at: float
-    state: TargetState = TargetState.CONNECTED
 
 
 _REQUIRED_DOMAINS = [
@@ -56,9 +33,10 @@ class WebTapService:
 
     Attributes:
         state: WebTap application state instance.
-        cdp: CDP session for browser communication.
+        conn_mgr: Connection lifecycle manager for multi-target support.
         enabled_domains: Set of currently enabled CDP domains.
         filters: Filter manager for event filtering.
+        notices: Notice manager for multi-surface notifications.
         fetch: Fetch interception service.
         network: Network monitoring service.
         console: Console message service.
@@ -66,48 +44,55 @@ class WebTapService:
     """
 
     def __init__(self, state):
-        """Initialize with WebTapState instance.
+        """Initialize service orchestrator.
 
         Args:
-            state: WebTapState instance from app.py
+            state: Application state instance
         """
         import threading
 
         self.state = state
-        self._state_lock = threading.RLock()  # Reentrant lock - safe to acquire multiple times by same thread
+        self._state_lock = threading.RLock()
 
-        # Multi-target connection tracking
-        self.connections: dict[str, ActiveConnection] = {}  # keyed by target string
-        self.tracked_targets: list[str] = []  # Default scope for aggregation
+        # Connection lifecycle manager
+        self.conn_mgr = ConnectionManager()
+        self.tracked_targets: list[str] = []
 
         self.enabled_domains: set[str] = set()
         self.filters = FilterManager()
         self.notices = NoticeManager()
 
-        # RPC framework (set by server.py after initialization)
+        # Set by server.py after initialization
         self.rpc: "Any | None" = None
 
+        # Domain services
         self.fetch = FetchService()
         self.network = NetworkService()
         self.console = ConsoleService()
         self.dom = DOMService()
 
-        # Wire services to this service instance
         self.fetch.set_service(self)
         self.network.set_service(self)
         self.console.set_service(self)
         self.dom.set_service(self)
 
-        # Broadcast queue for SSE state updates (set by API server)
+        # Set by API server
         self._broadcast_queue: "Any | None" = None
 
-        # Coalescing flag - prevents duplicate broadcasts during rapid CDP events
-        # Service owns coalescing (single source of truth)
+        # Prevents duplicate broadcasts during rapid CDP events
         self._broadcast_pending = threading.Event()
 
-        # Immutable state snapshot for thread-safe SSE reads
-        # Updated atomically on every state change, read without locks
+        # Cache for selections deepcopy optimization
+        self._cached_selections: dict | None = None
+        self._cached_selections_keys: frozenset | None = None
+
+        # Updated atomically on state change, read without locks
         self._state_snapshot: StateSnapshot = StateSnapshot.create_empty()
+
+    @property
+    def connections(self) -> dict[str, ActiveConnection]:
+        """Active connections, delegated to ConnectionManager."""
+        return self.conn_mgr.connections
 
     def set_broadcast_queue(self, queue: "Any") -> None:
         """Set queue for broadcasting state changes.
@@ -155,7 +140,8 @@ class WebTapService:
     def _create_snapshot(self) -> StateSnapshot:
         """Create immutable state snapshot from current state.
 
-        MUST be called with self._state_lock held to ensure atomic read.
+        Thread-safe - reads from ConnectionManager and services that have
+        their own locking. No external lock required.
 
         Returns:
             Frozen StateSnapshot with current state
@@ -165,11 +151,6 @@ class WebTapService:
         # Connection state - any active connections
         connected = len(self.connections) > 0
 
-        # Legacy fields (empty - no primary connection)
-        page_id = ""
-        page_title = ""
-        page_url = ""
-
         # Event count - aggregate from all connections
         event_count = self.event_count
 
@@ -177,6 +158,7 @@ class WebTapService:
         fetch_enabled = self.fetch.enabled
         response_stage = self.fetch.enable_response_stage
         paused_count = self.fetch.paused_count if fetch_enabled else 0
+        capture_enabled = self.fetch.capture_enabled
 
         # Filter state (convert to immutable tuples)
         fm = self.filters
@@ -206,18 +188,24 @@ class WebTapService:
             error_state = {}
         errors_dict = dict(error_state)  # Copy for immutability
 
-        # Deep copy selections to ensure true immutability
-        selections = copy.deepcopy(browser_state["selections"])
+        # Optimized selections copy - reuse cached copy if unchanged
+        source_selections = browser_state["selections"]
+        source_keys = frozenset(source_selections.keys()) if source_selections else frozenset()
+
+        if source_keys == self._cached_selections_keys and self._cached_selections is not None:
+            selections = self._cached_selections
+        else:
+            selections = copy.deepcopy(source_selections)
+            self._cached_selections = selections
+            self._cached_selections_keys = source_keys
 
         return StateSnapshot(
             connected=connected,
-            page_id=page_id,
-            page_title=page_title,
-            page_url=page_url,
             event_count=event_count,
             fetch_enabled=fetch_enabled,
             response_stage=response_stage,
             paused_count=paused_count,
+            capture_enabled=capture_enabled,
             enabled_filters=enabled_filters,
             disabled_filters=disabled_filters,
             tracked_targets=tracked_targets,
@@ -254,22 +242,28 @@ class WebTapService:
         if not self._broadcast_queue:
             return
 
-        # Always update snapshot, but coalesce broadcast signals
+        # Check coalescing flag FIRST (fast, avoids expensive snapshot creation)
         with self._state_lock:
-            # Update snapshot while holding lock (always, for API responses)
-            try:
-                self._state_snapshot = self._create_snapshot()
-            except (TypeError, AttributeError) as e:
-                logger.error(f"Programming error in snapshot creation: {e}")
-                raise
-            except Exception as e:
-                logger.error(f"Failed to create state snapshot: {e}", exc_info=True)
-                return
-
-            # Skip queue signal if broadcast already pending (coalescing)
             if self._broadcast_pending.is_set():
-                return
+                return  # Another thread will broadcast soon, skip entirely
             self._broadcast_pending.set()
+
+        # Create snapshot OUTSIDE lock (potentially slow, no lock contention)
+        # Only reached if we're the thread that will broadcast
+        try:
+            snapshot = self._create_snapshot()
+        except (TypeError, AttributeError) as e:
+            self._broadcast_pending.clear()  # Clear flag on error
+            logger.error(f"Programming error in snapshot creation: {e}")
+            raise
+        except Exception as e:
+            self._broadcast_pending.clear()  # Clear flag on error
+            logger.error(f"Failed to create state snapshot: {e}", exc_info=True)
+            return
+
+        # Atomic swap (fast, minimal lock time)
+        with self._state_lock:
+            self._state_snapshot = snapshot
 
         # Signal broadcast (outside lock - queue.put_nowait is thread-safe)
         try:
@@ -295,17 +289,46 @@ class WebTapService:
         """
         self._broadcast_pending.clear()
 
+    def set_browser_selection(self, selection_id: str, data: dict) -> None:
+        """Set a browser selection, initializing browser_data if needed.
+
+        Args:
+            selection_id: Unique ID for this selection
+            data: Selection data dict with element info
+        """
+        if not self.state.browser_data:
+            self.state.browser_data = {"selections": {}, "prompt": ""}
+        if "selections" not in self.state.browser_data:
+            self.state.browser_data["selections"] = {}
+        self.state.browser_data["selections"][selection_id] = data
+        self._trigger_broadcast()
+
+    def clear_browser_selections(self) -> None:
+        """Clear all browser selections."""
+        if self.state.browser_data:
+            self.state.browser_data["selections"] = {}
+        self._trigger_broadcast()
+
+    def get_browser_data(self) -> tuple[dict[str, Any], str]:
+        """Get current browser selections and prompt.
+
+        Returns:
+            Tuple of (selections dict, prompt string)
+        """
+        if not self.state.browser_data:
+            return {}, ""
+        return (
+            dict(self.state.browser_data.get("selections", {})),
+            self.state.browser_data.get("prompt", ""),
+        )
+
     @property
     def event_count(self) -> int:
-        """Total count of all CDP events stored across all connections."""
-        total = 0
-        for conn in self.connections.values():
-            try:
-                result = conn.cdp.query("SELECT COUNT(*) FROM events")
-                total += result[0][0] if result else 0
-            except Exception:
-                pass
-        return total
+        """Total count of all CDP events stored across all connections.
+
+        Uses cached counter from CDPSession for performance (no database query).
+        """
+        return sum(conn.cdp._event_count for conn in self.connections.values())
 
     def register_port(self, port: int) -> dict:
         """Register a Chrome debug port with validation.
@@ -342,10 +365,7 @@ class WebTapService:
 
         # State mutation (inside lock)
         with self._state_lock:
-            if port not in self.state.cdp_sessions:
-                from webtap.cdp import CDPSession
-
-                self.state.cdp_sessions[port] = CDPSession(port=port)
+            self.state.registered_ports.add(port)
 
         self._trigger_broadcast()
         return {"port": port, "status": "registered"}
@@ -367,7 +387,7 @@ class WebTapService:
         if port == 9222:
             raise ValueError("Port 9222 is protected (default desktop port)")
 
-        if not hasattr(self.state, "cdp_sessions") or port not in self.state.cdp_sessions:
+        if port not in self.state.registered_ports:
             return {"port": port, "removed": False}
 
         # Disconnect targets on this port
@@ -378,12 +398,9 @@ class WebTapService:
                 self.disconnect_target(target_id)
                 disconnected.append(target_id)
 
-        # Remove session (inside lock)
+        # Remove port (inside lock)
         with self._state_lock:
-            session = self.state.cdp_sessions.pop(port, None)
-
-        if session:
-            session.cleanup()
+            self.state.registered_ports.discard(port)
 
         self._trigger_broadcast()
         return {"port": port, "removed": True, "disconnected": disconnected}
@@ -394,15 +411,12 @@ class WebTapService:
         Returns:
             {"ports": [{"port": N, "page_count": N, "connection_count": N, "status": str}]}
         """
-        if not hasattr(self.state, "cdp_sessions"):
-            return {"ports": []}
-
         # Get all pages via existing method
         pages_result = self.list_pages()
         all_pages = pages_result.get("pages", [])
 
         # Aggregate by port
-        port_stats: dict[int, dict] = {p: {"page_count": 0, "connection_count": 0} for p in self.state.cdp_sessions}
+        port_stats: dict[int, dict] = {p: {"page_count": 0, "connection_count": 0} for p in self.state.registered_ports}
 
         for page in all_pages:
             port = page.get("chrome_port")
@@ -544,11 +558,31 @@ class WebTapService:
         cdp.connect(page_index=page_index, page_id=page_id, page_info=target_page)
 
         # Enable required domains in parallel
+        # Network gets special handling to configure buffer size for body retention
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Buffer sizes for Network.enable (experimental CDP feature)
+        # Increases body retention from default (~100KB) to prevent early eviction
+        NETWORK_BUFFER_SIZE = 50_000_000  # 50MB total buffer
+        NETWORK_RESOURCE_SIZE = 10_000_000  # 10MB per resource
 
         failures = {}
         with ThreadPoolExecutor(max_workers=len(_REQUIRED_DOMAINS)) as executor:
-            futures = {executor.submit(cdp.execute, f"{domain}.enable"): domain for domain in _REQUIRED_DOMAINS}
+            futures = {}
+            for domain in _REQUIRED_DOMAINS:
+                if domain == "Network":
+                    # Enable Network with larger buffer to retain response bodies longer
+                    future = executor.submit(
+                        cdp.execute,
+                        "Network.enable",
+                        {
+                            "maxTotalBufferSize": NETWORK_BUFFER_SIZE,
+                            "maxResourceBufferSize": NETWORK_RESOURCE_SIZE,
+                        },
+                    )
+                else:
+                    future = executor.submit(cdp.execute, f"{domain}.enable")
+                futures[future] = domain
             for future in as_completed(futures):
                 domain = futures[future]
                 try:
@@ -568,16 +602,8 @@ class WebTapService:
         # Set target on CDPSession for event tagging
         cdp.target = target_id
 
-        # Store connection
-        with self._state_lock:
-            connection = ActiveConnection(
-                target=target_id,
-                cdp=cdp,
-                page_info=page_info,
-                connected_at=time.time(),
-                state=TargetState.CONNECTED,
-            )
-            self.connections[target_id] = connection
+        # Register connection with ConnectionManager
+        self.conn_mgr.connect(target_id, cdp, page_info)
 
         # Register callbacks for this session
         cdp.set_disconnect_callback(lambda code, reason: self._handle_unexpected_disconnect(target_id, code, reason))
@@ -605,26 +631,13 @@ class WebTapService:
         Args:
             target: Target ID to disconnect
         """
-        conn = self.get_connection(target)
-        if not conn:
+        # Delegate to ConnectionManager (handles state, CDP cleanup, locking)
+        disconnected = self.conn_mgr.disconnect(target)
+        if not disconnected:
             return
 
-        # Set DISCONNECTING state before cleanup
-        with self._state_lock:
-            conn.state = TargetState.DISCONNECTING
-        self._trigger_broadcast()
-
-        # Disconnect CDP first (network I/O - outside lock)
-        conn.cdp.disconnect()
-        conn.cdp.cleanup()  # Cleanup DuckDB thread
-
-        # All state mutations inside lock
-        with self._state_lock:
-            self.connections.pop(target, None)
-
-            # Remove from tracked targets if present
-            if target in self.tracked_targets:
-                self.tracked_targets.remove(target)
+        # Remove from tracked targets if present
+        self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
 
         self._trigger_broadcast()
 
@@ -642,6 +655,8 @@ class WebTapService:
         # Clean up services
         if self.fetch.enabled:
             self.fetch.disable()
+        if self.fetch.capture_enabled:
+            self.fetch.disable_capture()
 
         self.dom.clear_selections()
         self.dom.cleanup()
@@ -775,16 +790,19 @@ class WebTapService:
         logger.warning(f"Unexpected disconnect on {target}: {user_reason}")
 
         try:
-            # Thread-safe state cleanup (called from background thread)
-            with self._state_lock:
-                # Remove connection from tracking
-                conn = self.connections.pop(target, None)
-                if not conn:
-                    return  # Already cleaned up
+            # Thread-safe cleanup via ConnectionManager
+            # Note: Don't call conn_mgr.disconnect() as CDP is already closed
+            with self.conn_mgr._global_lock:
+                conn = self.conn_mgr.connections.pop(target, None)
+                self.conn_mgr._locks.pop(target, None)
+                if conn:
+                    self.conn_mgr._epoch += 1
 
-                # Remove from tracked targets if present
-                if target in self.tracked_targets:
-                    self.tracked_targets.remove(target)
+            if not conn:
+                return  # Already cleaned up
+
+            # Remove from tracked targets if present
+            self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
 
             # Set error state outside lock (set_error acquires its own lock)
             self.set_error(user_reason, target=target)
@@ -798,4 +816,4 @@ class WebTapService:
             logger.error(f"Error during unexpected disconnect cleanup for {target}: {e}")
 
 
-__all__ = ["WebTapService", "TargetState", "ActiveConnection"]
+__all__ = ["WebTapService"]

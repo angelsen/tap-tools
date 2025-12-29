@@ -18,6 +18,8 @@ import * as console_ from "./controllers/console.js";
 import * as filters from "./controllers/filters.js";
 import * as selections from "./controllers/selections.js";
 import * as intercept from "./controllers/intercept.js";
+import * as captureController from "./controllers/capture.js";
+import * as capture from "./capture.js";
 
 console.log("[WebTap] Side panel loaded");
 
@@ -90,18 +92,28 @@ function setupEventHandlers() {
     filters.update(state.filters);
     pages.updateButton();
     notices.render(state.notices, state.clients);
+    captureController.update(state);
+    capture.update(state);
+
+    // RPC calls - collect and fire in parallel (no await, fire-and-forget)
+    const rpcCalls = [];
 
     // Pages list reload on connection changes
     if (becameAvailable || state.targets_hash !== previousState?.targets_hash) {
-      pages.load();
+      rpcCalls.push(pages.load());
     }
 
     // Network/Console RPC only when tab active (expensive - fetches from DuckDB)
     if (state.connected && tabs.getActive() === "network") {
-      network.fetch();
+      rpcCalls.push(network.fetch());
     }
     if (state.connected && tabs.getActive() === "console") {
-      console_.fetch();
+      rpcCalls.push(console_.fetch());
+    }
+
+    // Fire all RPC calls in parallel
+    if (rpcCalls.length > 0) {
+      Promise.all(rpcCalls).catch(() => {}); // Errors handled in individual calls
     }
   });
 
@@ -186,6 +198,8 @@ async function discoverAndConnect() {
     filters.init(client, DataTable, callbacks);
     selections.init(client, DataTable, callbacks);
     intercept.init(client, callbacks);
+    captureController.init(client, callbacks);
+    capture.init(client);
 
     setupEventHandlers();
     setupUIBindings();

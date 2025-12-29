@@ -27,10 +27,11 @@ class FetchService:
 
     def __init__(self):
         """Initialize fetch service."""
-        self._lock = threading.Lock()  # Protects state mutations
+        self._lock = threading.Lock()
         self.enabled = False
-        self.enable_response_stage = False  # Config option for future
-        self.service: "Any" = None  # WebTapService reference
+        self.enable_response_stage = False
+        self.capture_enabled = False
+        self.service: "Any" = None
 
     def set_service(self, service: "Any") -> None:
         """Set service reference.
@@ -106,17 +107,13 @@ class FetchService:
 
     @property
     def paused_count(self) -> int:
-        """Count of paused requests from HAR view across all connections."""
+        """Count of paused requests across all connections.
+
+        Uses cached counter from CDPSession for performance (no database query).
+        """
         if not self.service or not self.enabled:
             return 0
-        total = 0
-        for conn in self.service.connections.values():
-            try:
-                result = conn.cdp.query("SELECT COUNT(*) FROM har_summary WHERE state = 'paused'")
-                total += result[0][0] if result else 0
-            except Exception:
-                pass
-        return total
+        return sum(conn.cdp._paused_count for conn in self.service.connections.values())
 
     def get_paused_event(self, rowid: int, target: str | None = None) -> dict | None:
         """Get full event data for a paused request.
@@ -148,6 +145,34 @@ class FetchService:
         if result:
             return json.loads(result[0][0])
         return None
+
+    # ============= Body Storage =============
+
+    def store_body(self, request_id: str, target: str, body: str, base64_encoded: bool) -> bool:
+        """Store captured response body from extension.
+
+        Args:
+            request_id: CDP request ID
+            target: Target ID
+            body: Response body (base64 or raw)
+            base64_encoded: Whether body is base64 encoded
+
+        Returns:
+            True if stored successfully
+        """
+        if not self.service:
+            return False
+
+        conn = self.service.connections.get(target)
+        if not conn:
+            return False
+
+        try:
+            conn.cdp.store_response_body(request_id, body, base64_encoded)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to store body for {request_id}: {e}")
+            return False
 
     # ============= Enable/Disable =============
 
@@ -184,7 +209,12 @@ class FetchService:
                 logger.info(f"Fetch interception enabled ({stage_msg})")
 
                 self._trigger_broadcast()  # Update snapshot
-                return {"enabled": True, "stages": stage_msg, "paused": self.paused_count}
+                return {
+                    "enabled": True,
+                    "stages": stage_msg,
+                    "response_stage": response_stage,
+                    "paused": self.paused_count,
+                }
 
             except Exception as e:
                 logger.error(f"Failed to enable fetch: {e}")
@@ -204,10 +234,11 @@ class FetchService:
                 return {"enabled": False, "error": "No service"}
 
             try:
-                # Disable on all connections
+                # Disable on all connections and reset paused counts
                 for conn in self.service.connections.values():
                     try:
                         conn.cdp.execute("Fetch.disable")
+                        conn.cdp._paused_count = 0  # Reset on disable
                     except Exception as e:
                         logger.warning(f"Failed to disable fetch on {conn.target}: {e}")
 
@@ -220,6 +251,22 @@ class FetchService:
             except Exception as e:
                 logger.error(f"Failed to disable fetch: {e}")
                 return {"enabled": self.enabled, "error": str(e)}
+
+    # ============= Capture Control =============
+
+    def enable_capture(self) -> dict:
+        """Enable extension-side body capture."""
+        with self._lock:
+            self.capture_enabled = True
+        self._trigger_broadcast()
+        return {"capture_enabled": True}
+
+    def disable_capture(self) -> dict:
+        """Disable extension-side body capture."""
+        with self._lock:
+            self.capture_enabled = False
+        self._trigger_broadcast()
+        return {"capture_enabled": False}
 
     # ============= Explicit Actions =============
 
@@ -274,6 +321,9 @@ class FetchService:
                 cdp_params.update(modifications)
             cdp.execute("Fetch.continueRequest", cdp_params)
             stage = "request"
+
+        # Decrement paused count (request is no longer paused)
+        cdp.decrement_paused_count()
 
         result: dict[str, Any] = {"resumed_from": stage, "network_id": network_id}
 
@@ -399,8 +449,9 @@ class FetchService:
 
         try:
             cdp.execute("Fetch.failRequest", {"requestId": request_id, "errorReason": reason})
+            cdp.decrement_paused_count()
 
-            return {"failed": rowid, "reason": reason, "remaining": self.paused_count - 1}
+            return {"failed": rowid, "reason": reason, "remaining": self.paused_count}
 
         except Exception as e:
             logger.error(f"Failed to fail request {rowid}: {e}")
@@ -457,8 +508,9 @@ class FetchService:
                 params["responseHeaders"] = response_headers
 
             cdp.execute("Fetch.fulfillRequest", params)
+            cdp.decrement_paused_count()
 
-            return {"fulfilled": rowid, "response_code": response_code, "remaining": self.paused_count - 1}
+            return {"fulfilled": rowid, "response_code": response_code, "remaining": self.paused_count}
 
         except Exception as e:
             logger.error(f"Failed to fulfill request {rowid}: {e}")

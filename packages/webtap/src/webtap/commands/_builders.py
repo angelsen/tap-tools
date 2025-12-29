@@ -1,7 +1,18 @@
 """Response builders using ReplKit2 v0.10.0+ markdown elements.
 
-USAGE GUIDELINES:
+ERROR HANDLING PATTERN
+----------------------
+Commands should use this pattern for RPC calls:
 
+    try:
+        result = state.client.call("method", **params)
+    except RPCError as e:
+        return error_response(e.message)
+    except Exception as e:
+        return error_response(str(e))
+
+USAGE GUIDELINES
+----------------
 Use builders for:
   ✅ Simple responses (error, info, success, warning)
   ✅ Tables with standard format
@@ -26,8 +37,6 @@ Available builders:
   - error_response() - Errors with suggestions
   - success_response() - Success messages with details
   - warning_response() - Warnings with suggestions
-  - check_connection() - Helper for CDP connection validation
-  - check_fetch_enabled() - Helper for fetch interception validation
   - code_result_response() - Code execution with result display
   - code_response() - Simple code block display
 
@@ -38,6 +47,8 @@ Format helpers (for REPL display):
 
 from datetime import datetime
 from typing import Any
+
+from webtap.rpc.errors import RPCError
 
 
 def format_size(size_bytes: int | None) -> str:
@@ -77,6 +88,31 @@ def format_timestamp(epoch_ms: float | None) -> str:
         return dt.strftime("%H:%M:%S")
     except (ValueError, OSError):
         return "-"
+
+
+def rpc_call(state, method: str, **params) -> tuple[dict, dict | None]:
+    """Execute RPC call with standard error handling.
+
+    Args:
+        state: Application state with client
+        method: RPC method name
+        **params: Method parameters
+
+    Returns:
+        Tuple of (result, error_response). On error, result is empty dict.
+
+    Example:
+        result, error = rpc_call(state, "network", limit=50)
+        if error:
+            return error
+        # use result - guaranteed to be dict
+    """
+    try:
+        return state.client.call(method, **params), None
+    except RPCError as e:
+        return {}, error_response(e.message)
+    except Exception as e:
+        return {}, error_response(str(e))
 
 
 def table_response(
@@ -215,56 +251,6 @@ def warning_response(message: str, suggestions: list[str] | None = None) -> dict
         elements.append({"type": "list", "items": suggestions})
 
     return {"elements": elements}
-
-
-# Connection helpers
-
-
-def check_connection(state):
-    """Check CDP connection via daemon, return error response if not connected.
-
-    Returns error_response() if not connected, None otherwise.
-    Use pattern: `if error := check_connection(state): return error`
-
-    Args:
-        state: Application state containing RPC client.
-
-    Returns:
-        Error response dict if not connected, None if connected.
-    """
-    try:
-        status = state.client.call("status")
-        if not status.get("connected"):
-            return error_response(
-                "Not connected to Chrome",
-                suggestions=[
-                    "Run `pages()` to see available targets",
-                    "Use `connect('9222:...')` to connect",
-                ],
-            )
-    except Exception as e:
-        return error_response(f"Failed to check connection: {e}")
-    return None
-
-
-def check_fetch_enabled(state):
-    """Check fetch interception via daemon, return error response if not enabled.
-
-    Args:
-        state: Application state containing RPC client.
-
-    Returns:
-        Error response dict if not enabled, None if enabled.
-    """
-    try:
-        status = state.client.call("status")
-        if not status.get("fetch", {}).get("enabled"):
-            return error_response(
-                "Fetch interception not enabled", suggestions=["Enable with `fetch('enable')` to pause requests"]
-            )
-    except Exception as e:
-        return error_response(f"Failed to check fetch status: {e}")
-    return None
 
 
 # Code result builders

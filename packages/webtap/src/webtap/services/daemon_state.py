@@ -4,8 +4,6 @@ PUBLIC API:
   - DaemonState: State container for daemon process
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 
