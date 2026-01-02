@@ -24,15 +24,16 @@ Main orchestrator that manages all domain-specific services and CDP connection.
 - `get_status()` - Comprehensive status with metrics from all services
 
 ### FetchService (`fetch.py`)
-Manages HTTP request/response interception.
+Manages HTTP request/response interception with declarative rules.
 
 **Key Properties:**
-- `paused_count` - Number of paused requests
+- `enabled` - Whether interception is active
+- `rules` - FetchRules (capture, block, mock)
+- `capture_count` - Bodies captured this session
 
 **Key Methods:**
-- `get_paused_rowids()` - List of paused request rowids
-- `enable()` / `disable()` - Control interception
-- `continue_request()` / `fail_request()` - Process paused requests
+- `enable(rules)` / `disable()` - Control interception
+- Rules auto-handle paused requests (no manual continue/fail)
 
 ### NetworkService (`network.py`)
 Queries network events (requests/responses).

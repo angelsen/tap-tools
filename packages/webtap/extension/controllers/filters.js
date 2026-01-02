@@ -3,6 +3,9 @@
  * Handles the network filters list and All/None buttons.
  */
 
+import { TablePreset, RowClass } from "../lib/table/index.js";
+import { withTableLoading } from "../lib/utils.js";
+
 let client = null;
 let filterTable = null;
 let DataTable = null;
@@ -17,12 +20,12 @@ export function init(c, DT, callbacks = {}) {
   withButtonLock = callbacks.withButtonLock || ((id, fn) => fn());
 
   filterTable = new DataTable("#filterList", {
+    ...TablePreset.compactList,
     columns: [{ key: "name", truncate: true }],
     getKey: (row) => row.name,
-    getRowClass: (row) => (row.enabled ? "data-table-row--tracked" : ""),
+    getRowClass: (row) => (row.enabled ? RowClass.ENABLED : ""),
     onRowDoubleClick: (row) => toggle(row.name, !row.enabled),
     emptyText: "No filters defined",
-    compact: true,
   });
 }
 
@@ -43,15 +46,10 @@ export function update(filters) {
 }
 
 async function toggle(name, checked) {
-  filterTable.setLoading("Updating...");
-  try {
+  await withTableLoading(filterTable, "Updating...", async () => {
     const method = checked ? "filters.enable" : "filters.disable";
     await client.call(method, { name });
-  } catch (err) {
-    onError(err);
-  } finally {
-    filterTable.clearLoading();
-  }
+  }).catch(onError);
 }
 
 export async function enableAll() {

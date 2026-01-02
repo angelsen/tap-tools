@@ -213,21 +213,24 @@ cdp.execute("DOMStorage.enable")
 SELECT * FROM events WHERE method LIKE 'DOMStorage.%'
 ```
 
-### Custom Event Processing
-While we store events as-is, you can add custom processors:
+### Custom Event Processing (Future)
+
+> **Note:** This feature is not yet implemented. Events are currently stored as-is without custom processing hooks.
+
+Conceptual API for future implementation:
 
 ```python
 def process_network_event(event):
     # Custom logic here
     pass
 
-# Register processor
-cdp.register_processor("Network.*", process_network_event)
+# Future: Register processor
+# cdp.register_processor("Network.*", process_network_event)
 ```
 
-## Integration with SDP
+## Integration with SDP (Future)
 
-The CDP module will work alongside the future SDP (Svelte Debug Protocol) module:
+The CDP module is designed to work alongside a future SDP (Svelte Debug Protocol) module:
 
 ```
 CDP Events (Network, DOM, Console)

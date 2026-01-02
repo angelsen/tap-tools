@@ -5,7 +5,7 @@
 
 import { WebTapClient } from "./client.js";
 import { Bind } from "./bind.js";
-import { DataTable, formatters } from "./datatable.js";
+import { DataTable } from "./datatable.js";
 import { icons, ui } from "./lib/ui.js";
 import * as theme from "./controllers/theme.js";
 import * as tabs from "./controllers/tabs.js";
@@ -18,8 +18,6 @@ import * as console_ from "./controllers/console.js";
 import * as filters from "./controllers/filters.js";
 import * as selections from "./controllers/selections.js";
 import * as intercept from "./controllers/intercept.js";
-import * as captureController from "./controllers/capture.js";
-import * as capture from "./capture.js";
 
 console.log("[WebTap] Side panel loaded");
 
@@ -92,8 +90,6 @@ function setupEventHandlers() {
     filters.update(state.filters);
     pages.updateButton();
     notices.render(state.notices, state.clients);
-    captureController.update(state);
-    capture.update(state);
 
     // RPC calls - collect and fire in parallel (no await, fire-and-forget)
     const rpcCalls = [];
@@ -103,11 +99,13 @@ function setupEventHandlers() {
       rpcCalls.push(pages.load());
     }
 
-    // Network/Console RPC only when tab active (expensive - fetches from DuckDB)
-    if (state.connected && tabs.getActive() === "network") {
+    // Network/Console RPC only when tab active AND event count changed (expensive - fetches from DuckDB)
+    if (state.connected && tabs.getActive() === "network"
+        && state.events?.total !== previousState?.events?.total) {
       rpcCalls.push(network.fetch());
     }
-    if (state.connected && tabs.getActive() === "console") {
+    if (state.connected && tabs.getActive() === "console"
+        && state.events?.total !== previousState?.events?.total) {
       rpcCalls.push(console_.fetch());
     }
 
@@ -191,15 +189,13 @@ async function discoverAndConnect() {
     client = discovered;
 
     // Initialize controllers with client
-    pages.init(client, DataTable, formatters, callbacks);
-    targets.init(client, DataTable, formatters, callbacks);
-    network.init(client, DataTable, formatters, callbacks);
-    console_.init(client, DataTable, formatters, callbacks);
+    pages.init(client, DataTable, null, callbacks);
+    targets.init(client, DataTable, null, callbacks);
+    network.init(client, DataTable, null, callbacks);
+    console_.init(client, DataTable, null, callbacks);
     filters.init(client, DataTable, callbacks);
     selections.init(client, DataTable, callbacks);
     intercept.init(client, callbacks);
-    captureController.init(client, callbacks);
-    capture.init(client);
 
     setupEventHandlers();
     setupUIBindings();

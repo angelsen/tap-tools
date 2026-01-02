@@ -19,9 +19,8 @@ class StateSnapshot:
         connected: Whether connected to Chrome page (any target).
         event_count: Total CDP events stored.
         fetch_enabled: Whether fetch interception is active.
-        response_stage: Whether response stage interception is enabled.
-        paused_count: Number of paused requests (if fetch enabled).
-        capture_enabled: Whether extension-side body capture is active.
+        fetch_rules: Dict with capture/block/mock rules if enabled.
+        capture_count: Number of bodies captured this session.
         enabled_filters: Tuple of enabled filter category names.
         disabled_filters: Tuple of disabled filter category names.
         tracked_targets: Tuple of target IDs for default aggregation scope.
@@ -43,9 +42,8 @@ class StateSnapshot:
 
     # Fetch interception state
     fetch_enabled: bool
-    response_stage: bool
-    paused_count: int
-    capture_enabled: bool
+    fetch_rules: dict | None
+    capture_count: int
 
     # Filter state
     enabled_filters: tuple[str, ...]
@@ -75,9 +73,8 @@ class StateSnapshot:
             connected=False,
             event_count=0,
             fetch_enabled=False,
-            response_stage=False,
-            paused_count=0,
-            capture_enabled=False,
+            fetch_rules=None,
+            capture_count=0,
             enabled_filters=(),
             disabled_filters=(),
             tracked_targets=(),

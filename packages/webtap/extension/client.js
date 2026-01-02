@@ -9,6 +9,8 @@
  * - Debug logging with correlation IDs
  */
 
+import { ErrorCode } from "./lib/rpc/errors.js";
+
 // Port discovery constants
 const BASE_DAEMON_PORT = 37650;
 const MAX_PORT_TRIES = 10;
@@ -233,7 +235,7 @@ class WebTapClient {
       // Handle RPC error
       if (data.error) {
         // Handle STALE_EPOCH with automatic retry
-        if (data.error.code === "STALE_EPOCH" && !options._isRetry) {
+        if (data.error.code === ErrorCode.STALE_EPOCH && !options._isRetry) {
           // Wait for next SSE state update
           await this._waitForStateUpdate();
           // Retry once with _isRetry flag

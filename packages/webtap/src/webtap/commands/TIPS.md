@@ -90,7 +90,7 @@ quicktype(5, "types.ts", "User", options={"readonly": True})
 - **Pydantic:** Use `to_model(id, "models/model.py", "Model")` for Pydantic v2 instead
 
 ### network
-Show network requests with full data. Use `req_state="paused"` to filter paused requests.
+Show network requests with full data.
 
 #### Tips
 - **Analyze responses:** `request({id}, ["response.content"])` - fetch response body
@@ -98,8 +98,7 @@ Show network requests with full data. Use `req_state="paused"` to filter paused 
 - **Parse HTML:** `request({id}, ["response.content"], expr="bs4(data['response']['content']['text'], 'html.parser').find('title').text")`
 - **Extract JSON:** `request({id}, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
 - **Find patterns:** `network(target, url="*api*")` - filter by URL pattern
-- **View paused only:** `network(target, req_state="paused")` - show only paused requests
-- **Intercept traffic:** `fetch('enable')` then `resume({id})` or `fail({id})` to control
+- **Capture bodies:** `fetch({"capture": True})` - guaranteed body capture before eviction
 
 ### console
 Show console messages from a target.
@@ -197,50 +196,26 @@ js(target, "apiData.users.length", persist=True)
 - **Hook fetch:** `js(target, "window.fetch = new Proxy(fetch, {apply: (t, _, a) => {console.log(a); return t(...a)}})", persist=True, wait_return=False)`
 
 ### fetch
-Control request interception for debugging and modification.
+Control fetch interception with declarative rules for body capture, blocking, and mocking.
 
 #### Examples
 ```python
-fetch("status")                           # Check status
-fetch("enable")                           # Enable request stage
-fetch("enable", {"response": true})       # Both stages
-fetch("disable")                          # Disable
+fetch({"capture": True})                    # Capture all response bodies
+fetch({"block": ["*tracking*", "*ads*"]})  # Block matching URLs
+fetch({"mock": {"*api*": '{"ok":1}'}})     # Mock responses
+fetch({"capture": True, "block": ["*ads*"]}) # Combine rules
+fetch({})                                   # Disable all rules
+fetch()                                     # Show current rules
 ```
 
 #### Tips
-- **View paused:** `network(target, req_state="paused")` or `requests()` - see intercepted requests
-- **View details:** `request({id})` - view request/response data
-- **Resume request:** `resume({id})` - continue the request
-- **Modify request:** `resume({id}, modifications={'url': '...'})`
-- **Block request:** `fail({id}, 'BlockedByClient')` - reject the request
-- **Mock response:** `fulfill({id}, body='{"ok":true}')` - return custom response without server
-
-### requests
-Show paused requests. Equivalent to `network(req_state="paused")`.
-
-#### Tips
-- **View details:** `request({id})` - view request/response data
-- **Resume request:** `resume({id})` - continue the request
-- **Modify request:** `resume({id}, modifications={'url': '...'})`
-- **Fail request:** `fail({id}, 'BlockedByClient')` - block the request
-- **Mock response:** `fulfill({id}, body='...')` - return custom response
-
-### fulfill
-Fulfill a paused request with a custom response without hitting the server.
-
-#### Examples
-```python
-fulfill(583)                                    # Empty 200 response
-fulfill(583, body='{"ok": true}')              # JSON response
-fulfill(583, body="Not Found", status=404)     # Error response
-fulfill(583, headers=[{"name": "Content-Type", "value": "application/json"}])
-```
-
-#### Tips
-- **Mock APIs:** Return fake JSON during development without backend
-- **Test errors:** `fulfill({id}, body="Error", status=500)` - test error handling
-- **Set headers:** Use `headers=[{"name": "...", "value": "..."}]` for content-type etc.
-- **View paused:** `network(target, req_state="paused")` - find requests to fulfill
+- **Capture bodies:** `fetch({"capture": True})` - guaranteed capture before Chrome evicts
+- **View bodies:** `request({id}, ["response.content"])` - inspect captured responses
+- **Block requests:** `fetch({"block": ["*pattern*"]})` - fail matching URLs
+- **Mock APIs:** `fetch({"mock": {"*api*": '{"test":1}'}})` - return fake responses
+- **Custom status:** `fetch({"mock": {"*api*": {"body": "...", "status": 404}}})`
+- **Combine rules:** All rules can be combined in one dict
+- **Priority:** mock > block > capture (first match wins)
 
 ### page
 Get current page information and navigate.

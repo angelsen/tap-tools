@@ -200,11 +200,12 @@ def navigate(state, url: str) -> dict:
 Always use the error utilities from `_builders.py`:
 
 ```python
-from webtap.commands._builders import check_connection, error_response
+from webtap.commands._builders import error_response, rpc_call
 
 def my_command(state, ...):
-    # Check connection first for commands that need it
-    if error := check_connection(state):
+    # Use rpc_call for standard error handling
+    result, error = rpc_call(state, "method_name", param=value)
+    if error:
         return error
 
     # Validate parameters
@@ -221,6 +222,9 @@ Use builders from `_builders.py`:
 
 ```python
 from webtap.commands._builders import (
+    # RPC helper
+    rpc_call,               # Execute RPC with standard error handling
+
     # Table responses
     table_response,         # Tables with headers, warnings, tips
 
@@ -236,9 +240,9 @@ from webtap.commands._builders import (
     code_result_response,   # Code execution with result display
     code_response,          # Simple code block display
 
-    # Connection helpers
-    check_connection,       # Helper for CDP connection validation
-    check_fetch_enabled,    # Helper for fetch interception validation
+    # Format helpers
+    format_size,            # Bytes to human-readable (e.g., "1.5M")
+    format_timestamp,       # Epoch ms to time string
 )
 ```
 
@@ -393,8 +397,8 @@ mycommand("param2", flag=True)   # With options
 - [ ] Use simple types only (no unions, no Optional)
 - [ ] Add `# pyright: ignore[reportArgumentType]` for `dict = None`
 - [ ] Import builders from `_builders.py`
+- [ ] Use `rpc_call()` for RPC with automatic error handling
 - [ ] Use `table_response()`, `info_response()`, or `code_result_response()`
-- [ ] Check connection with `check_connection()` if needed
 - [ ] Add command section to `TIPS.md` with examples and tips
 - [ ] Use `get_tips()` to show tips in response
 - [ ] Document parameters clearly in docstring

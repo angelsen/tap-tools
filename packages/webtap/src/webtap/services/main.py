@@ -14,6 +14,7 @@ from webtap.services.dom import DOMService
 from webtap.services.fetch import FetchService
 from webtap.services.network import NetworkService
 from webtap.services.state_snapshot import StateSnapshot
+from webtap.services.watcher import ChromeWatcher
 
 
 _REQUIRED_DOMAINS = [
@@ -76,6 +77,9 @@ class WebTapService:
         self.console.set_service(self)
         self.dom.set_service(self)
 
+        # Chrome availability watcher
+        self.watcher = ChromeWatcher(self)
+
         # Set by API server
         self._broadcast_queue: "Any | None" = None
 
@@ -101,6 +105,10 @@ class WebTapService:
             queue: asyncio.Queue for thread-safe signaling
         """
         self._broadcast_queue = queue
+
+    def start(self) -> None:
+        """Start background services. Called when daemon starts."""
+        self.watcher.start()
 
     def get_tracked_or_all(self) -> list[str]:
         """Get tracked targets, or all connected if none tracked.
@@ -156,9 +164,8 @@ class WebTapService:
 
         # Fetch state
         fetch_enabled = self.fetch.enabled
-        response_stage = self.fetch.enable_response_stage
-        paused_count = self.fetch.paused_count if fetch_enabled else 0
-        capture_enabled = self.fetch.capture_enabled
+        fetch_rules = self.fetch.rules.to_dict() if fetch_enabled else None
+        capture_count = self.fetch.capture_count if fetch_enabled else 0
 
         # Filter state (convert to immutable tuples)
         fm = self.filters
@@ -203,9 +210,8 @@ class WebTapService:
             connected=connected,
             event_count=event_count,
             fetch_enabled=fetch_enabled,
-            response_stage=response_stage,
-            paused_count=paused_count,
-            capture_enabled=capture_enabled,
+            fetch_rules=fetch_rules,
+            capture_count=capture_count,
             enabled_filters=enabled_filters,
             disabled_filters=disabled_filters,
             tracked_targets=tracked_targets,
@@ -616,6 +622,9 @@ class WebTapService:
             except Exception:
                 pass  # Non-fatal
 
+        # Register body capture callback to capture bodies before page navigation
+        self._register_body_capture_callback(cdp)
+
         self.filters.load()
         self._trigger_broadcast()
 
@@ -655,8 +664,6 @@ class WebTapService:
         # Clean up services
         if self.fetch.enabled:
             self.fetch.disable()
-        if self.fetch.capture_enabled:
-            self.fetch.disable_capture()
 
         self.dom.clear_selections()
         self.dom.cleanup()
@@ -814,6 +821,112 @@ class WebTapService:
 
         except Exception as e:
             logger.error(f"Error during unexpected disconnect cleanup for {target}: {e}")
+
+    def _register_body_capture_callback(self, cdp) -> None:
+        """Register callback to capture response bodies on loadingFinished.
+
+        Captures bodies immediately when requests complete, before page navigation
+        can evict them from Chrome's memory. Bodies are stored in DuckDB as
+        Network.responseBodyCaptured synthetic events.
+
+        Only captures XHR, Fetch, and Document responses to avoid wasting time on
+        assets (images, CSS, fonts) that would delay capturing critical API bodies.
+
+        Uses ThreadPoolExecutor to avoid blocking WebSocket thread (which would
+        cause ping/pong timeout). Pool is shared across all captures for efficiency.
+
+        Args:
+            cdp: CDPSession to register callback on
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Resource types worth capturing (API responses, HTML)
+        # Skip: Image, Stylesheet, Font, Media, Script (usually not needed for debugging)
+        CAPTURE_TYPES = {"XHR", "Fetch", "Document"}
+
+        # Cache requestId -> resourceType (populated by responseReceived, read by loadingFinished)
+        # Dict lookup is O(1) and non-blocking - safe for WebSocket thread
+        resource_types: dict[str, str] = {}
+
+        # Shared executor - 4 workers handles typical page loads without overwhelming
+        if not hasattr(self, "_body_capture_executor"):
+            self._body_capture_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="body-capture")
+
+        def capture_body(request_id: str, queued_at: float) -> None:
+            """Capture body in thread pool worker."""
+            import time
+
+            started_at = time.time()
+            delay_ms = int((started_at - queued_at) * 1000)
+
+            try:
+                result = cdp.execute("Network.getResponseBody", {"requestId": request_id}, timeout=5)
+                elapsed_ms = int((time.time() - started_at) * 1000)
+
+                if result and "body" in result:
+                    cdp.store_response_body(
+                        request_id,
+                        result["body"],
+                        result.get("base64Encoded", False),
+                        capture_meta={"ok": True, "delay_ms": delay_ms, "elapsed_ms": elapsed_ms},
+                    )
+                else:
+                    # No body in result (unusual)
+                    cdp.store_response_body(
+                        request_id,
+                        "",
+                        False,
+                        capture_meta={"ok": False, "error": "empty", "delay_ms": delay_ms, "elapsed_ms": elapsed_ms},
+                    )
+            except Exception as e:
+                elapsed_ms = int((time.time() - started_at) * 1000)
+                error_msg = str(e)[:50]  # Truncate long errors
+                cdp.store_response_body(
+                    request_id,
+                    "",
+                    False,
+                    capture_meta={"ok": False, "error": error_msg, "delay_ms": delay_ms, "elapsed_ms": elapsed_ms},
+                )
+            finally:
+                # Clean up cache entry
+                resource_types.pop(request_id, None)
+
+        def on_response_received(event: dict) -> None:
+            """Cache resource type for later lookup (non-blocking)."""
+            params = event.get("params", {})
+            request_id = params.get("requestId")
+            resource_type = params.get("type")
+            if request_id and resource_type:
+                resource_types[request_id] = resource_type
+
+        def on_loading_finished(event: dict) -> None:
+            import time
+
+            # Skip if Fetch capture is handling bodies (avoid duplicate capture)
+            if self.fetch.enabled and self.fetch.rules.capture:
+                return
+
+            params = event.get("params", {})
+            request_id = params.get("requestId")
+            if not request_id:
+                return
+
+            # Check cached resource type (O(1) lookup, non-blocking)
+            resource_type = resource_types.get(request_id)
+            if not resource_type or resource_type not in CAPTURE_TYPES:
+                resource_types.pop(request_id, None)  # Clean up
+                return  # Skip assets
+
+            # Submit to thread pool - non-blocking, record queue time for latency tracking
+            queued_at = time.time()
+            self._body_capture_executor.submit(capture_body, request_id, queued_at)
+
+        cdp.register_event_callback("Network.responseReceived", on_response_received)
+        cdp.register_event_callback("Network.loadingFinished", on_loading_finished)
+        logger.debug("Body capture callback registered (XHR, Fetch, Document only)")
 
 
 __all__ = ["WebTapService"]

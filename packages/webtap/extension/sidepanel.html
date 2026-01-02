@@ -12,27 +12,12 @@
         <span class="status-dot"></span>
         <span class="status-text">Disconnected</span>
       </div>
-      <div class="dropdown" id="interceptDropdown">
-        <button
-          class="btn-sm dropdown-toggle"
-          id="interceptToggle"
-          data-disabled="!connected"
-        >
-          Intercept: Off
-        </button>
-        <div class="dropdown-menu hidden">
-          <button class="dropdown-item active" data-mode="disabled">Off</button>
-          <button class="dropdown-item" data-mode="request">Request</button>
-          <button class="dropdown-item" data-mode="response">Req + Res</button>
-        </div>
-      </div>
       <button
         id="captureToggle"
         class="btn-sm"
-        title="Toggle response body capture"
         data-disabled="!connected"
       >
-        Capture
+        Capture: Off
       </button>
       <button id="clear" class="btn-sm" title="Clear events">
         Clear Events

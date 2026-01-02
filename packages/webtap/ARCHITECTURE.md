@@ -10,10 +10,11 @@ Implementation guide for WebTap's RPC-based daemon architecture.
 - Epoch tracking for stale request detection
 - Thread-safe execution via `asyncio.to_thread()`
 
-### ConnectionMachine (rpc/machine.py)
-- Thread-safe state machine using `transitions.LockedMachine`
-- States: `disconnected` → `connecting` → `connected` → `inspecting`
-- Epoch incremented on successful connection
+### ConnectionManager (services/connection.py)
+- Thread-safe per-target connection lifecycle management
+- States: `CONNECTING` → `CONNECTED` → `DISCONNECTING`
+- `inspecting` is a boolean flag on connections (not a separate state)
+- Epoch incremented on any state change
 
 ### RPCClient (client.py)
 - Single `call(method, **params)` interface
@@ -80,14 +81,11 @@ def network(ctx: RPCContext, limit: int = 50, status: int = None) -> dict:
 
 def connect(ctx: RPCContext, target: str) -> dict:
     """Connect to Chrome page by target ID (e.g., "9222:f8134d")."""
-    # State transition
-    ctx.machine.start_connect()
     try:
         result = ctx.service.connect_to_page(target=target)
-        ctx.machine.connect_success()  # Increments epoch
+        # ConnectionManager.connect() increments epoch
         return {"connected": True, **result}
     except Exception as e:
-        ctx.machine.connect_failed()
         raise RPCError(ErrorCode.NOT_CONNECTED, str(e))
 ```
 
@@ -121,38 +119,34 @@ def network(state, limit: int = 50, status: int = None):
         return error_response(e.message)
 ```
 
-## State Machine
+## Connection States
+
+Per-target state managed by `ConnectionManager` (not a global state machine):
 
 ```
                     ┌─────────────────┐
-                    │  disconnected   │ ←─────────────────┐
-                    └────────┬────────┘                   │
-                             │ start_connect              │
-                    ┌────────▼────────┐                   │
-                    │   connecting    │──connect_failed───┘
+                    │   CONNECTING    │
                     └────────┬────────┘
-                             │ connect_success (epoch++)
+                             │ success (epoch++)
                     ┌────────▼────────┐
-           ┌───────→│    connected    │←───────┐
-           │        └────────┬────────┘        │
-           │                 │ start_inspect   │ stop_inspect
-           │        ┌────────▼────────┐        │
-           │        │   inspecting    │────────┘
-           │        └────────┬────────┘
-           │                 │ start_disconnect
-           │        ┌────────▼────────┐
-           └────────│  disconnecting  │
+                    │    CONNECTED    │ ←── inspecting: bool flag
+                    └────────┬────────┘
+                             │ disconnect (epoch++)
+                    ┌────────▼────────┐
+                    │  DISCONNECTING  │
                     └─────────────────┘
 ```
 
+Each target has independent state. Multiple targets can be connected simultaneously.
+
 ## Epoch Tracking
 
-Prevents stale requests after reconnection:
+Prevents stale requests after state changes:
 
 1. Client sends `epoch` with requests (after first sync)
 2. Server validates epoch matches current state
 3. Stale requests rejected with `STALE_EPOCH` error
-4. Epoch incremented only on `connect_success`
+4. Epoch incremented on connect, disconnect, or inspection state change
 
 ## File Structure
 
@@ -161,11 +155,12 @@ webtap/
 ├── targets.py       # Target ID utilities ({port}:{short-id})
 ├── notices.py       # Multi-surface warning system
 ├── rpc/
-│   ├── __init__.py      # Exports: RPCFramework, RPCError, ErrorCode, ConnectionState
+│   ├── __init__.py      # Exports: RPCFramework, RPCError, ErrorCode
 │   ├── framework.py     # RPCFramework, RPCContext, HandlerMeta
 │   ├── handlers.py      # 22+ RPC method handlers
-│   ├── machine.py       # ConnectionMachine, ConnectionState
 │   └── errors.py        # ErrorCode, RPCError
+├── services/
+│   └── connection.py    # ConnectionManager, ActiveConnection, TargetState
 ```
 
 ## Adding New RPC Methods

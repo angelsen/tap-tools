@@ -3,6 +3,8 @@
  * Handles element selection mode and the selections list.
  */
 
+import { TablePreset, Width } from "../lib/table/index.js";
+
 let client = null;
 let selectionTable = null;
 let DataTable = null;
@@ -15,10 +17,11 @@ export function init(c, DT, callbacks = {}) {
   onError = callbacks.onError || console.error;
 
   selectionTable = new DataTable("#selectionList", {
+    ...TablePreset.compactList,
     columns: [
       {
         key: "badge",
-        width: "35px",
+        width: Width.BADGE,
         formatter: (val) => {
           const span = document.createElement("span");
           span.className = "selection-badge";
@@ -30,7 +33,6 @@ export function init(c, DT, callbacks = {}) {
     ],
     getKey: (row) => row.id,
     emptyText: "No elements selected",
-    compact: true,
   });
 }
 

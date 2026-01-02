@@ -93,10 +93,14 @@ def network(
         if r.get("protocol") == "websocket":
             sent = r.get("frames_sent") or 0
             recv = r.get("frames_received") or 0
-            size_display = f"↑{sent} ↓{recv}" if (sent or recv) else "-"
+            size_display = f"{sent}s/{recv}r" if (sent or recv) else "-"
         else:
             # REPL: human-friendly format, MCP: raw bytes for LLM
             size_display = format_size(r["size"]) if is_repl else (r["size"] or 0)
+
+        # Body capture status: ok, err, or -- (not attempted/skipped)
+        body_status = r.get("body_status")
+        body_display = body_status if body_status else "--"
 
         row = {
             "ID": str(r["id"]),
@@ -106,6 +110,7 @@ def network(
             "URL": r["url"],
             "Type": r["type"] or "-",
             "Size": size_display,
+            "Body": body_display,
             "State": r.get("state", "-"),
         }
         # Add Pause column if relevant
@@ -133,7 +138,7 @@ def network(
     truncate = _REPL_TRUNCATE if is_repl else _MCP_TRUNCATE
 
     # Build headers dynamically
-    headers = ["ID", "ReqID", "Method", "Status", "URL", "Type", "Size", "State"]
+    headers = ["ID", "ReqID", "Method", "Status", "URL", "Type", "Size", "Body", "State"]
     if has_pause:
         headers.append("Pause")
 

@@ -49,7 +49,6 @@ from webtap.commands import console  # noqa: E402, F401
 from webtap.commands import entry  # noqa: E402, F401
 from webtap.commands import filters  # noqa: E402, F401
 from webtap.commands import fetch  # noqa: E402, F401
-from webtap.commands import capture  # noqa: E402, F401
 from webtap.commands import to_model  # noqa: E402, F401
 from webtap.commands import quicktype  # noqa: E402, F401
 from webtap.commands import selections  # noqa: E402, F401

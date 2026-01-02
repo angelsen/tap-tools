@@ -76,10 +76,15 @@ class CDPSession:
         self._db_thread = threading.Thread(target=self._db_worker, daemon=True)
         self._db_thread.start()
 
-        # Initialize schema with method and target columns for fast filtering
+        # Initialize schema with indexed columns for fast filtering
         # Must wait for table to exist before any queries can run
         self._db_execute(
-            "CREATE TABLE IF NOT EXISTS events (event JSON, method VARCHAR, target VARCHAR)",
+            """CREATE TABLE IF NOT EXISTS events (
+                event JSON,
+                method VARCHAR,
+                target VARCHAR,
+                request_id VARCHAR
+            )""",
             wait_result=True,
         )
         self._db_execute(
@@ -88,6 +93,10 @@ class CDPSession:
         )
         self._db_execute(
             "CREATE INDEX IF NOT EXISTS idx_events_target ON events(target)",
+            wait_result=True,
+        )
+        self._db_execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_request_id ON events(request_id)",
             wait_result=True,
         )
 
@@ -126,6 +135,10 @@ class CDPSession:
         from noisy CDP events (like Page.frameNavigated, Target.*, etc.)
         """
         return method.startswith(self._STATE_AFFECTING_PREFIXES)
+
+    def _extract_request_id(self, data: dict) -> str | None:
+        """Extract requestId from CDP event params for indexing."""
+        return data.get("params", {}).get("requestId")
 
     def _db_worker(self) -> None:
         """Dedicated thread for all database operations.
@@ -427,13 +440,13 @@ class CDPSession:
                     else:
                         future.set_result(data.get("result", {}))
 
-            # CDP event - store AS-IS in DuckDB and update field lookup
+            # CDP event - store AS-IS in DuckDB with request_id for fast lookups
             elif "method" in data:
                 method = data.get("method", "")
-                # Store with target string (set by service after connection)
+                request_id = self._extract_request_id(data)
                 self._db_execute(
-                    "INSERT INTO events (event, method, target) VALUES (?, ?, ?)",
-                    [json.dumps(data), method, self.target],
+                    "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
+                    [json.dumps(data), method, self.target, request_id],
                     wait_result=False,
                 )
                 self._event_count += 1
@@ -546,20 +559,52 @@ class CDPSession:
         return self._db_execute(sql, params)
 
     def fetch_body(self, request_id: str) -> dict:
-        """Fetch response body via Network.getResponseBody CDP call.
+        """Fetch response body - checks captured bodies first, then CDP fallback.
 
-        Note: Bodies may be evicted by Chrome after page navigation.
-        For guaranteed capture, use fetch("capture") mode which intercepts
-        at response stage and grabs bodies before they can be evicted.
+        When capture mode is enabled, bodies are stored in DuckDB as
+        Network.responseBodyCaptured events. This method checks there first,
+        falling back to Network.getResponseBody CDP call if not found.
 
         Args:
             request_id: Network request ID from CDP events.
 
         Returns:
             Dict with either:
-            - {"body": str, "base64Encoded": bool} on success
-            - {"error": str} on failure (body evicted, not found, timeout, etc.)
+            - {"body": str, "base64Encoded": bool, "capture": {...}} on success
+            - {"error": str, "capture": {...}} on capture failure
+            - {"error": str} on CDP fallback failure
         """
+        # First check for captured body in DuckDB
+        try:
+            rows = self._db_execute(
+                """
+                SELECT json_extract_string(event, '$.params.body') as body,
+                       json_extract(event, '$.params.base64Encoded') as base64_encoded,
+                       json_extract(event, '$.params.capture') as capture
+                FROM events
+                WHERE method = 'Network.responseBodyCaptured'
+                  AND request_id = ?
+                LIMIT 1
+                """,
+                [request_id],
+            )
+            if rows:
+                body, base64_encoded, capture_json = rows[0]
+                capture = json.loads(capture_json) if capture_json else None
+
+                # Check if capture failed
+                if capture and not capture.get("ok"):
+                    error_msg = capture.get("error", "capture failed")
+                    return {"error": error_msg, "capture": capture}
+
+                result: dict = {"body": body, "base64Encoded": base64_encoded == "true"}
+                if capture:
+                    result["capture"] = capture
+                return result
+        except Exception as e:
+            logger.debug(f"Error checking captured body for {request_id}: {e}")
+
+        # Fall back to lazy CDP lookup
         try:
             return self.execute("Network.getResponseBody", {"requestId": request_id})
         except Exception as e:
@@ -567,26 +612,34 @@ class CDPSession:
             logger.debug(f"Failed to fetch body for {request_id}: {error_msg}")
             return {"error": error_msg}
 
-    def store_response_body(self, request_id: str, body: str, base64_encoded: bool = False) -> None:
-        """Store captured response body from extension capture.
+    def store_response_body(
+        self,
+        request_id: str,
+        body: str,
+        base64_encoded: bool = False,
+        capture_meta: dict | None = None,
+    ) -> None:
+        """Store captured response body with optional capture metadata.
 
         Args:
             request_id: CDP request ID
             body: Response body (base64 or raw)
             base64_encoded: Whether body is base64 encoded
+            capture_meta: Optional capture metadata (ok, error, delay_ms, elapsed_ms)
         """
-        event = {
-            "method": "Network.responseBodyCaptured",
-            "params": {
-                "requestId": request_id,
-                "body": body,
-                "base64Encoded": base64_encoded,
-            },
+        params: dict = {
+            "requestId": request_id,
+            "body": body,
+            "base64Encoded": base64_encoded,
         }
+        if capture_meta:
+            params["capture"] = capture_meta
+
+        event = {"method": "Network.responseBodyCaptured", "params": params}
         event_json = json.dumps(event)
         self._db_execute(
-            "INSERT INTO events (event, method, target) VALUES (?, ?, ?)",
-            [event_json, event["method"], self.target],
+            "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
+            [event_json, event["method"], self.target, request_id],
             wait_result=False,
         )
 

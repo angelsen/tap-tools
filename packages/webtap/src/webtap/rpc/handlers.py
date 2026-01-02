@@ -63,14 +63,6 @@ def register_handlers(rpc: RPCFramework) -> None:
 
     rpc.method("fetch.enable", requires_state=_CONNECTED_STATES)(_fetch_enable)
     rpc.method("fetch.disable", requires_state=_CONNECTED_STATES)(_fetch_disable)
-    rpc.method("fetch.resume", requires_state=_CONNECTED_STATES, requires_paused_request=True)(_fetch_resume)
-    rpc.method("fetch.fail", requires_state=_CONNECTED_STATES, requires_paused_request=True)(_fetch_fail)
-    rpc.method("fetch.fulfill", requires_state=_CONNECTED_STATES, requires_paused_request=True)(_fetch_fulfill)
-    rpc.method("fetch.pushBody", requires_state=_CONNECTED_STATES, broadcasts=False)(_fetch_push_body)
-
-    # Extension-side body recording
-    rpc.method("capture.enable", requires_state=_CONNECTED_STATES)(_capture_enable)
-    rpc.method("capture.disable", requires_state=_CONNECTED_STATES)(_capture_disable)
 
     rpc.method("network", requires_state=_CONNECTED_STATES, broadcasts=False)(_network)
     rpc.method("request", requires_state=_CONNECTED_STATES, broadcasts=False)(_request)
@@ -193,9 +185,9 @@ def _browser_clear(ctx: RPCContext) -> dict:
     return {"success": True, "selections": {}}
 
 
-def _fetch_enable(ctx: RPCContext, request: bool = True, response: bool = False) -> dict:
-    """Enable fetch request interception on all connected targets."""
-    result = ctx.service.fetch.enable(response_stage=response)
+def _fetch_enable(ctx: RPCContext, rules: dict | None = None) -> dict:
+    """Enable fetch request interception with declarative rules."""
+    result = ctx.service.fetch.enable(rules=rules)
     return {**result}
 
 
@@ -203,91 +195,6 @@ def _fetch_disable(ctx: RPCContext) -> dict:
     """Disable fetch request interception."""
     result = ctx.service.fetch.disable()
     return {**result}
-
-
-def _fetch_resume(ctx: RPCContext, id: int, paused: dict, modifications: dict | None = None, wait: float = 0.5) -> dict:
-    """Resume a paused request."""
-    try:
-        target = paused.get("target", "")
-        result = ctx.service.fetch.continue_request(paused["rowid"], target, modifications, wait)
-
-        response = {
-            "id": id,
-            "resumed_from": result["resumed_from"],
-            "outcome": result["outcome"],
-            "remaining": result["remaining"],
-        }
-
-        if result.get("status"):
-            response["status"] = result["status"]
-
-        if result.get("redirect_request_id"):
-            har_id = ctx.service.network.get_har_id_by_request_id(result["redirect_request_id"], target)
-            if har_id:
-                response["redirect_id"] = har_id
-
-        return response
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
-
-
-def _fetch_fail(ctx: RPCContext, id: int, paused: dict, reason: str = "BlockedByClient") -> dict:
-    """Fail a paused request."""
-    try:
-        target = paused.get("target", "")
-        result = ctx.service.fetch.fail_request(paused["rowid"], target, reason)
-        return {
-            "id": id,
-            "outcome": "failed",
-            "reason": reason,
-            "remaining": result.get("remaining", 0),
-        }
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
-
-
-def _fetch_fulfill(
-    ctx: RPCContext,
-    id: int,
-    paused: dict,
-    response_code: int = 200,
-    response_headers: list[dict[str, str]] | None = None,
-    body: str = "",
-) -> dict:
-    """Fulfill a paused request with a custom response."""
-    try:
-        target = paused.get("target", "")
-        result = ctx.service.fetch.fulfill_request(paused["rowid"], target, response_code, response_headers, body)
-        return {
-            "id": id,
-            "outcome": "fulfilled",
-            "response_code": response_code,
-            "remaining": result.get("remaining", 0),
-        }
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
-
-
-def _fetch_push_body(
-    ctx: RPCContext,
-    request_id: str,
-    target: str,
-    body: str,
-    base64_encoded: bool = False,
-) -> dict:
-    """Store captured response body from extension."""
-    stored = ctx.service.fetch.store_body(request_id, target, body, base64_encoded)
-    return {"stored": stored}
-
-
-def _capture_enable(ctx: RPCContext) -> dict:
-    """Enable extension-side response body capture."""
-    return ctx.service.fetch.enable_capture()
-
-
-def _capture_disable(ctx: RPCContext) -> dict:
-    """Disable extension-side response body capture."""
-    return ctx.service.fetch.disable_capture()
 
 
 def _network(

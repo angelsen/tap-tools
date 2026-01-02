@@ -3,10 +3,12 @@
  * Handles the Available Pages list and Connect/Disconnect functionality.
  */
 
+import { TablePreset, RowClass, Width } from "../lib/table/index.js";
+import { withTableLoading } from "../lib/utils.js";
+
 let client = null;
 let pageTable = null;
 let DataTable = null;
-let formatters = null;
 let pageData = [];
 
 // Exported state - can be read by main.js
@@ -15,24 +17,22 @@ export let selectedPageTarget = null;
 // Callbacks set by main.js
 let onError = null;
 let getWebtapAvailable = null;
-let withButtonLock = null;
 
 export function init(c, DT, fmt, callbacks = {}) {
   client = c;
   DataTable = DT;
-  formatters = fmt;
   onError = callbacks.onError || console.error;
   getWebtapAvailable = callbacks.getWebtapAvailable || (() => true);
-  withButtonLock = callbacks.withButtonLock || ((id, fn) => fn());
 
   pageTable = new DataTable("#pageList", {
+    ...TablePreset.compactList,
     columns: [
-      { key: "target", header: "Target", width: "auto", monospace: true },
+      { key: "target", header: "Target", width: Width.AUTO, monospace: true },
       { key: "url", header: "URL", truncateMiddle: true },
     ],
     selectable: true,
     getKey: (row) => row.target,
-    getRowClass: (row) => row.connected ? 'data-table-row--connected' : '',
+    getRowClass: (row) => (row.connected ? RowClass.CONNECTED : ""),
     onRowClick: (row) => {
       selectedPageTarget = row.target;
       updateButton();
@@ -42,7 +42,6 @@ export function init(c, DT, fmt, callbacks = {}) {
       connectToSelected();
     },
     emptyText: "No pages available",
-    compact: true,
   });
 }
 
@@ -59,7 +58,7 @@ export async function load() {
     pageData = pages.map((page) => ({
       target: page.target,
       url: (page.url || "").replace(/^https?:\/\//, ""),
-      connected: page.connected,  // Trust server
+      connected: page.connected,
     }));
 
     if (pageTable) pageTable.update(pageData);
@@ -92,26 +91,20 @@ async function connectToSelected() {
   }
 
   const row = pageData.find((p) => p.target === selectedPageTarget);
-  const connectedTargets = new Set((client.state.connections || []).map(c => c.target));
+  const connectedTargets = new Set((client.state.connections || []).map((c) => c.target));
   const isConnectedToSelected = connectedTargets.has(selectedPageTarget);
 
   const message = isConnectedToSelected
     ? "Disconnecting..."
     : `Connecting to ${row?.url || selectedPageTarget}...`;
 
-  pageTable.setLoading(message);
-
-  try {
+  await withTableLoading(pageTable, message, async () => {
     if (isConnectedToSelected) {
       await client.call("disconnect", { target: selectedPageTarget });
     } else {
       await client.call("connect", { target: selectedPageTarget });
     }
-  } catch (err) {
-    onError(err);
-  } finally {
-    pageTable.clearLoading();
-  }
+  }).catch(onError);
 }
 
 export function clear() {

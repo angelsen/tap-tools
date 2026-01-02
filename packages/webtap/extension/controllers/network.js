@@ -3,32 +3,19 @@
  * Handles the Network Requests table and request details panel.
  */
 
-import { ui, icons } from "../lib/ui.js";
+import { ui } from "../lib/ui.js";
+import {
+  httpStatus,
+  Width,
+  TablePreset,
+  createDetailPanel,
+} from "../lib/table/index.js";
 
 let client = null;
 let networkTable = null;
 let DataTable = null;
-
+let detailPanel = null;
 let onError = null;
-
-// Local state
-export let selectedRequestId = null;
-
-// Network-specific status formatter (domain logic belongs here, not in DataTable)
-function formatStatus(value, row) {
-  if (row.state === "paused") {
-    const badge = document.createElement("span");
-    badge.className = "status-badge status-badge--warning";
-    badge.textContent = row.pause_stage === "Response" ? "Res" : "Req";
-    return badge;
-  }
-  if (!value) return "-";
-  const type = value >= 400 ? "error" : value >= 300 ? "warning" : "success";
-  const badge = document.createElement("span");
-  badge.className = `status-badge status-badge--${type}`;
-  badge.textContent = value;
-  return badge;
-}
 
 export function init(c, DT, fmt, callbacks = {}) {
   client = c;
@@ -36,16 +23,23 @@ export function init(c, DT, fmt, callbacks = {}) {
   onError = callbacks.onError || console.error;
 
   networkTable = new DataTable("#networkTable", {
+    ...TablePreset.eventLog,
     columns: [
-      { key: "method", header: "Method", width: "55px" },
-      { key: "status", header: "Status", width: "50px", formatter: formatStatus },
+      { key: "method", header: "Method", width: Width.METHOD },
+      { key: "status", header: "Status", width: Width.STATUS, formatter: httpStatus },
       { key: "url", header: "URL", truncate: true },
     ],
-    selectable: true,
-    onRowClick: (row) => showDetails(row.id, row.target),
+    onRowDoubleClick: (row) => detailPanel.show(row.id, row),
     getKey: (row) => row.id,
     emptyText: "No requests captured",
-    autoScroll: true,
+  });
+
+  detailPanel = createDetailPanel({
+    elementId: "requestDetails",
+    fetchData: (id, row) => client.call("request", { id, target: row.target }),
+    renderHeader: (data) =>
+      `${data.entry.request?.method || "GET"} ${data.entry.response?.status || ""}`,
+    renderContent: renderRequestDetails,
   });
 }
 
@@ -75,81 +69,49 @@ function updateTable(requests) {
 }
 
 export function closeDetails() {
-  selectedRequestId = null;
-  document.getElementById("requestDetails").classList.add("hidden");
+  detailPanel.close();
 }
 
-export async function showDetails(id, target) {
-  const detailsEl = document.getElementById("requestDetails");
+export function getSelectedRequestId() {
+  return detailPanel?.getSelectedId();
+}
 
-  if (selectedRequestId === id) {
-    closeDetails();
-    return;
-  }
+function renderRequestDetails(data, el) {
+  const entry = data.entry;
 
-  const wasHidden = detailsEl.classList.contains("hidden");
-  selectedRequestId = id;
-  detailsEl.classList.remove("hidden");
+  el.appendChild(
+    ui.el("div", {
+      text: entry.request?.url || "",
+      class: "url-display",
+    })
+  );
 
-  if (wasHidden) {
-    ui.loading(detailsEl);
-  }
-
-  try {
-    const result = await client.call("request", { id, target });
-    const entry = result.entry;
-    ui.empty(detailsEl);
-
-    detailsEl.appendChild(
-      ui.row("request-details-header flex-row", [
-        ui.el("span", {
-          text: `${entry.request?.method || "GET"} ${entry.response?.status || ""}`,
-        }),
-        ui.el("button", {
-          class: "icon-btn",
-          text: icons.close,
-          title: "Close",
-          onclick: closeDetails,
-        }),
-      ]),
-    );
-
-    detailsEl.appendChild(
+  if (entry.response?.content?.mimeType) {
+    el.appendChild(
       ui.el("div", {
-        text: entry.request?.url || "",
-        class: "url-display",
-      }),
+        text: `Type: ${entry.response.content.mimeType}`,
+        class: "text-muted",
+      })
     );
+  }
 
-    if (entry.response?.content?.mimeType) {
-      detailsEl.appendChild(
-        ui.el("div", {
-          text: `Type: ${entry.response.content.mimeType}`,
-          class: "text-muted",
-        }),
-      );
-    }
+  if (entry.request?.headers) {
+    const headerCount = Object.keys(entry.request.headers).length;
+    el.appendChild(
+      ui.details(
+        `Request Headers (${headerCount})`,
+        JSON.stringify(entry.request.headers, null, 2)
+      )
+    );
+  }
 
-    if (entry.request?.headers) {
-      const headerCount = Object.keys(entry.request.headers).length;
-      detailsEl.appendChild(
-        ui.details(
-          `Request Headers (${headerCount})`,
-          JSON.stringify(entry.request.headers, null, 2),
-        ),
-      );
-    }
-
-    if (entry.response?.headers) {
-      const headerCount = Object.keys(entry.response.headers).length;
-      detailsEl.appendChild(
-        ui.details(
-          `Response Headers (${headerCount})`,
-          JSON.stringify(entry.response.headers, null, 2),
-        ),
-      );
-    }
-  } catch (err) {
-    ui.empty(detailsEl, `Error: ${err.message}`);
+  if (entry.response?.headers) {
+    const headerCount = Object.keys(entry.response.headers).length;
+    el.appendChild(
+      ui.details(
+        `Response Headers (${headerCount})`,
+        JSON.stringify(entry.response.headers, null, 2)
+      )
+    );
   }
 }

@@ -34,9 +34,10 @@ def get_full_state() -> Dict[str, Any]:
             "epoch": 0,
             "connected": False,
             "events": {"total": 0},
-            "fetch": {"enabled": False, "paused_count": 0},
+            "fetch": {"enabled": False, "rules": None, "capture_count": 0},
             "filters": {"enabled": [], "disabled": []},
             "browser": {"inspect_active": False, "selections": {}, "prompt": "", "pending_count": 0},
+            "chrome": {"available": False, "port": 9222},
             "error": None,
         }
 
@@ -56,9 +57,7 @@ def get_full_state() -> Dict[str, Any]:
     # Compute content hashes for frontend change detection
     selections_hash = _stable_hash(str(sorted(snapshot.selections.keys())))
     filters_hash = _stable_hash(f"{sorted(snapshot.enabled_filters)}")
-    fetch_hash = _stable_hash(
-        f"{snapshot.fetch_enabled}:{snapshot.response_stage}:{snapshot.paused_count}:{snapshot.capture_enabled}"
-    )
+    fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.fetch_rules}:{snapshot.capture_count}")
     errors_hash = _stable_hash(str(sorted(snapshot.errors.items())))
     targets_hash = _stable_hash(f"{sorted(snapshot.tracked_targets)}:{len(snapshot.connections)}")
 
@@ -72,9 +71,8 @@ def get_full_state() -> Dict[str, Any]:
         "events": {"total": snapshot.event_count},
         "fetch": {
             "enabled": snapshot.fetch_enabled,
-            "response_stage": snapshot.response_stage,
-            "paused_count": snapshot.paused_count,
-            "capture_enabled": snapshot.capture_enabled,
+            "rules": snapshot.fetch_rules,
+            "capture_count": snapshot.capture_count,
         },
         "filters": {"enabled": list(snapshot.enabled_filters), "disabled": list(snapshot.disabled_filters)},
         # Multi-target state (connections now include state field)
@@ -87,6 +85,7 @@ def get_full_state() -> Dict[str, Any]:
             "prompt": snapshot.prompt,
             "pending_count": snapshot.pending_count,
         },
+        "chrome": app_module.app_state.service.watcher.to_dict(),
         "errors": snapshot.errors,
         "notices": snapshot.notices,
         # Content hashes for efficient change detection

@@ -3,65 +3,46 @@
  * Handles the Console Messages table and entry details panel.
  */
 
-import { ui, icons } from "../lib/ui.js";
+import { ui } from "../lib/ui.js";
+import {
+  consoleLevel,
+  timestamp,
+  Width,
+  TablePreset,
+  RowClass,
+  createDetailPanel,
+} from "../lib/table/index.js";
 
 let client = null;
 let consoleTable = null;
 let DataTable = null;
-let formatters = null;
-
+let detailPanel = null;
 let onError = null;
-
-// Local state
-export let selectedEntryId = null;
-
-function formatLevel(value) {
-  const badge = document.createElement("span");
-  const levelClass =
-    {
-      error: "error",
-      warning: "warning",
-      log: "muted",
-      info: "info",
-      debug: "muted",
-    }[value] || "muted";
-
-  badge.className = `status-badge status-badge--${levelClass}`;
-  badge.textContent = value || "log";
-  return badge;
-}
-
-function formatTime(value) {
-  if (!value) return "-";
-  // Timestamp is already in ms (wallTime * 1000 from backend)
-  const date = new Date(value);
-  return date.toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
 
 export function init(c, DT, fmt, callbacks = {}) {
   client = c;
   DataTable = DT;
-  formatters = fmt;
   onError = callbacks.onError || console.error;
 
   consoleTable = new DataTable("#consoleTable", {
+    ...TablePreset.eventLog,
     columns: [
-      { key: "level", header: "Level", width: "60px", formatter: formatLevel },
-      { key: "source", header: "Source", width: "70px" },
+      { key: "level", header: "Level", width: Width.LEVEL, formatter: consoleLevel },
+      { key: "source", header: "Source", width: Width.SOURCE },
       { key: "message", header: "Message", truncate: true },
-      { key: "timestamp", header: "Time", width: "65px", formatter: formatTime },
+      { key: "timestamp", header: "Time", width: Width.TIME, formatter: timestamp },
     ],
-    selectable: true,
-    onRowClick: (row) => showDetails(row.id),
+    onRowDoubleClick: (row) => detailPanel.show(row.id, row),
     getKey: (row) => row.id,
-    getRowClass: (row) => (row.level === "error" ? "data-table-row--error" : null),
+    getRowClass: (row) => (row.level === "error" ? RowClass.ERROR : null),
     emptyText: "No console messages",
-    autoScroll: true,
+  });
+
+  detailPanel = createDetailPanel({
+    elementId: "consoleDetails",
+    fetchData: (id, row) => client.call("entry", { id, fields: ["*"] }),
+    renderHeader: (data) => `${data.entry.type || "log"} - ${data.entry.source || "console"}`,
+    renderContent: renderConsoleDetails,
   });
 }
 
@@ -91,75 +72,38 @@ function updateTable(messages) {
 }
 
 export function closeDetails() {
-  selectedEntryId = null;
-  document.getElementById("consoleDetails").classList.add("hidden");
+  detailPanel.close();
 }
 
-export async function showDetails(id) {
-  const detailsEl = document.getElementById("consoleDetails");
+function renderConsoleDetails(data, el) {
+  const entry = data.entry;
 
-  if (selectedEntryId === id) {
-    closeDetails();
-    return;
+  // Full message
+  el.appendChild(
+    ui.el("div", {
+      text: entry.message || "",
+      class: "console-message-full",
+    })
+  );
+
+  // Stack trace if present
+  if (entry.stackTrace) {
+    const frames = entry.stackTrace.callFrames || [];
+    if (frames.length > 0) {
+      const stackText = frames
+        .map(
+          (f) =>
+            `  at ${f.functionName || "(anonymous)"} (${f.url}:${f.lineNumber}:${f.columnNumber})`
+        )
+        .join("\n");
+      el.appendChild(ui.details(`Stack Trace (${frames.length} frames)`, stackText));
+    }
   }
 
-  const wasHidden = detailsEl.classList.contains("hidden");
-  selectedEntryId = id;
-  detailsEl.classList.remove("hidden");
-
-  if (wasHidden) {
-    ui.loading(detailsEl);
-  }
-
-  try {
-    const result = await client.call("entry", { id, fields: ["*"] });
-    const entry = result.entry;
-    ui.empty(detailsEl);
-
-    // Header with close button
-    detailsEl.appendChild(
-      ui.row("console-details-header flex-row", [
-        ui.el("span", {
-          text: `${entry.type || "log"} - ${entry.source || "console"}`,
-        }),
-        ui.el("button", {
-          class: "icon-btn",
-          text: icons.close,
-          title: "Close",
-          onclick: closeDetails,
-        }),
-      ]),
+  // Args if present (for consoleAPICalled)
+  if (entry.args && entry.args.length > 1) {
+    el.appendChild(
+      ui.details(`Arguments (${entry.args.length})`, JSON.stringify(entry.args, null, 2))
     );
-
-    // Full message
-    detailsEl.appendChild(
-      ui.el("div", {
-        text: entry.message || "",
-        class: "console-message-full",
-      }),
-    );
-
-    // Stack trace if present
-    if (entry.stackTrace) {
-      const frames = entry.stackTrace.callFrames || [];
-      if (frames.length > 0) {
-        const stackText = frames
-          .map(
-            (f) =>
-              `  at ${f.functionName || "(anonymous)"} (${f.url}:${f.lineNumber}:${f.columnNumber})`,
-          )
-          .join("\n");
-        detailsEl.appendChild(ui.details(`Stack Trace (${frames.length} frames)`, stackText));
-      }
-    }
-
-    // Args if present (for consoleAPICalled)
-    if (entry.args && entry.args.length > 1) {
-      detailsEl.appendChild(
-        ui.details(`Arguments (${entry.args.length})`, JSON.stringify(entry.args, null, 2)),
-      );
-    }
-  } catch (err) {
-    ui.empty(detailsEl, `Error: ${err.message}`);
   }
 }

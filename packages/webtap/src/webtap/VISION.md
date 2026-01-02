@@ -202,7 +202,6 @@ webtap/
 ├── rpc/                # JSON-RPC 2.0 framework
 │   ├── __init__.py
 │   ├── framework.py    # RPCFramework class & method registration
-│   ├── machine.py      # ConnectionMachine (state transitions)
 │   ├── handlers.py     # All RPC method handlers
 │   └── errors.py       # RPCError and error codes
 ├── cdp/
@@ -214,6 +213,7 @@ webtap/
 ├── services/           # Service layer (business logic)
 │   ├── __init__.py
 │   ├── main.py         # WebTapService orchestrator
+│   ├── connection.py   # ConnectionManager & per-target state
 │   ├── network.py      # Network request handling
 │   ├── console.py      # Console message handling
 │   ├── fetch.py        # Request interception

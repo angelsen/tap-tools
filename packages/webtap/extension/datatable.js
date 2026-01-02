@@ -526,26 +526,5 @@ class DataTable {
   }
 }
 
-// Built-in formatters (domain-agnostic only)
-const formatters = {
-  dot: (value) => {
-    const dot = document.createElement("span");
-    dot.className = `status-dot status-dot--${value ? "connected" : "disconnected"}`;
-    return dot;
-  },
-
-  badge: (value, className) => {
-    const badge = document.createElement("span");
-    badge.className = `badge ${className || ""}`;
-    badge.textContent = value;
-    return badge;
-  },
-
-  truncate: (value, maxLen = 50) => {
-    if (!value || value.length <= maxLen) return value || "";
-    return value.slice(0, maxLen - 3) + "...";
-  }
-};
-
 // ES6 export
-export { DataTable, formatters };
+export { DataTable };

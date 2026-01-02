@@ -8,6 +8,7 @@ PUBLIC API:
 import logging
 import os
 import subprocess
+import time
 import uuid
 from typing import Any
 
@@ -30,12 +31,19 @@ class RPCClient:
     The client tracks epoch for stale request detection.
     """
 
-    def __init__(self, base_url: str | None = None, timeout: float = 30.0, client_type: str = "repl"):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 30.0,
+        client_type: str = "repl",
+        max_retries: int = 3,
+    ):
         from webtap.daemon import get_daemon_url
 
         self.base_url = base_url or get_daemon_url()
         self.epoch = 0
         self._client_type = client_type
+        self._max_retries = max_retries
         self._client = httpx.Client(timeout=timeout)
 
     def _get_client_headers(self) -> dict[str, str]:
@@ -77,7 +85,16 @@ class RPCClient:
         return headers
 
     def call(self, method: str, **params) -> dict[str, Any]:
-        """Call RPC method. Raises RPCError on error."""
+        """Call RPC method with auto-start and retry on transient errors.
+
+        Auto-starts daemon if not running, then retries connection errors
+        with exponential backoff (1s, 2s, 4s).
+        """
+        from webtap.daemon import ensure_daemon
+
+        # Ensure daemon is running (cheap health check if already up)
+        ensure_daemon()
+
         request: dict[str, Any] = {
             "jsonrpc": "2.0",
             "method": method,
@@ -90,27 +107,39 @@ class RPCClient:
         if self.epoch > 0:
             request["epoch"] = self.epoch
 
-        try:
-            response = self._client.post(f"{self.base_url}/rpc", json=request, headers=self._get_client_headers())
-            response.raise_for_status()
-            data = response.json()
-        except httpx.ConnectError as e:
-            logger.error(f"Failed to connect to daemon at {self.base_url}: {e}")
-            raise RuntimeError("Cannot connect to daemon. Is it running? Try 'webtap --daemon' to start it.") from e
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error from daemon: {e}")
-            raise
+        last_error: Exception | None = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = self._client.post(f"{self.base_url}/rpc", json=request, headers=self._get_client_headers())
+                response.raise_for_status()
+                data = response.json()
 
-        # Update epoch from server response (always sync)
-        if "epoch" in data:
-            self.epoch = data["epoch"]
+                # Update epoch from server response (always sync)
+                if "epoch" in data:
+                    self.epoch = data["epoch"]
 
-        # Check for RPC error
-        if "error" in data:
-            err = data["error"]
-            raise RPCError(err.get("code", "UNKNOWN"), err.get("message", "Unknown error"), err.get("data"))
+                # Check for RPC error
+                if "error" in data:
+                    err = data["error"]
+                    raise RPCError(err.get("code", "UNKNOWN"), err.get("message", "Unknown error"), err.get("data"))
 
-        return data.get("result", {})
+                return data.get("result", {})
+
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_error = e
+                if attempt < self._max_retries:
+                    backoff = 2**attempt  # 1s, 2s, 4s
+                    logger.debug(f"Daemon connection failed, retrying in {backoff}s...")
+                    time.sleep(backoff)
+                    continue
+                break
+            except httpx.HTTPError as e:
+                # Don't retry HTTP errors (4xx, 5xx)
+                logger.error(f"HTTP error from daemon: {e}")
+                raise
+
+        # All retries exhausted
+        raise RuntimeError(f"Cannot connect to daemon after {self._max_retries + 1} attempts.") from last_error
 
     def close(self):
         """Close the HTTP client."""

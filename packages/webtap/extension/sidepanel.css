@@ -957,12 +957,16 @@ button.active-selection:hover:not(:disabled) {
 
 /* Row state backgrounds */
 .data-table-row--tracked .data-table-cell,
-.data-table-row--connected .data-table-cell {
+.data-table-row--connected .data-table-cell,
+.data-table-row--active .data-table-cell,
+.data-table-row--enabled .data-table-cell {
   background: color-mix(in srgb, var(--color-success) 12%, transparent);
 }
 
 .data-table-body .data-table-row--tracked:hover .data-table-cell,
-.data-table-body .data-table-row--connected:hover .data-table-cell {
+.data-table-body .data-table-row--connected:hover .data-table-cell,
+.data-table-body .data-table-row--active:hover .data-table-cell,
+.data-table-body .data-table-row--enabled:hover .data-table-cell {
   background: color-mix(in srgb, var(--color-success) 18%, transparent);
 }
 

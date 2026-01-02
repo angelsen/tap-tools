@@ -11,7 +11,6 @@ Module Organization:
     _code_generation.py - Code generation utilities for HTTP bodies
 
   Command modules (each registers commands via @app.command decorator):
-    capture.py      - Response body capture control
     connection.py   - Chrome browser connection management
     console.py      - Console message display
     fetch.py        - Request interception

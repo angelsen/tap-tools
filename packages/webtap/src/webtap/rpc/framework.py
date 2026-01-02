@@ -44,12 +44,10 @@ class HandlerMeta:
     Attributes:
         requires_state: List of valid connection states for this handler
         broadcasts: Whether to trigger SSE broadcast after successful execution. Defaults to True.
-        requires_paused_request: Whether to lookup and inject paused request into kwargs. Defaults to False.
     """
 
     requires_state: list[str]
     broadcasts: bool = True
-    requires_paused_request: bool = False
 
 
 class RPCFramework:
@@ -72,7 +70,6 @@ class RPCFramework:
         name: str,
         requires_state: list[str] | None = None,
         broadcasts: bool = True,
-        requires_paused_request: bool = False,
     ) -> Callable:
         """Decorator to register RPC method handlers.
 
@@ -80,7 +77,6 @@ class RPCFramework:
             name: RPC method name (e.g., "connect", "browser.startInspect")
             requires_state: List of valid states for this method. Defaults to None.
             broadcasts: Whether to trigger SSE broadcast after successful execution. Defaults to True.
-            requires_paused_request: Auto-lookup paused request by 'id' param and inject as 'paused'. Defaults to False.
 
         Returns:
             Decorator function for handler registration.
@@ -95,7 +91,6 @@ class RPCFramework:
             meta = HandlerMeta(
                 requires_state=requires_state or [],
                 broadcasts=broadcasts,
-                requires_paused_request=requires_paused_request,
             )
             self.handlers[name] = (func, meta)
             return func
@@ -233,26 +228,6 @@ class RPCFramework:
 
             # Create context
             ctx = RPCContext(service=self.service, epoch=current_epoch, request_id=request_id)
-
-            # Auto-lookup paused request if required
-            if meta.requires_paused_request:
-                request_id_param = params.get("id")
-                if request_id_param is None:
-                    return self._error_response(request_id, ErrorCode.INVALID_PARAMS, "Missing 'id' parameter")
-
-                network_id = self.service.network.get_request_id(request_id_param)
-                if not network_id:
-                    return self._error_response(
-                        request_id, ErrorCode.INVALID_PARAMS, f"Request {request_id_param} not found"
-                    )
-
-                paused = self.service.fetch.get_paused_by_network_id(network_id)
-                if not paused:
-                    return self._error_response(
-                        request_id, ErrorCode.INVALID_PARAMS, f"Request {request_id_param} is not paused"
-                    )
-
-                params["paused"] = paused
 
             # Execute handler in thread pool (service methods are sync)
             try:

@@ -3,80 +3,63 @@
  * Handles the Connected Targets section with tracking and inspection.
  */
 
+import { TablePreset, RowClass, actionButton } from "../lib/table/index.js";
+import { withTableLoading } from "../lib/utils.js";
 
 let client = null;
 let targetsTable = null;
 let DataTable = null;
-let formatters = null;
-
 let onError = null;
 
 export function init(c, DT, fmt, callbacks = {}) {
   client = c;
   DataTable = DT;
-  formatters = fmt;
   onError = callbacks.onError || console.error;
 
   targetsTable = new DataTable("#targetsList", {
+    ...TablePreset.compactList,
     columns: [
-      { key: "target", width: "auto", monospace: true },
+      { key: "target", monospace: true },
       { key: "display", truncateMiddle: true },
       {
         key: "devtools",
         width: "auto",
-        formatter: (val, row) => devToolsButton(row),
+        formatter: actionButton({
+          label: "DevTools",
+          className: "inspect-btn",
+          disabled: (row) => !row.devtools_url,
+          onClick: (row) => openDevTools(row),
+        }),
       },
       {
         key: "inspect",
         width: "auto",
-        formatter: (val, row) => inspectButton(row),
+        formatter: actionButton({
+          label: (row) => (row.inspecting ? "Stop" : "Inspect"),
+          className: (row) => (row.inspecting ? "inspect-btn inspecting" : "inspect-btn"),
+          onClick: (row) => (row.inspecting ? stopInspect() : startInspect(row.target)),
+        }),
       },
     ],
     getKey: (row) => row.target,
-    getRowClass: (row) => row.active ? 'data-table-row--tracked' : '',
+    getRowClass: (row) => (row.active ? RowClass.ACTIVE : ""),
     onRowDoubleClick: (row) => toggleFilter(row, !row.active),
     emptyText: "No targets",
-    compact: true,
   });
 }
 
-function devToolsButton(row) {
-  const btn = document.createElement("button");
-  btn.className = "inspect-btn";
-  btn.textContent = "DevTools";
-  btn.disabled = !row.devtools_url;
-  btn.onclick = (e) => {
-    e.stopPropagation();
-    if (!row.devtools_url) return;
-    // Convert to local devtools:// protocol for reliable connection
-    let url = row.devtools_url;
-    if (url.startsWith("/")) {
-      url = `devtools://devtools${url}`;
-    } else if (url.includes("chrome-devtools-frontend.appspot.com")) {
-      // Replace hosted frontend with local bundled version
-      url = url.replace(
-        /https:\/\/chrome-devtools-frontend\.appspot\.com\/serve_rev\/@[^/]+/,
-        "devtools://devtools/bundled"
-      );
-    }
-    chrome.tabs.create({ url });
-  };
-  return btn;
-}
-
-function inspectButton(row) {
-  const btn = document.createElement("button");
-  btn.className = row.inspecting ? "inspect-btn inspecting" : "inspect-btn";
-  btn.textContent = row.inspecting ? "Stop" : "Inspect";
-  btn.onclick = (e) => {
-    e.stopPropagation();
-    if (row.inspecting) {
-      stopInspect();
-    } else {
-      startInspect(row.target);
-    }
-  };
-  return btn;
+function openDevTools(row) {
+  if (!row.devtools_url) return;
+  let url = row.devtools_url;
+  if (url.startsWith("/")) {
+    url = `devtools://devtools${url}`;
+  } else if (url.includes("chrome-devtools-frontend.appspot.com")) {
+    url = url.replace(
+      /https:\/\/chrome-devtools-frontend\.appspot\.com\/serve_rev\/@[^/]+/,
+      "devtools://devtools/bundled"
+    );
+  }
+  chrome.tabs.create({ url });
 }
 
 async function startInspect(target) {
@@ -123,8 +106,7 @@ export function update(state) {
 }
 
 async function toggleFilter(row, checked) {
-  targetsTable.setLoading("Updating...");
-  try {
+  await withTableLoading(targetsTable, "Updating...", async () => {
     const connections = client.state.connections || [];
     const connectedTargets = new Set(connections.map((c) => c.target));
     const trackedTargets = new Set(client.state.tracked_targets || []);
@@ -148,9 +130,5 @@ async function toggleFilter(row, checked) {
         await client.call("targets.set", { targets: Array.from(trackedTargets) });
       }
     }
-  } catch (err) {
-    onError(err);
-  } finally {
-    targetsTable.clearLoading();
-  }
+  }).catch(onError);
 }

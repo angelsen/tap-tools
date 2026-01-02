@@ -8,6 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # HAR entries view - aggregates CDP events into HAR-like structure
+# Uses indexed request_id column for fast GROUP BY, json_extract for other fields
 _HAR_ENTRIES_SQL = """
 CREATE OR REPLACE VIEW har_entries AS
 WITH
@@ -23,14 +24,14 @@ paused_fetch AS (
             THEN 'Response'
             ELSE 'Request'
         END as pause_stage,
-        json_extract_string(event, '$.params.requestId') as fetch_request_id
+        request_id as fetch_request_id
     FROM events
     WHERE method = 'Fetch.requestPaused'
 ),
 
 -- Resolved Fetch events (continued, failed, or fulfilled)
 resolved_fetch AS (
-    SELECT DISTINCT json_extract_string(event, '$.params.requestId') as network_id
+    SELECT DISTINCT request_id as network_id
     FROM events
     WHERE method IN ('Network.loadingFinished', 'Network.loadingFailed')
 ),
@@ -47,7 +48,7 @@ active_paused AS (
 -- HTTP Request: extract from requestWillBeSent
 http_requests AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MIN(rowid) as first_rowid,
         'http' as protocol,
         MAX(json_extract_string(event, '$.params.wallTime')) as started_datetime,
@@ -60,13 +61,13 @@ http_requests AS (
         MAX(target) as target
     FROM events
     WHERE method = 'Network.requestWillBeSent'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- HTTP Response: extract from responseReceived
 http_responses AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract_string(event, '$.params.response.status')) as status,
         MAX(json_extract_string(event, '$.params.response.statusText')) as status_text,
         MAX(json_extract(event, '$.params.response.headers')) as response_headers,
@@ -74,69 +75,81 @@ http_responses AS (
         MAX(json_extract(event, '$.params.response.timing')) as timing
     FROM events
     WHERE method = 'Network.responseReceived'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- HTTP Finished: timing and size
 http_finished AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract_string(event, '$.params.timestamp')) as finished_timestamp,
         MAX(json_extract_string(event, '$.params.encodedDataLength')) as final_size
     FROM events
     WHERE method = 'Network.loadingFinished'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- HTTP Failed: error info
 http_failed AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract_string(event, '$.params.errorText')) as error_text
     FROM events
     WHERE method = 'Network.loadingFailed'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- Request ExtraInfo: raw headers with cookies (before browser sanitization)
 request_extra AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract(event, '$.params.headers')) as raw_headers,
         MAX(json_extract(event, '$.params.associatedCookies')) as cookies
     FROM events
     WHERE method = 'Network.requestWillBeSentExtraInfo'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- Response ExtraInfo: Set-Cookie headers and true status
 response_extra AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract(event, '$.params.headers')) as raw_headers,
         MAX(json_extract_string(event, '$.params.statusCode')) as true_status
     FROM events
     WHERE method = 'Network.responseReceivedExtraInfo'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
+),
+
+-- Captured bodies with status (ok/err)
+captured_bodies AS (
+    SELECT
+        request_id,
+        CASE
+            WHEN json_extract_string(event, '$.params.capture.ok') = 'true' THEN 'ok'
+            ELSE 'err'
+        END as body_status
+    FROM events
+    WHERE method = 'Network.responseBodyCaptured'
 ),
 
 -- WebSocket Created
 ws_created AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MIN(rowid) as first_rowid,
         'websocket' as protocol,
         MAX(json_extract_string(event, '$.params.url')) as url,
         MAX(target) as target
     FROM events
     WHERE method = 'Network.webSocketCreated'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- WebSocket Handshake
 ws_handshake AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract_string(event, '$.params.wallTime')) as started_datetime,
         MAX(json_extract_string(event, '$.params.timestamp')) as started_timestamp,
         MAX(json_extract(event, '$.params.request.headers')) as request_headers,
@@ -144,30 +157,30 @@ ws_handshake AS (
         MAX(json_extract(event, '$.params.response.headers')) as response_headers
     FROM events
     WHERE method IN ('Network.webSocketWillSendHandshakeRequest', 'Network.webSocketHandshakeResponseReceived')
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- WebSocket Frame Stats (aggregated)
 ws_frames AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         SUM(CASE WHEN method = 'Network.webSocketFrameSent' THEN 1 ELSE 0 END) as frames_sent,
         SUM(CASE WHEN method = 'Network.webSocketFrameReceived' THEN 1 ELSE 0 END) as frames_received,
         SUM(LENGTH(COALESCE(json_extract_string(event, '$.params.response.payloadData'), ''))) as total_bytes,
         MAX(json_extract_string(event, '$.params.timestamp')) as last_frame_timestamp
     FROM events
     WHERE method IN ('Network.webSocketFrameSent', 'Network.webSocketFrameReceived')
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- WebSocket Closed
 ws_closed AS (
     SELECT
-        json_extract_string(event, '$.params.requestId') as request_id,
+        request_id,
         MAX(json_extract_string(event, '$.params.timestamp')) as closed_timestamp
     FROM events
     WHERE method = 'Network.webSocketClosed'
-    GROUP BY json_extract_string(event, '$.params.requestId')
+    GROUP BY request_id
 ),
 
 -- Combine HTTP entries
@@ -213,7 +226,9 @@ http_entries AS (
         CAST(NULL AS BIGINT) as ws_total_bytes,
         req.started_datetime,
         CAST(req.started_datetime AS DOUBLE) as last_activity,
-        req.target
+        req.target,
+        -- Body capture status: ok, err, or NULL (not attempted)
+        cb.body_status
     FROM http_requests req
     LEFT JOIN request_extra reqx ON req.request_id = reqx.request_id
     LEFT JOIN http_responses resp ON req.request_id = resp.request_id
@@ -221,6 +236,7 @@ http_entries AS (
     LEFT JOIN http_finished fin ON req.request_id = fin.request_id
     LEFT JOIN http_failed fail ON req.request_id = fail.request_id
     LEFT JOIN active_paused ap ON req.request_id = ap.network_id
+    LEFT JOIN captured_bodies cb ON req.request_id = cb.request_id
 ),
 
 -- Combine WebSocket entries
@@ -264,7 +280,9 @@ websocket_entries AS (
             THEN CAST(hs.started_datetime AS DOUBLE) + (CAST(wf.last_frame_timestamp AS DOUBLE) - CAST(hs.started_timestamp AS DOUBLE))
             ELSE CAST(hs.started_datetime AS DOUBLE)
         END as last_activity,
-        ws.target
+        ws.target,
+        -- WebSocket has no body capture
+        CAST(NULL AS VARCHAR) as body_status
     FROM ws_created ws
     LEFT JOIN ws_handshake hs ON ws.request_id = hs.request_id
     LEFT JOIN ws_frames wf ON ws.request_id = wf.request_id
@@ -297,7 +315,8 @@ SELECT
     frames_received,
     started_datetime,
     last_activity,
-    target
+    target,
+    body_status
 FROM har_entries
 """
 

@@ -126,6 +126,10 @@ def run_daemon_server(host: str = "127.0.0.1", port: int = 37650):
             app_module.app_state.service.set_broadcast_queue(queue)
             logger.debug("Broadcast queue wired to WebTapService")
 
+        # Start background services (Chrome watcher)
+        if app_module.app_state:
+            app_module.app_state.service.start()
+
         try:
             await server.serve()
         except (SystemExit, KeyboardInterrupt):

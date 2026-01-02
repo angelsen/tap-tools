@@ -110,7 +110,8 @@ class NetworkService:
             frames_received,
             started_datetime,
             last_activity,
-            target
+            target,
+            body_status
         FROM har_summary
         """
 
@@ -148,7 +149,7 @@ class NetworkService:
         all_rows = aggregate_query(cdps, sql, error_context="query network")
 
         # Sort by last_activity (index 15) for proper cross-target ordering
-        all_rows.sort(key=lambda r: r[15] or "", reverse=(order.lower() == "desc"))
+        all_rows.sort(key=lambda r: r[15] or 0, reverse=(order.lower() == "desc"))
         all_rows = all_rows[:limit]
 
         # Convert to dicts
@@ -170,6 +171,7 @@ class NetworkService:
             "started_datetime",
             "last_activity",
             "target",
+            "body_status",
         ]
 
         return [dict(zip(columns, row)) for row in all_rows]
@@ -336,17 +338,17 @@ class NetworkService:
             return conn.cdp.fetch_body(request_id)
         else:
             # Search all connections for this request_id
-            errors = []
+            error_results = []
             for conn in self.service.connections.values():
                 result = conn.cdp.fetch_body(request_id)
                 if result and "error" not in result:
                     return result
                 if result and "error" in result:
-                    errors.append(result["error"])
+                    error_results.append(result)
 
-            # All failed - return first error
-            if errors:
-                return {"error": errors[0]}
+            # All failed - return first error (preserve capture metadata)
+            if error_results:
+                return error_results[0]
             return None
 
     def fetch_websocket_frames(self, request_id: str, target: str | None = None) -> dict | None:
@@ -370,7 +372,7 @@ class NetworkService:
             json_extract(event, '$.params.response') as frame
         FROM events
         WHERE method IN ('Network.webSocketFrameSent', 'Network.webSocketFrameReceived')
-          AND json_extract_string(event, '$.params.requestId') = ?
+          AND request_id = ?
         ORDER BY timestamp ASC
         """
 
@@ -523,7 +525,7 @@ class NetworkService:
             result = cdp.query(
                 """
                 SELECT
-                    json_extract_string(event, '$.params.requestId') as next_id
+                    request_id as next_id
                 FROM events
                 WHERE method = 'Network.requestWillBeSent'
                   AND json_extract_string(event, '$.params.redirectResponse.url') = ?
@@ -652,6 +654,10 @@ class NetworkService:
             content["error"] = body_result["error"]
         else:
             content["text"] = None
+
+        # Include capture metadata if present (timing diagnostics)
+        if body_result and "capture" in body_result:
+            content["capture"] = body_result["capture"]
 
         if chain_ids:
             content["chain"] = chain_ids

@@ -249,15 +249,13 @@ def start_daemon() -> None:
     """
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Check pidfile first
+    # Check for existing daemon (pidfile or port scan)
     if daemon_running():
-        print(f"Daemon already running (pid: {PIDFILE.read_text().strip()})")
-        sys.exit(1)
-
-    # Scan ports for orphaned daemon (pidfile missing but daemon alive)
-    existing_port = _discover_daemon_port()
-    if existing_port is not None:
-        print(f"Daemon already running on port {existing_port} (pidfile was missing)")
+        if PIDFILE.exists():
+            print(f"Daemon already running (pid: {PIDFILE.read_text().strip()})")
+        else:
+            existing_port = _discover_daemon_port()
+            print(f"Daemon already running on port {existing_port} (pidfile was missing)")
         sys.exit(1)
 
     port = _find_available_port()
