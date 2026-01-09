@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.13.0] - 2026-01-10
+
+### Added
 - **Auto-port for launch commands**: `run-chrome` and `setup-android` auto-assign ports from 37650+ range
 - **Incognito mode**: `run-chrome --private` launches Chrome in incognito
 - **Shared port utilities**: `webtap/utils/ports.py` with `find_available_port()` and `is_port_available()`
