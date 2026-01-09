@@ -162,10 +162,11 @@ class WebTapService:
         # Event count - aggregate from all connections
         event_count = self.event_count
 
-        # Fetch state
-        fetch_enabled = self.fetch.enabled
-        fetch_rules = self.fetch.rules.to_dict() if fetch_enabled else None
-        capture_count = self.fetch.capture_count if fetch_enabled else 0
+        # Fetch state (now always-on capture with per-target rules)
+        fetch_status = self.fetch.get_status()
+        fetch_enabled = fetch_status["capture"]
+        fetch_rules = fetch_status["rules"] if fetch_status["rules"] else None
+        capture_count = fetch_status["capture_count"]
 
         # Filter state (convert to immutable tuples)
         fm = self.filters
@@ -615,12 +616,8 @@ class WebTapService:
         cdp.set_disconnect_callback(lambda code, reason: self._handle_unexpected_disconnect(target_id, code, reason))
         cdp.set_broadcast_callback(self._trigger_broadcast)
 
-        # If fetch is enabled globally, enable it on this new connection
-        if self.fetch.enabled:
-            try:
-                cdp.execute("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
-            except Exception:
-                pass  # Non-fatal
+        # Enable fetch capture on this connection (if globally enabled)
+        self.fetch.enable_on_target(target_id, cdp)
 
         # Register body capture callback to capture bodies before page navigation
         self._register_body_capture_callback(cdp)
@@ -640,6 +637,13 @@ class WebTapService:
         Args:
             target: Target ID to disconnect
         """
+        # Get CDP before disconnect (for cleanup)
+        conn = self.conn_mgr.get(target)
+        cdp = conn.cdp if conn else None
+
+        # Clean up fetch state BEFORE disconnect
+        self.fetch.cleanup_target(target, cdp)
+
         # Delegate to ConnectionManager (handles state, CDP cleanup, locking)
         disconnected = self.conn_mgr.disconnect(target)
         if not disconnected:
@@ -656,15 +660,12 @@ class WebTapService:
         Pure domain logic - performs full cleanup.
         State machine transitions are handled by RPC handlers.
         """
-        # Disconnect all connections
+        # Disconnect all connections (fetch cleanup happens per-target via disconnect_target)
         targets_to_disconnect = list(self.connections.keys())
         for target in targets_to_disconnect:
             self.disconnect_target(target)
 
-        # Clean up services
-        if self.fetch.enabled:
-            self.fetch.disable()
-
+        # Clean up DOM service
         self.dom.clear_selections()
         self.dom.cleanup()
 
@@ -808,6 +809,9 @@ class WebTapService:
             if not conn:
                 return  # Already cleaned up
 
+            # Clean up fetch state (CDP already dead, pass None)
+            self.fetch.cleanup_target(target, cdp=None)
+
             # Remove from tracked targets if present
             self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
 
@@ -906,7 +910,7 @@ class WebTapService:
             import time
 
             # Skip if Fetch capture is handling bodies (avoid duplicate capture)
-            if self.fetch.enabled and self.fetch.rules.capture:
+            if self.fetch.capture_enabled:
                 return
 
             params = event.get("params", {})

@@ -8,12 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Auto-port for launch commands**: `run-chrome` and `setup-android` auto-assign ports from 37650+ range
+- **Incognito mode**: `run-chrome --private` launches Chrome in incognito
+- **Shared port utilities**: `webtap/utils/ports.py` with `find_available_port()` and `is_port_available()`
+- **TIPS.md parameter reference**: Documents target vs row ID, command signatures, REPL-only commands
 
 ### Changed
-
-### Fixed
+- **Fetch API simplified**: Capture enabled by default on connect; block/mock rules are per-target
+- **Unified fetch RPC**: Single `fetch()` method replaces `fetch.enable()`/`fetch.disable()`
+- **Daemon stop robustness**: Discovers PID via health endpoint when pidfile missing
+- **Daemon start messaging**: Shows port and PID when already running
+- **TIPS.md**: Updated examples with correct signature order, removed REPL-only command tips
+- **Extension intercept toggle**: Simplified to single `fetch()` call
 
 ### Removed
+- **requests dependency**: Replaced with httpx (already present)
+- **websockets dependency**: Unused
 
 ## [0.12.0] - 2025-12-27
 

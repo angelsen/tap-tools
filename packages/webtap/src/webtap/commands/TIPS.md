@@ -9,6 +9,57 @@ All commands have these pre-imported (no imports needed!):
 - **Text:** re, difflib, textwrap, html
 - **Utils:** datetime, collections, itertools, pprint, ast
 
+## Parameter Reference
+
+### Target vs Row ID
+- **Target ID**: Chrome page identifier (e.g., `"9222:abc123"`) - from `pages()` output
+- **Row ID**: Integer from `network()` or `console()` output - used with `request()`, `entry()`
+
+### Commands with `target` parameter
+| Command | Signature | Target Position |
+|---------|-----------|-----------------|
+| `js` | `js(code, target, ...)` | REQUIRED, 2nd |
+| `navigate` | `navigate(url, target)` | REQUIRED, 2nd |
+| `reload` | `reload(target, ...)` | REQUIRED, 1st |
+| `back` | `back(target)` | REQUIRED, 1st |
+| `forward` | `forward(target)` | REQUIRED, 1st |
+| `network` | `network(target=None, ...)` | OPTIONAL, 1st |
+| `console` | `console(target=None, ...)` | OPTIONAL, 1st |
+
+### Commands WITHOUT `target`
+| Command | Key Parameters |
+|---------|----------------|
+| `request` | `request(id, fields, expr, output)` |
+| `entry` | `entry(id, fields, expr, output)` |
+| `to_model` | `to_model(id, output, model_name, ...)` |
+| `quicktype` | `quicktype(id, output, type_name, ...)` |
+| `fetch` | `fetch(rules)` |
+| `selections` | `selections(expr)` |
+| `filters` | `filters(add, remove, enable, disable, hide)` |
+| `targets` | `targets()` - show connected targets |
+
+### REPL-Only Commands (not exposed via MCP)
+| Command | Purpose |
+|---------|---------|
+| `connect` | `connect(target="")` - connect to Chrome page |
+| `disconnect` | `disconnect(target="")` - disconnect from Chrome |
+| `pages` | `pages()` - list available pages |
+| `status` | `status()` - full connection status |
+| `page` | `page()` - current page info |
+| `ports` | `ports()` - manage debug ports |
+
+### Connected Target Context
+`network()` and `console()` responses include a `targets` field with all connected targets:
+```python
+{
+    "targets": [
+        {"target": "9222:abc123", "title": "My Page", "url": "https://..."}
+    ],
+    "requests": [...]  # or "messages": [...]
+}
+```
+Use `targets()` resource when there's no traffic yet to check what's connected.
+
 ## Commands
 
 ### request
@@ -51,8 +102,8 @@ to_model(5, "models/clean.py", "Clean", expr="{k: v for k, v in json.loads(body)
 ```
 
 #### Tips
-- **Preview body:** `request(id, ["response.content"])` - check structure before generating
-- **Find requests:** `network(target, url="*api*")` - locate API calls
+- **Preview body:** `request(5, ["response.content"])` - check structure before generating (5 = row ID)
+- **Find requests:** `network(url="*api*")` - locate API calls
 - **Form data:** `field="request.postData"` with `expr="dict(urllib.parse.parse_qsl(body))"`
 - **Nested extraction:** `json_path="data[0]"` for JSON with wrapper objects
 - **Custom transforms:** `expr` has `body` (str) variable available
@@ -80,33 +131,33 @@ quicktype(5, "types.ts", "User", options={"readonly": True})
 ```
 
 #### Tips
-- **Preview body:** `request(id, ["response.content"])` - check structure before generating
-- **Find requests:** `network(target, url="*api*")` - locate API calls
+- **Preview body:** `request(5, ["response.content"])` - check structure before generating (5 = row ID)
+- **Find requests:** `network(url="*api*")` - locate API calls
 - **Form data:** `field="request.postData"` with `expr="dict(urllib.parse.parse_qsl(body))"`
 - **Nested extraction:** `json_path="data[0]"` for JSON with wrapper objects
 - **Languages:** .ts/.go/.rs/.java/.kt/.swift/.cs/.cpp/.dart/.rb/.json extensions set language
 - **Options:** Dict keys map to CLI flags: `{"readonly": True}` → `--readonly`
 - **Install:** `npm install -g quicktype` if command not found
-- **Pydantic:** Use `to_model(id, "models/model.py", "Model")` for Pydantic v2 instead
+- **Pydantic:** Use `to_model(5, "models/model.py", "Model")` for Pydantic v2 instead
 
 ### network
-Show network requests with full data.
+Show network requests with full data. Use row ID from output with `request()`.
 
 #### Tips
 - **Analyze responses:** `request({id}, ["response.content"])` - fetch response body
 - **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
-- **Parse HTML:** `request({id}, ["response.content"], expr="bs4(data['response']['content']['text'], 'html.parser').find('title').text")`
+- **Parse HTML:** `request({id}, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').find('title').text")`
 - **Extract JSON:** `request({id}, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
-- **Find patterns:** `network(target, url="*api*")` - filter by URL pattern
-- **Capture bodies:** `fetch({"capture": True})` - guaranteed body capture before eviction
+- **Find patterns:** `network(url="*api*")` - filter by URL pattern
+- **Auto-capture:** Response bodies captured by default on connect
 
 ### console
-Show console messages from a target.
+Show console messages. Use `target` to filter by specific Chrome tab.
 
 #### Tips
-- **View messages:** `console(target)` - show console output from target
-- **Check network:** `network(target)` - may show failed requests causing errors
-- **Debug with js:** `js(target, "console.log('debug:', myVar)")` - add console output
+- **View messages:** `console()` or `console("9222:abc123")` - show console output
+- **Check network:** `network()` - may show failed requests causing errors
+- **Debug with js:** `js("console.log('debug:', myVar)", "9222:abc123")` - add console output
 - **Drill down:** `entry({id})` - view full console entry details with stack trace
 
 ### entry
@@ -128,7 +179,7 @@ entry(5, ["*"], output="error.json")  # Export to file
 - **Field patterns:** `["stackTrace"]`, `["args.*"]`, `["args.0"]`
 - **Expression:** `expr` has access to selected data as `data` variable
 - **Stack traces:** Automatically formatted as `at funcName (file:line:col)`
-- **Debug errors:** `console(target)` then `entry({id})` for full details
+- **Debug errors:** `console()` then `entry(5)` for full details (5 = row ID from console output)
 - **Extract args:** `expr="data['args'][0]['value']"` - get first argument value
 
 ### js
@@ -137,30 +188,30 @@ Execute JavaScript in the browser. Uses fresh scope by default (REPL mode).
 #### Code Style
 Both expressions and declarations work in default mode:
 ```python
-js(target, "document.title")                           # ✓ Expression
-js(target, "const x = 1; x + 1")                       # ✓ Multi-statement
-js(target, "[...document.links].map(a => a.href)")    # ✓ Chained expression
-js(target, "let arr = [1,2,3]; arr.map(x => x*2)")    # ✓ Declaration + expression
+js("document.title", "9222:abc123")                           # ✓ Expression
+js("const x = 1; x + 1", "9222:abc123")                       # ✓ Multi-statement
+js("[...document.links].map(a => a.href)", "9222:abc123")    # ✓ Chained expression
+js("let arr = [1,2,3]; arr.map(x => x*2)", "9222:abc123")    # ✓ Declaration + expression
 ```
 
 #### Scope Behavior
 **Default (fresh scope)** - Each call runs in REPL mode, isolated scope:
 ```python
-js(target, "const x = 1; x")     # ✓ Returns 1
-js(target, "const x = 2; x")     # ✓ Returns 2 (no redeclaration error)
+js("const x = 1; x", "9222:abc123")     # ✓ Returns 1
+js("const x = 2; x", "9222:abc123")     # ✓ Returns 2 (no redeclaration error)
 ```
 
 **Persistent scope** - Variables survive across calls (global scope):
 ```python
-js(target, "var data = {count: 0}", persist=True)    # data persists
-js(target, "data.count++", persist=True)              # Modifies data
-js(target, "data.count", persist=True)                # Returns 1
+js("var data = {count: 0}", "9222:abc123", persist=True)    # data persists
+js("data.count++", "9222:abc123", persist=True)              # Modifies data
+js("data.count", "9222:abc123", persist=True)                # Returns 1
 ```
 
 **With browser element** - Fresh scope with `element` variable bound:
 ```python
-js(target, "element.offsetWidth", selection=1)       # Use element #1
-js(target, "element.classList", selection=2)         # Use element #2
+js("element.offsetWidth", "9222:abc123", selection=1)       # Use element #1
+js("element.classList", "9222:abc123", selection=2)         # Use element #2
 ```
 
 Note: `selection` and `persist=True` cannot be combined (use manual element binding).
@@ -168,77 +219,65 @@ Note: `selection` and `persist=True` cannot be combined (use manual element bind
 #### Examples
 ```python
 # Basic queries
-js(target, "document.title")                           # Get page title
-js(target, "[...document.links].map(a => a.href)")    # Get all links
-js(target, "document.body.innerText.length")           # Text length
+js("document.title", "9222:abc123")                           # Get page title
+js("[...document.links].map(a => a.href)", "9222:abc123")    # Get all links
+js("document.body.innerText.length", "9222:abc123")           # Text length
 
 # Multi-statement
-js(target, "const links = [...document.links]; links.filter(a => a.href.includes('api')).length")
+js("const links = [...document.links]; links.filter(a => a.href.includes('api')).length", "9222:abc123")
 
 # Async operations
-js(target, "fetch('/api').then(r => r.json())", await_promise=True)
+js("fetch('/api').then(r => r.json())", "9222:abc123", await_promise=True)
 
 # DOM manipulation (no return)
-js(target, "document.querySelectorAll('.ad').forEach(e => e.remove())", wait_return=False)
+js("document.querySelectorAll('.ad').forEach(e => e.remove())", "9222:abc123", wait_return=False)
 
 # Persistent state across calls
-js(target, "var apiData = null", persist=True)
-js(target, "fetch('/api').then(r => r.json()).then(d => apiData = d)", persist=True, await_promise=True)
-js(target, "apiData.users.length", persist=True)
+js("var apiData = null", "9222:abc123", persist=True)
+js("fetch('/api').then(r => r.json()).then(d => apiData = d)", "9222:abc123", persist=True, await_promise=True)
+js("apiData.users.length", "9222:abc123", persist=True)
 ```
 
 #### Tips
 - **Fresh scope:** Default prevents const/let redeclaration errors across calls
 - **Persistent state:** Use `persist=True` for multi-step operations or global hooks
 - **No return needed:** Set `wait_return=False` for DOM manipulation or hooks
-- **Browser selections:** Use `selection=N` with browser() to operate on selected elements
-- **Check console:** `console(target)` - see logged messages from JS execution
-- **Hook fetch:** `js(target, "window.fetch = new Proxy(fetch, {apply: (t, _, a) => {console.log(a); return t(...a)}})", persist=True, wait_return=False)`
+- **Browser selections:** Use `selection=N` with selections() to operate on selected elements
+- **Check console:** `console("9222:abc123")` - see logged messages from JS execution
+- **Hook fetch:** `js("window.fetch = new Proxy(fetch, {apply: (t, _, a) => {console.log(a); return t(...a)}})", "9222:abc123", persist=True, wait_return=False)`
 
 ### fetch
-Control fetch interception with declarative rules for body capture, blocking, and mocking.
+Control fetch interception. Capture is enabled by default on connect. Block/mock rules are per-target.
 
 #### Examples
 ```python
-fetch({"capture": True})                    # Capture all response bodies
-fetch({"block": ["*tracking*", "*ads*"]})  # Block matching URLs
-fetch({"mock": {"*api*": '{"ok":1}'}})     # Mock responses
-fetch({"capture": True, "block": ["*ads*"]}) # Combine rules
-fetch({})                                   # Disable all rules
-fetch()                                     # Show current rules
+fetch()                                     # Show capture state + per-target rules
+fetch({"capture": False})                   # Disable capture globally
+fetch({"capture": True})                    # Re-enable capture globally
+fetch({"mock": {"*api*": '{"ok":1}'}, "target": "9222:abc123"})   # Mock for target
+fetch({"block": ["*tracking*", "*ads*"], "target": "9222:abc123"}) # Block for target
+fetch({"target": "9222:abc123"})            # Clear rules for target
 ```
 
 #### Tips
-- **Capture bodies:** `fetch({"capture": True})` - guaranteed capture before Chrome evicts
-- **View bodies:** `request({id}, ["response.content"])` - inspect captured responses
-- **Block requests:** `fetch({"block": ["*pattern*"]})` - fail matching URLs
-- **Mock APIs:** `fetch({"mock": {"*api*": '{"test":1}'}})` - return fake responses
-- **Custom status:** `fetch({"mock": {"*api*": {"body": "...", "status": 404}}})`
-- **Combine rules:** All rules can be combined in one dict
+- **Auto-capture:** Response bodies captured by default on connect
+- **View bodies:** `request(5, ["response.content"])` - inspect captured responses (5 = row ID)
+- **Block requests:** `fetch({"block": ["*pattern*"], "target": "9222:abc123"})` - fail matching URLs
+- **Mock APIs:** `fetch({"mock": {"*api*": '{"test":1}'}, "target": "9222:abc123"})` - return fake responses
+- **Custom status:** `fetch({"mock": {"*api*": {"body": "...", "status": 404}}, "target": "9222:abc123"})`
+- **Per-target:** Block/mock rules require `"target"` parameter
 - **Priority:** mock > block > capture (first match wins)
+- **Clean slate:** Rules cleared on disconnect or crash
 
 ### page
 Get current page information and navigate.
 
 #### Tips
-- **Navigate:** `navigate(target, "https://example.com")` - go to URL
-- **Reload:** `reload(target)` or `reload(target, ignore_cache=True)` - refresh page
-- **History:** `back(target)`, `forward(target)` - navigate history
-- **Execute JS:** `js(target, "document.title")` - run JavaScript in page
-- **Monitor traffic:** `network(target)` - see requests, `console(target)` - see messages
-- **Switch page:** `pages()` then `connect("...")` - change to another tab
-- **Full status:** `status()` - connection details and event count
-
-### pages
-List available Chrome pages from all registered ports.
-
-#### Tips
-- **Connect to page:** `connect("{target}")` - connect by target ID from table
-- **Target format:** `{port}:{short-id}` (e.g., `9222:f8134d`, `9224:24`)
-- **Switch pages:** Just call `connect("...")` again - no need to disconnect first
-- **Check status:** `status()` - see current connection and event count
-- **Reconnect:** If connection lost, run `pages()` and `connect("...")` again
-- **Multi-port:** Shows pages from all ports (desktop 9222, Android 9224, etc.)
+- **Navigate:** `navigate("https://example.com", "9222:abc123")` - go to URL
+- **Reload:** `reload("9222:abc123")` or `reload("9222:abc123", ignore_cache=True)` - refresh page
+- **History:** `back("9222:abc123")`, `forward("9222:abc123")` - navigate history
+- **Execute JS:** `js("document.title", "9222:abc123")` - run JavaScript in page
+- **Monitor traffic:** `network()` - see requests, `console()` - see messages
 
 ### selections
 Browser element selections with prompt and analysis.
@@ -258,7 +297,7 @@ selections(expr="{k: v['selector'] for k, v in data['selections'].items()}")  # 
 #### Tips
 - **Extract HTML:** `selections(expr="data['selections']['1']['outerHTML']")` - get element HTML
 - **Get CSS selector:** `selections(expr="data['selections']['1']['selector']")` - unique selector
-- **Use with js():** `js(target, "element.offsetWidth", selection=1)` - integrate with JavaScript execution
+- **Use with js():** `js("element.offsetWidth", "9222:abc123", selection=1)` - integrate with JavaScript execution
 - **Access styles:** `selections(expr="data['selections']['1']['styles']['display']")` - computed CSS
 - **Get attributes:** `selections(expr="data['selections']['1']['preview']")` - tag, id, classes
 - **Inspect in prompts:** Use `@webtap:webtap://selections` resource in Claude Code for AI analysis
@@ -269,14 +308,4 @@ Show connected targets and their tracking status.
 #### Tips
 - **Filter queries:** `network(target="{target}")` - query specific target
 - **Multi-target:** When tracked, queries aggregate from tracked targets only
-- **Target format:** `{port}:{short-id}` from `pages()` output
-- **Check pages:** `pages()` - see all available pages including disconnected
-
-### setup-android
-Configure ADB port forwarding for Android Chrome debugging.
-
-#### Tips
-- **Prerequisites:** USB debugging enabled, device connected
-- **Quick setup:** `setup-android -y` - auto-configure default port 9223
-- **Custom port:** `setup-android -y -p 9224`
-- **Multiple devices:** `setup-android -y -d <serial>` - specify device
+- **Target format:** `"port:short-id"` (e.g., `"9222:abc123"`)

@@ -2,7 +2,6 @@
 
 import signal
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -13,12 +12,7 @@ import typer
 
 from webtap.app import app
 from webtap.commands._builders import success_response, error_response
-
-
-def _is_port_in_use(port: int) -> bool:
-    """Check if port is already bound."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
+from webtap.utils.ports import find_available_port, is_port_available
 
 
 def _register_port_with_daemon(state, port: int) -> dict | None:
@@ -46,21 +40,32 @@ def _unregister_port(state, port: int) -> None:
     typer={"name": "run-chrome", "help": "Launch Chrome with debugging enabled"},
     fastmcp={"enabled": False},
 )
-def run_chrome(state, port: int = 9222) -> dict:
+def run_chrome(
+    state,
+    port: Annotated[
+        int | None, typer.Option("--port", "-p", help="Debugging port (auto-assigns from 37650+ if not set)")
+    ] = None,
+    private: Annotated[bool, typer.Option("--private", help="Launch in incognito mode")] = False,
+) -> dict:
     """Launch Chrome with debugging enabled. Blocks until Ctrl+C.
 
     Args:
-        port: Debugging port (default: 9222)
+        port: Debugging port (auto-assigns from 37650+ if not set)
+        private: Launch in incognito mode
 
     Returns:
         Status message when Chrome exits
     """
-    # Check for port conflict before launching
-    if _is_port_in_use(port):
+    # Auto-assign port or validate explicit port
+    if port is None:
+        port = find_available_port()
+        if port is None:
+            return error_response("No available port in range 37650-37669")
+    elif not is_port_available(port):
         return error_response(
             f"Port {port} already in use",
             suggestions=[
-                f"Use different port: webtap run-chrome --port {port + 1}",
+                "Omit --port to auto-assign: webtap run-chrome",
                 "Check existing Chrome: ps aux | grep chrome",
                 f"Kill existing: pkill -f 'remote-debugging-port={port}'",
             ],
@@ -94,7 +99,16 @@ def run_chrome(state, port: int = 9222) -> dict:
     temp_config.mkdir(parents=True, exist_ok=True)
 
     # Launch Chrome (blocking mode - same process group)
-    cmd = [chrome_exe, f"--remote-debugging-port={port}", "--remote-allow-origins=*", f"--user-data-dir={temp_config}"]
+    cmd = [
+        chrome_exe,
+        f"--remote-debugging-port={port}",
+        "--remote-allow-origins=*",
+        f"--user-data-dir={temp_config}",
+        "--disable-search-engine-choice-screen",
+        "--no-first-run",
+    ]
+    if private:
+        cmd.append("--incognito")
     process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # Wait for Chrome to start
@@ -186,14 +200,16 @@ def _get_device_name(serial: str) -> str:
 def setup_android(
     state,
     yes: Annotated[bool, typer.Option("-y", "--yes", help="Auto-configure without prompts")] = False,
-    port: Annotated[int, typer.Option("-p", "--port", help="Local port to forward")] = 9223,
+    port: Annotated[
+        int | None, typer.Option("-p", "--port", help="Local port (auto-assigns from 37650+ if not set)")
+    ] = None,
     device: Annotated[str | None, typer.Option("-d", "--device", help="Device serial")] = None,
 ) -> dict:
     """Set up Android device for Chrome debugging.
 
     Args:
         yes: Auto-configure without prompts (default: False)
-        port: Local port to forward (default: 9223)
+        port: Local port (auto-assigns from 37650+ if not set)
         device: Device serial number (required if multiple devices connected)
 
     Returns:
@@ -212,8 +228,8 @@ def setup_android(
                 "Step 4": "Accept the debugging prompt on device",
             },
             tips=[
-                "webtap setup-android -y  # auto-configure",
-                "webtap setup-android -y -p 9224  # custom port",
+                "webtap setup-android -y  # auto-configure (port 37650+)",
+                "webtap setup-android -y -p 9222  # explicit port",
             ],
         )
 
@@ -227,12 +243,16 @@ def setup_android(
             ],
         )
 
-    # Check for port conflict
-    if _is_port_in_use(port):
+    # Auto-assign port or validate explicit port
+    if port is None:
+        port = find_available_port()
+        if port is None:
+            return error_response("No available port in range 37650-37669")
+    elif not is_port_available(port):
         return error_response(
             f"Port {port} already in use",
             suggestions=[
-                f"Use different port: webtap setup-android -y -p {port + 1}",
+                "Omit -p to auto-assign: webtap setup-android -y",
                 f"Check: lsof -i :{port}",
             ],
         )

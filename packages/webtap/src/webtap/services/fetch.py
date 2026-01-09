@@ -2,7 +2,7 @@
 
 PUBLIC API:
   - FetchService: Request/response interception via CDP Fetch domain
-  - FetchRules: Declarative rules for fetch interception
+  - TargetRules: Per-target block/mock rules
 """
 
 import base64
@@ -22,26 +22,16 @@ _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="fetch-resume")
 
 
 @dataclass
-class FetchRules:
-    """Declarative rules for fetch interception.
+class TargetRules:
+    """Per-target block/mock rules.
 
     Attributes:
-        capture: Whether to capture response bodies before continuing
         block: List of URL patterns to block (fail with BlockedByClient)
         mock: Dict of URL pattern -> response body (or dict with body/status)
     """
 
-    capture: bool = False
     block: list[str] = field(default_factory=list)
     mock: dict[str, str | dict] = field(default_factory=dict)
-
-    def is_empty(self) -> bool:
-        """Check if no rules are configured."""
-        return not self.capture and not self.block and not self.mock
-
-    def to_dict(self) -> dict:
-        """Convert to dict for state snapshot."""
-        return {"capture": self.capture, "block": self.block, "mock": self.mock}
 
 
 def _matches_pattern(url: str, pattern: str) -> bool:
@@ -62,11 +52,10 @@ class FetchService:
     """Fetch interception with declarative rules.
 
     Provides request/response interception via CDP Fetch domain.
-    When rules are active, Fetch.requestPaused events are handled automatically.
+    Capture is enabled by default on connect. Per-target rules for block/mock.
 
     Attributes:
-        enabled: Whether fetch interception is currently enabled
-        rules: Current FetchRules for auto-handling
+        capture_enabled: Global flag - capture on by default
         capture_count: Number of bodies captured this session
         service: WebTapService reference for multi-target operations
     """
@@ -74,9 +63,9 @@ class FetchService:
     def __init__(self):
         """Initialize fetch service."""
         self._lock = threading.Lock()
-        self.enabled = False
-        self.rules: FetchRules = FetchRules()
+        self.capture_enabled = True  # Global, default ON
         self._capture_count = 0
+        self._target_rules: dict[str, TargetRules] = {}  # Per-target
         self.service: "Any" = None
 
     def set_service(self, service: "Any") -> None:
@@ -102,7 +91,7 @@ class FetchService:
 
     # ============= Auto-Resume Callback =============
 
-    def _on_request_paused(self, event: dict, cdp: Any) -> None:
+    def _on_request_paused(self, event: dict, cdp: Any, target: str) -> None:
         """Handle Fetch.requestPaused event - dispatch to thread pool.
 
         This callback runs in the WebSocket receive thread. We CANNOT call
@@ -114,11 +103,12 @@ class FetchService:
         Args:
             event: CDP Fetch.requestPaused event
             cdp: CDPSession to execute commands on
+            target: Target ID for per-target rule lookup
         """
         # Dispatch to thread pool - returns immediately, unblocks WebSocket thread
-        _executor.submit(self._handle_paused_request, event, cdp)
+        _executor.submit(self._handle_paused_request, event, cdp, target)
 
-    def _handle_paused_request(self, event: dict, cdp: Any) -> None:
+    def _handle_paused_request(self, event: dict, cdp: Any, target: str) -> None:
         """Process paused request in thread pool worker.
 
         Runs in separate thread so cdp.execute() calls don't deadlock.
@@ -127,6 +117,7 @@ class FetchService:
         Args:
             event: CDP Fetch.requestPaused event
             cdp: CDPSession to execute commands on
+            target: Target ID for per-target rule lookup
         """
         params = event.get("params", {})
         request_id = params.get("requestId")
@@ -148,22 +139,26 @@ class FetchService:
                 logger.warning(f"Failed to continue request {request_id}: {e}")
             return
 
-        # Response stage - apply rules
+        # Response stage - apply target-specific rules first, then global capture
 
-        # Check mock patterns (first match wins)
-        for pattern, mock_value in self.rules.mock.items():
-            if _matches_pattern(url, pattern):
-                self._fulfill_with_mock(cdp, request_id, mock_value, params)
-                return
+        # Get rules for this target (if any)
+        rules = self._target_rules.get(target)
 
-        # Check block patterns
-        for pattern in self.rules.block:
-            if _matches_pattern(url, pattern):
-                self._fail_request(cdp, request_id)
-                return
+        if rules:
+            # Check mock patterns (target-specific, first match wins)
+            for pattern, mock_value in rules.mock.items():
+                if _matches_pattern(url, pattern):
+                    self._fulfill_with_mock(cdp, request_id, mock_value, params)
+                    return
 
-        # Capture body if enabled
-        if self.rules.capture:
+            # Check block patterns (target-specific)
+            for pattern in rules.block:
+                if _matches_pattern(url, pattern):
+                    self._fail_request(cdp, request_id)
+                    return
+
+        # Capture body if globally enabled
+        if self.capture_enabled:
             self._capture_and_continue(cdp, request_id, params)
         else:
             # Default: continue without capture
@@ -262,100 +257,119 @@ class FetchService:
         except Exception as e:
             logger.error(f"Failed to block request {request_id}: {e}")
 
-    # ============= Enable/Disable =============
+    # ============= Lifecycle Methods =============
 
-    def enable(self, rules: dict | None = None) -> dict[str, Any]:
-        """Enable fetch interception with declarative rules.
+    def enable_on_target(self, target: str, cdp: Any) -> None:
+        """Enable fetch capture on a newly connected target.
+
+        Called from connect_to_page(). Only enables if capture_enabled.
 
         Args:
-            rules: Dict with capture, block, mock keys. Default: {"capture": True}
-
-        Returns:
-            Status dict with enabled state and rules
+            target: Target ID for this connection
+            cdp: CDPSession to enable Fetch on
         """
-        with self._lock:
-            if not self.service:
-                return {"enabled": False, "error": "No service"}
-
-            # Parse rules
-            rules = rules or {"capture": True}
-            self.rules = FetchRules(
-                capture=rules.get("capture", False),
-                block=rules.get("block", []),
-                mock=rules.get("mock", {}),
-            )
-
-            # If rules are empty, just disable
-            if self.rules.is_empty():
-                return self._disable_internal()
-
-            try:
-                # Always use Response stage only (no body capture in Request stage)
-                patterns = [{"urlPattern": "*", "requestStage": "Response"}]
-
-                # Enable on all current connections and register callbacks
-                for conn in self.service.connections.values():
-                    conn.cdp.execute("Fetch.enable", {"patterns": patterns})
-                    # Register callback with cdp passed via closure
-                    cdp = conn.cdp
-                    conn.cdp.register_event_callback(
-                        "Fetch.requestPaused", lambda event, cdp=cdp: self._on_request_paused(event, cdp)
-                    )
-
-                self.enabled = True
-                logger.info(f"Fetch interception enabled with rules: {self.rules.to_dict()}")
-
-                self._trigger_broadcast()
-                return {
-                    "enabled": True,
-                    "rules": self.rules.to_dict(),
-                    "capture_count": self._capture_count,
-                }
-
-            except Exception as e:
-                logger.error(f"Failed to enable fetch: {e}")
-                return {"enabled": False, "error": str(e)}
-
-    def _disable_internal(self) -> dict[str, Any]:
-        """Internal disable - called from within lock."""
-        if not self.enabled:
-            return {"enabled": False}
+        if not self.capture_enabled:
+            return
 
         try:
-            # Disable on all connections, unregister callbacks, reset counts
-            for conn in self.service.connections.values():
-                try:
-                    # Unregister callback (can't easily reference the exact lambda,
-                    # but clearing events list is safe)
-                    conn.cdp._event_callbacks.pop("Fetch.requestPaused", None)
-                    conn.cdp.execute("Fetch.disable")
-                    conn.cdp._paused_count = 0
-                except Exception as e:
-                    logger.warning(f"Failed to disable fetch on {conn.target}: {e}")
-
-            self.enabled = False
-            self.rules = FetchRules()
-            self._capture_count = 0
-
-            logger.info("Fetch interception disabled")
-            self._trigger_broadcast()
-            return {"enabled": False}
-
+            patterns = [{"urlPattern": "*", "requestStage": "Response"}]
+            cdp.execute("Fetch.enable", {"patterns": patterns})
+            cdp.register_event_callback(
+                "Fetch.requestPaused",
+                lambda event, cdp=cdp, target=target: self._on_request_paused(event, cdp, target),
+            )
+            logger.debug(f"Fetch capture enabled on {target}")
         except Exception as e:
-            logger.error(f"Failed to disable fetch: {e}")
-            return {"enabled": self.enabled, "error": str(e)}
+            logger.warning(f"Failed to enable fetch on {target}: {e}")
 
-    def disable(self) -> dict[str, Any]:
-        """Disable fetch interception on all connected targets.
+    def cleanup_target(self, target: str, cdp: Any | None = None) -> None:
+        """Clean up fetch state for a disconnected target.
 
-        Returns:
-            Status dict with disabled state
+        Called from disconnect_target() and _handle_unexpected_disconnect().
+
+        Args:
+            target: Target ID to clean up
+            cdp: CDPSession to disable Fetch on (None if already dead)
         """
         with self._lock:
+            self._target_rules.pop(target, None)
+
+        if cdp:
+            try:
+                cdp._event_callbacks.pop("Fetch.requestPaused", None)
+                cdp._paused_count = 0
+                cdp.execute("Fetch.disable")
+            except Exception:
+                pass  # CDP may already be dead
+
+        logger.debug(f"Fetch cleanup completed for {target}")
+
+    def set_capture(self, enabled: bool) -> dict:
+        """Toggle global capture on/off.
+
+        Args:
+            enabled: Whether to enable capture globally
+
+        Returns:
+            Current status dict
+        """
+        with self._lock:
+            if enabled == self.capture_enabled:
+                return self.get_status()
+
+            self.capture_enabled = enabled
+
             if not self.service:
-                return {"enabled": False, "error": "No service"}
+                return self.get_status()
 
-            return self._disable_internal()
+            # Enable/disable on all current connections
+            for conn in self.service.connections.values():
+                try:
+                    if enabled:
+                        self.enable_on_target(conn.target, conn.cdp)
+                    else:
+                        conn.cdp._event_callbacks.pop("Fetch.requestPaused", None)
+                        conn.cdp.execute("Fetch.disable")
+                except Exception:
+                    pass
+
+            self._trigger_broadcast()
+            return self.get_status()
+
+    def set_rules(self, target: str, block: list[str] | None = None, mock: dict | None = None) -> dict:
+        """Set block/mock rules for a specific target.
+
+        Args:
+            target: Target ID to set rules for
+            block: List of URL patterns to block (None to keep existing)
+            mock: Dict of URL pattern -> response body (None to keep existing)
+
+        Returns:
+            Current status dict
+        """
+        with self._lock:
+            if block is None and mock is None:
+                # Clear rules for target
+                self._target_rules.pop(target, None)
+            else:
+                self._target_rules[target] = TargetRules(
+                    block=block or [],
+                    mock=mock or {},
+                )
+            self._trigger_broadcast()
+            return self.get_status()
+
+    def get_status(self) -> dict:
+        """Get current fetch status.
+
+        Returns:
+            Status dict with capture state and per-target rules
+        """
+        return {
+            "capture": self.capture_enabled,
+            "capture_count": self._capture_count,
+            "rules": {target: {"block": r.block, "mock": r.mock} for target, r in self._target_rules.items()},
+        }
 
 
-__all__ = ["FetchRules", "FetchService"]
+__all__ = ["TargetRules", "FetchService"]

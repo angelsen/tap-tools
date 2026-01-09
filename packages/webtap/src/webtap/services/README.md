@@ -27,13 +27,16 @@ Main orchestrator that manages all domain-specific services and CDP connection.
 Manages HTTP request/response interception with declarative rules.
 
 **Key Properties:**
-- `enabled` - Whether interception is active
-- `rules` - FetchRules (capture, block, mock)
+- `capture_enabled` - Global capture flag (default: True)
 - `capture_count` - Bodies captured this session
+- `_target_rules` - Per-target block/mock rules
 
 **Key Methods:**
-- `enable(rules)` / `disable()` - Control interception
-- Rules auto-handle paused requests (no manual continue/fail)
+- `enable_on_target(target, cdp)` - Enable capture on new connection
+- `cleanup_target(target, cdp)` - Clean up on disconnect/crash
+- `set_capture(enabled)` - Toggle global capture
+- `set_rules(target, block, mock)` - Set per-target rules
+- `get_status()` - Current capture state and rules
 
 ### NetworkService (`network.py`)
 Queries network events (requests/responses).

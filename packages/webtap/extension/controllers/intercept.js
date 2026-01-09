@@ -22,11 +22,7 @@ export function init(c, callbacks = {}) {
 
     try {
       const isEnabled = toggle.classList.contains("active");
-      if (isEnabled) {
-        await client.call("fetch.disable");
-      } else {
-        await client.call("fetch.enable", { rules: { capture: true } });
-      }
+      await client.call("fetch", { capture: !isEnabled });
     } catch (err) {
       onError(err);
     }
@@ -36,7 +32,7 @@ export function init(c, callbacks = {}) {
 export function update(state) {
   if (!toggle) return;
 
-  const enabled = state.fetch?.enabled && state.fetch?.rules?.capture;
+  const enabled = state.fetch?.enabled;
   const captureCount = state.fetch?.capture_count || 0;
 
   toggle.classList.toggle("active", enabled);

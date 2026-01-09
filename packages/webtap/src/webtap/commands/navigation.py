@@ -127,7 +127,7 @@ def forward(state, target: str) -> dict:
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "resource", "mime_type": "text/markdown"},
+    fastmcp={"enabled": False},
 )
 def page(state) -> dict:
     """Get current page information."""

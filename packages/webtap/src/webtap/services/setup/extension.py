@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-import requests
+import httpx
 
 from .platform import get_platform_info, ensure_directories
 
@@ -211,7 +211,7 @@ class ExtensionSetupService:
 
             try:
                 logger.info(f"Downloading {filename}")
-                response = requests.get(url, timeout=10)
+                response = httpx.get(url, timeout=10)
                 response.raise_for_status()
 
                 # For manifest.json, validate it's proper JSON
@@ -235,7 +235,7 @@ class ExtensionSetupService:
 
             try:
                 logger.info(f"Downloading {asset_path}")
-                response = requests.get(url, timeout=10)
+                response = httpx.get(url, timeout=10)
                 response.raise_for_status()
 
                 target_file.write_bytes(response.content)

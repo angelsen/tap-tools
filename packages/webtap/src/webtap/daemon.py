@@ -13,7 +13,6 @@ PUBLIC API:
 import logging
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -21,6 +20,7 @@ from pathlib import Path
 
 import httpx
 
+from webtap.utils.ports import find_available_port
 
 logger = logging.getLogger(__name__)
 
@@ -35,46 +35,32 @@ LOG_FILE = STATE_DIR / "daemon.log"
 _cached_daemon_url: str | None = None
 
 
-def _is_port_available(port: int) -> bool:
-    """Check if a port is available for binding.
+def _check_health(port: int) -> dict | None:
+    """Check daemon health endpoint on given port.
 
     Args:
         port: Port number to check
 
     Returns:
-        True if port is available, False otherwise
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-
-
-def _check_health(port: int) -> bool:
-    """Check if daemon health endpoint responds on given port.
-
-    Args:
-        port: Port number to check
-
-    Returns:
-        True if daemon is healthy on this port, False otherwise
+        Health response dict if healthy, None otherwise
     """
     try:
         response = httpx.get(f"http://localhost:{port}/health", timeout=0.5)
-        return response.status_code == 200
+        if response.status_code == 200:
+            return response.json()
+        return None
     except Exception:
-        return False
+        return None
 
 
-def _find_available_port() -> int:
+def _find_daemon_port() -> int:
     """Find an available port for the daemon."""
-    for offset in range(MAX_PORT_TRIES):
-        port = BASE_DAEMON_PORT + offset
-        if _is_port_available(port):
-            return port
-    raise RuntimeError(f"No available daemon port in range {BASE_DAEMON_PORT}-{BASE_DAEMON_PORT + MAX_PORT_TRIES - 1}")
+    port = find_available_port(start=BASE_DAEMON_PORT, max_tries=MAX_PORT_TRIES)
+    if port is None:
+        raise RuntimeError(
+            f"No available daemon port in range {BASE_DAEMON_PORT}-{BASE_DAEMON_PORT + MAX_PORT_TRIES - 1}"
+        )
+    return port
 
 
 def _discover_daemon_port() -> int | None:
@@ -250,15 +236,17 @@ def start_daemon() -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Check for existing daemon (pidfile or port scan)
-    if daemon_running():
-        if PIDFILE.exists():
-            print(f"Daemon already running (pid: {PIDFILE.read_text().strip()})")
+    existing_port = _discover_daemon_port()
+    if existing_port:
+        health = _check_health(existing_port)
+        pid = health.get("pid") if health else None
+        if pid:
+            print(f"Daemon already running on port {existing_port} (pid {pid})")
         else:
-            existing_port = _discover_daemon_port()
-            print(f"Daemon already running on port {existing_port} (pidfile was missing)")
+            print(f"Daemon already running on port {existing_port}")
         sys.exit(1)
 
-    port = _find_available_port()
+    port = _find_daemon_port()
     logger.info(f"Using port {port}")
 
     PIDFILE.write_text(str(os.getpid()))
@@ -277,11 +265,26 @@ def start_daemon() -> None:
 
 def _stop_daemon() -> None:
     """Send SIGTERM to daemon."""
-    if not PIDFILE.exists():
-        raise RuntimeError("Daemon is not running (no pidfile)")
+    pid = None
+
+    # Try pidfile first
+    if PIDFILE.exists():
+        try:
+            pid = int(PIDFILE.read_text().strip())
+        except (ValueError, OSError):
+            pass
+
+    # Fallback: discover via health endpoint
+    if pid is None:
+        port = _discover_daemon_port()
+        if port:
+            health = _check_health(port)
+            pid = health.get("pid") if health else None
+
+    if pid is None:
+        raise RuntimeError("Daemon not running")
 
     try:
-        pid = int(PIDFILE.read_text().strip())
         os.kill(pid, signal.SIGTERM)
         logger.info(f"Sent SIGTERM to daemon (pid: {pid})")
 

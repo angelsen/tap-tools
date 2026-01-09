@@ -5,13 +5,15 @@ from webtap.commands._builders import info_response, rpc_call
 
 _fetch_desc = """Control fetch interception with declarative rules for body capture, blocking, and mocking.
 
+Capture is enabled by default on connect. Block/mock rules are per-target.
+
 Examples:
-  fetch({"capture": True})                    # Capture all response bodies
-  fetch({"block": ["*tracking*", "*ads*"]})  # Block matching URLs
-  fetch({"mock": {"*api*": '{"ok":1}'}})     # Mock responses
-  fetch({"capture": True, "block": ["*ads*"]}) # Combine rules
-  fetch({})                                   # Disable all rules
-  fetch()                                     # Show current rules
+  fetch()                                    # Show capture state + per-target rules
+  fetch({"capture": False})                  # Disable capture globally
+  fetch({"capture": True})                   # Re-enable capture globally
+  fetch({"mock": {"*api*": '{"ok":1}'}, "target": "9222:abc"})  # Mock for target
+  fetch({"block": ["*tracking*"], "target": "9222:abc"})        # Block for target
+  fetch({"target": "9222:abc"})              # Clear rules for target
 """
 
 
@@ -23,73 +25,52 @@ Examples:
 def fetch(state, rules: dict = None) -> dict:  # pyright: ignore[reportArgumentType]
     """Control fetch interception with declarative rules.
 
+    Capture is enabled by default on connect. Block/mock rules are per-target.
+
     Args:
         rules: Dict with rules (None to show status)
-            - {"capture": True} - Capture all response bodies
-            - {"block": ["*pattern*"]} - Block matching URLs
-            - {"mock": {"*pattern*": "body"}} - Mock matching URLs
-            - {} - Disable all rules
             - None - Show current status
+            - {"capture": False} - Disable capture globally
+            - {"capture": True} - Re-enable capture globally
+            - {"block": [...], "target": "..."} - Set block rules for target
+            - {"mock": {...}, "target": "..."} - Set mock rules for target
+            - {"target": "..."} - Clear rules for target
 
     Examples:
-        fetch({"capture": True})                    # Capture bodies
-        fetch({"block": ["*tracking*", "*ads*"]})  # Block patterns
-        fetch({"mock": {"*api*": '{"ok":1}'}})     # Mock responses
-        fetch({"capture": True, "block": ["*ads*"]}) # Combine
-        fetch({})                                   # Disable
-        fetch()                                     # Show status
+        fetch()                                    # Show status
+        fetch({"capture": False})                  # Disable capture
+        fetch({"mock": {"*api*": "..."}, "target": "9222:abc"})  # Mock
+        fetch({"block": ["*tracking*"], "target": "9222:abc"})   # Block
 
     Returns:
         Fetch interception status
     """
-    # Status check (None = show status)
-    if rules is None:
-        status, error = rpc_call(state, "status")
-        if error:
-            return error
-
-        fetch_state = status.get("fetch", {})
-        fetch_enabled = fetch_state.get("enabled", False)
-
-        if not fetch_enabled:
-            return info_response(title="Fetch Status: Disabled", fields={"Status": "Interception disabled"})
-
-        fetch_rules = fetch_state.get("rules", {})
-        capture_count = fetch_state.get("capture_count", 0)
-
-        fields = {"Status": "Enabled"}
-        if fetch_rules.get("capture"):
-            fields["Capture"] = f"On ({capture_count} bodies)"
-        if fetch_rules.get("block"):
-            fields["Block"] = f"{len(fetch_rules['block'])} patterns"
-        if fetch_rules.get("mock"):
-            fields["Mock"] = f"{len(fetch_rules['mock'])} patterns"
-
-        return info_response(title="Fetch Status: Enabled", fields=fields)
-
-    # Disable if empty dict
-    if not rules:
-        _, error = rpc_call(state, "fetch.disable")
-        if error:
-            return error
-        return info_response(title="Fetch Disabled", fields={"Status": "Interception disabled"})
-
-    # Enable with rules
-    result, error = rpc_call(state, "fetch.enable", rules=rules)
+    # Call unified RPC method
+    result, error = rpc_call(state, "fetch", rules=rules)
     if error:
         return error
 
-    enabled_rules = result.get("rules", {})
-    fields = {"Status": "Enabled"}
+    # Format response based on result
+    capture = result.get("capture", True)
+    capture_count = result.get("capture_count", 0)
+    rules_by_target = result.get("rules", {})
 
-    if enabled_rules.get("capture"):
-        fields["Capture"] = "On"
-    if enabled_rules.get("block"):
-        fields["Block"] = f"{len(enabled_rules['block'])} patterns"
-    if enabled_rules.get("mock"):
-        fields["Mock"] = f"{len(enabled_rules['mock'])} patterns"
+    fields = {"Capture": f"{'On' if capture else 'Off'} ({capture_count} bodies)"}
 
-    return info_response(title="Fetch Enabled", fields=fields)
+    # Add per-target rules if any
+    for target, target_rules in rules_by_target.items():
+        block = target_rules.get("block", [])
+        mock = target_rules.get("mock", {})
+        parts = []
+        if block:
+            parts.append(f"{len(block)} block")
+        if mock:
+            parts.append(f"{len(mock)} mock")
+        if parts:
+            fields[target] = ", ".join(parts)
+
+    title = f"Fetch: Capture {'On' if capture else 'Off'}"
+    return info_response(title=title, fields=fields)
 
 
 __all__ = ["fetch"]

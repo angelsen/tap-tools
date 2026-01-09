@@ -209,8 +209,8 @@ body {
 }
 
 .inspect-btn.inspecting {
-  background: var(--color-error);
-  border-color: var(--color-error);
+  background: var(--color-error-bg);
+  border-color: var(--color-error-bg);
   color: var(--color-text-inverse);
 }
 
@@ -228,9 +228,11 @@ body {
   min-width: 6em;
 }
 
-#interceptToggle.active {
-  color: var(--color-success);
-  border-color: var(--color-success);
+#interceptToggle.active,
+#captureToggle.active {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-bg);
+  color: var(--color-text-inverse);
 }
 
 .dropdown-menu {
@@ -590,8 +592,8 @@ input[type="checkbox"] {
 
 button.active-selection {
   background: var(--color-error-bg);
-  color: white;
   border-color: var(--color-error-bg);
+  color: var(--color-text-inverse);
 }
 
 button.active-selection:hover:not(:disabled) {

@@ -16,6 +16,18 @@ _CONNECTED_ONLY = ["connected"]
 __all__ = ["register_handlers"]
 
 
+def _get_connected_targets(ctx: RPCContext) -> list[dict]:
+    """Get minimal target info for response embedding."""
+    return [
+        {
+            "target": conn.target,
+            "title": conn.page_info.get("title", ""),
+            "url": conn.page_info.get("url", ""),
+        }
+        for conn in ctx.service.conn_mgr.get_all()
+    ]
+
+
 def _resolve_cdp_session(ctx: RPCContext, target: str | None):
     """Resolve target to CDPSession.
 
@@ -61,8 +73,7 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("browser.stopInspect", requires_state=_CONNECTED_STATES)(_browser_stop_inspect)
     rpc.method("browser.clear", requires_state=_CONNECTED_STATES)(_browser_clear)
 
-    rpc.method("fetch.enable", requires_state=_CONNECTED_STATES)(_fetch_enable)
-    rpc.method("fetch.disable", requires_state=_CONNECTED_STATES)(_fetch_disable)
+    rpc.method("fetch")(_fetch)
 
     rpc.method("network", requires_state=_CONNECTED_STATES, broadcasts=False)(_network)
     rpc.method("request", requires_state=_CONNECTED_STATES, broadcasts=False)(_request)
@@ -185,16 +196,41 @@ def _browser_clear(ctx: RPCContext) -> dict:
     return {"success": True, "selections": {}}
 
 
-def _fetch_enable(ctx: RPCContext, rules: dict | None = None) -> dict:
-    """Enable fetch request interception with declarative rules."""
-    result = ctx.service.fetch.enable(rules=rules)
-    return {**result}
+def _fetch(ctx: RPCContext, rules: dict | None = None) -> dict:
+    """Handle fetch configuration.
 
+    API:
+        fetch()                              -> get status
+        fetch({"capture": False})            -> disable capture globally
+        fetch({"capture": True})             -> re-enable capture globally
+        fetch({"block": [...], "target": "..."}) -> set block rules for target
+        fetch({"mock": {...}, "target": "..."})  -> set mock rules for target
+        fetch({"target": "..."})             -> clear rules for target
+    """
+    if rules is None:
+        # No args - return status
+        return ctx.service.fetch.get_status()
 
-def _fetch_disable(ctx: RPCContext) -> dict:
-    """Disable fetch request interception."""
-    result = ctx.service.fetch.disable()
-    return {**result}
+    # Check for global capture toggle
+    if "capture" in rules and len(rules) == 1:
+        return ctx.service.fetch.set_capture(rules["capture"])
+
+    # Check for target-specific rules
+    if "target" in rules:
+        target = rules["target"]
+        if target not in ctx.service.connections:
+            raise RPCError(ErrorCode.INVALID_PARAMS, f"Target '{target}' not connected")
+        return ctx.service.fetch.set_rules(
+            target=target,
+            block=rules.get("block"),
+            mock=rules.get("mock"),
+        )
+
+    # Block/mock without target is error
+    if "block" in rules or "mock" in rules:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "block/mock rules require 'target' parameter")
+
+    return ctx.service.fetch.get_status()
 
 
 def _network(
@@ -221,7 +257,7 @@ def _network(
         order=order,
         target=target,
     )
-    return {"requests": requests}
+    return {"targets": _get_connected_targets(ctx), "requests": requests}
 
 
 def _request(ctx: RPCContext, id: int, target: str | None = None, fields: list[str] | None = None) -> dict:
@@ -252,7 +288,7 @@ def _console(ctx: RPCContext, limit: int = 50, level: str | None = None, target:
             }
         )
 
-    return {"messages": messages}
+    return {"targets": _get_connected_targets(ctx), "messages": messages}
 
 
 def _entry(ctx: RPCContext, id: int, fields: list[str] | None = None) -> dict:

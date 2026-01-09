@@ -7,8 +7,6 @@ from webtap.client import RPCError
 from webtap.commands._builders import info_response, table_response, error_response, rpc_call
 from webtap.commands._tips import get_mcp_description, get_tips
 
-_connect_desc = get_mcp_description("connect")
-_disconnect_desc = get_mcp_description("disconnect")
 _clear_desc = get_mcp_description("clear")
 
 # Truncation values for pages() REPL mode (compact display)
@@ -36,7 +34,8 @@ _TARGETS_MCP_TRUNCATE = {
 
 
 @app.command(
-    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _connect_desc or ""}
+    display="markdown",
+    fastmcp={"enabled": False},
 )
 def connect(
     state,
@@ -75,7 +74,8 @@ def connect(
 
 
 @app.command(
-    display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _disconnect_desc or ""}
+    display="markdown",
+    fastmcp={"enabled": False},
 )
 def disconnect(state, target: str = "") -> dict:
     """Disconnect from Chrome.
@@ -140,7 +140,7 @@ def clear(state, events: bool = True, console: bool = False) -> dict:
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "resource", "mime_type": "text/markdown"},
+    fastmcp={"enabled": False},
 )
 def pages(
     state,
@@ -195,7 +195,10 @@ def pages(
     )
 
 
-@app.command(display="markdown", fastmcp={"type": "resource", "mime_type": "text/markdown"})
+@app.command(
+    display="markdown",
+    fastmcp={"enabled": False},
+)
 def status(state) -> dict:
     """Get connection status.
 

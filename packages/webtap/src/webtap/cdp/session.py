@@ -12,7 +12,7 @@ from concurrent.futures import Future, TimeoutError
 from typing import Any
 
 import duckdb
-import requests
+import httpx
 import websocket
 
 from webtap.cdp.har import _create_har_views
@@ -230,7 +230,7 @@ class CDPSession:
             List of page dictionaries with webSocketDebuggerUrl.
         """
         try:
-            resp = requests.get(f"http://localhost:{self.port}/json", timeout=2)
+            resp = httpx.get(f"http://localhost:{self.port}/json", timeout=2)
             resp.raise_for_status()
             pages = resp.json()
             return [p for p in pages if p.get("type") == "page" and "webSocketDebuggerUrl" in p]

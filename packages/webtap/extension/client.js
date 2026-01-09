@@ -111,7 +111,7 @@ class WebTapClient {
       connected: false,
       connections: [],
       events: { total: 0 },
-      fetch: { enabled: false, paused_count: 0 },
+      fetch: { enabled: false, rules: null, capture_count: 0 },
       filters: { enabled: [], disabled: [] },
       browser: { inspect_active: false, selections: {}, prompt: "", pending_count: 0 },
       error: null
