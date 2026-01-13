@@ -1,22 +1,21 @@
 # termtap
 
-Process-native tmux session manager with MCP support.
+Execute commands in tmux panes with intelligent state detection via pattern learning.
 
-## ✨ Features
+## Features
 
-- 🎯 **Smart Detection** - Auto-detects Python, SSH, Claude processes
-- 🍎 **macOS Support** - Works on systems without /proc filesystem
-- 📝 **Handler System** - Process-specific output filtering and caching
-- 🔌 **MCP Ready** - Tools and resources for Claude/LLMs
-- 🚀 **Service Orchestration** - Run multi-service environments
-- 🔍 **Fuzzy Search** - Filter sessions with patterns
-- 🎨 **Rich Display** - Tables, boxes, and formatted output
+- 🤖 **Pattern Learning** - Teach termtap process states (ready/busy) interactively
+- 🎯 **Smart Execution** - Commands wait for processes to be ready before sending
+- 🖥️ **Companion UI** - Visual pattern editor and queue management
+- 📡 **Daemon Architecture** - Background process with RPC communication
+- 🔌 **MCP Support** - Tools and resources for Claude/LLMs
+- 📦 **Terminal Emulation** - Precise output capture with tmux streaming
 
-## 📋 Prerequisites
+## Prerequisites
 
 Required system dependencies:
 - **tmux** - Terminal multiplexer
-- **gum** - Interactive terminal UI components
+- **gum** - Interactive terminal UI components (for pattern editing)
 
 ```bash
 # macOS
@@ -27,14 +26,10 @@ sudo pacman -S tmux gum
 
 # Ubuntu/Debian
 sudo apt install tmux
-# For gum, see: https://github.com/charmbracelet/gum#installation
-
-# Fedora
-sudo dnf install tmux
-# For gum, use: go install github.com/charmbracelet/gum@latest
+# For gum: https://github.com/charmbracelet/gum#installation
 ```
 
-## 📦 Installation
+## Installation
 
 ```bash
 # Install via uv tool (recommended)
@@ -45,33 +40,44 @@ pipx install termtap
 
 # Update to latest
 uv tool upgrade termtap
-
-# Uninstall
-uv tool uninstall termtap
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
+### 1. Start Daemon
 ```bash
-# 1. Install termtap
-uv tool install "git+https://github.com/angelsen/tap-tools.git#subdirectory=packages/termtap"
+termtap daemon start
+```
 
-# 2. Add to Claude
-claude mcp add termtap -- termtap --mcp
+### 2. Launch Companion UI (optional but recommended)
+```bash
+termtap companion
+```
+The companion provides:
+- Pattern editor with live preview
+- Queue viewer for pending actions
+- Pane selector for interactive workflows
 
-# 3. Run REPL
+### 3. Run REPL
+```bash
 termtap
 ```
 
-## 🔌 MCP Setup for Claude
+### 4. Execute Commands
+```python
+>>> execute("python3")
+# First time: Companion asks if process is ready
+# You teach the pattern once, termtap learns it
+>>> pane()  # View output
+```
+
+## MCP Setup for Claude
 
 ```bash
 # Quick setup with Claude CLI
 claude mcp add termtap -- termtap --mcp
-```
 
-Or manually configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-```json
+# Or manually edit ~/Library/Application Support/Claude/claude_desktop_config.json:
 {
   "mcpServers": {
     "termtap": {
@@ -82,102 +88,110 @@ Or manually configure Claude Desktop (`~/Library/Application Support/Claude/clau
 }
 ```
 
-## 🎮 Usage
-
-### Interactive REPL
-```bash
-termtap                     # Start REPL
-termtap --mcp               # Start as MCP server
-```
-
-### Commands
-```python
->>> ls()                    # List all sessions with processes
->>> execute("python3")      # Start Python REPL in tmux
->>> pane()                  # Read output with caching and interaction hints
->>> interrupt()             # Send Ctrl+C to current pane
->>> run("demo")             # Run service group from config
-```
-
-### Command Reference
+## Commands
 
 | Command | Description |
-|---------|------------|
-| `execute(command, target=None)` | Run command in tmux pane |
-| `pane(target=None, page=None)` | Read output with pagination and interaction hints |
-| `ls(filter=None)` | List sessions with optional filter |
-| `interrupt(target=None)` | Send interrupt signal |
-| `send_keys(keys, target=None)` | Send raw key sequences |
-| `run(group)` | Run service configuration |
-| `track(target=None, duration=10)` | Monitor pane state |
+|---------|-------------|
+| `execute(command, target=None)` | Run command in tmux pane, wait for ready state |
+| `pane(target=None, offset=0, limit=100)` | Read pane output with pagination |
+| `ls(filter=None)` | List tmux sessions |
+| `interrupt(target=None)` | Send Ctrl+C to pane |
+| `send_keystrokes(keys, target=None)` | Send raw keystrokes (for interactive programs) |
+| `debug(code)` | Inspect daemon state (Python expressions) |
 
-## 🛠️ Service Configuration
+## Pattern Learning Workflow
 
-Define multi-service environments in `termtap.toml`:
-
-```toml
-[init.demo]
-layout = "even-horizontal"
-
-[init.demo.backend]
-pane = 0
-command = "uv run python -m backend"
-path = "demo/backend"
-ready_pattern = "Uvicorn running on"
-timeout = 10
-
-[init.demo.frontend]
-pane = 1  
-command = "npm run dev"
-path = "demo/frontend"
-ready_pattern = "Local:.*localhost"
-depends_on = ["backend"]
+### First Time Execution
+```python
+>>> execute("python3")
+# Companion shows: "Is this process ready? (y/n)"
+# You press 'y' and mark the pattern: ">>> "
 ```
 
-Run with: `run("demo")`
+### Pattern Storage
+Patterns are saved to `~/.termtap/patterns.json`:
+```json
+{
+  "python": {
+    "ready": [">>> ", "\\.\\.\\. "]
+  }
+}
+```
 
-## 📁 Examples
+### Subsequent Executions
+```python
+>>> execute("print('hello')")
+# Automatically waits for ">>> " pattern
+# Executes immediately when ready
+```
 
-See `examples/` directory for:
-- Basic usage patterns
-- Service orchestration setups
-- MCP integration examples
+## Architecture
 
-## 🏗️ Architecture
+### Components
 
-Built on [ReplKit2](https://github.com/angelsen/replkit2) for dual REPL/MCP functionality.
+- **Daemon** (`termtap daemon`) - Background process managing pane state
+- **Client** - RPC client in REPL/MCP mode
+- **Companion** (`termtap companion`) - Textual UI for pattern management
+- **Terminal Emulator** - SlimScreen with pyte for output capture
 
-**Key Design:**
-- **Pane-Centric** - Everything operates through `Pane` objects
-- **Process-Native** - Uses `/proc` and tmux state directly
-- **Handler System** - Process-specific capture and filtering
-- **0-Based Pagination** - Navigate cached output efficiently
+### Action Lifecycle
 
-## 📚 Documentation
+1. **SELECTING_PANE** - Choose target pane (if not specified)
+2. **READY_CHECK** - Check if process matches learned patterns
+3. **WATCHING** - Command sent, waiting for completion
+4. **COMPLETED** - Process returned to ready state
 
-- [Architecture](docs/ARCHITECTURE.md) - System design
-- [Handlers](src/termtap/process/handlers/) - Process-specific handlers
-- [Commands](src/termtap/commands/) - Command implementations
+### Pattern Matching
 
-## 🛠️ Development
+```
+Process Output          Pattern           State
+----------------       --------          -------
+>>> _                  >>> $             ready
+...                    \.\.\. $          ready
+Executing...           (any)             busy
+```
+
+## Development
 
 ```bash
 # Clone repository
 git clone https://github.com/angelsen/tap-tools
-cd tap-tools
+cd tap-tools/packages/termtap
 
 # Install for development
-uv sync --package termtap
+uv sync
+
+# Run checks
+basedpyright          # Type checking
+ruff check --fix      # Linting
 
 # Run development version
-uv run --package termtap termtap
+uv run termtap
 
-# Run tests and checks
-make check-termtap  # Check build
-make format         # Format code
-make lint           # Fix linting
+# Stop daemon
+termtap daemon stop
 ```
 
-## 📄 License
+## Troubleshooting
+
+### Daemon not responding
+```bash
+termtap daemon status   # Check daemon state
+termtap daemon stop     # Stop daemon
+termtap daemon start    # Restart
+```
+
+### Pattern not matching
+```bash
+termtap companion       # Open companion UI
+# Navigate to Patterns → Edit pattern → Test with preview
+```
+
+### Stuck in READY_CHECK
+- Open companion UI
+- Queue tab shows pending actions
+- Mark pattern as ready/busy or cancel action
+
+## License
 
 MIT - see [LICENSE](../../LICENSE) for details.

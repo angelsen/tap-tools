@@ -8,12 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Daemon-based architecture with persistent background process
+- Pattern learning system - teach termtap process states interactively
+- Textual-based Companion UI (`termtap companion`) for pattern management
+- Terminal emulation with SlimScreen (pyte-based) for precise output capture
+- Action queue with unified state machine (SELECTING → READY_CHECK → WATCHING → COMPLETED)
+- JSON-RPC client/server communication over Unix domain sockets
+- Pattern editor with live preview and DSL syntax highlighting
+- Queue viewer showing pending/watching actions in real-time
+- `debug()` command for daemon introspection
 
 ### Changed
+- **BREAKING**: Commands now communicate via RPC instead of direct tmux interaction
+- **BREAKING**: Command execution lifecycle managed by action states, not wait/timeout parameters
+- **BREAKING**: Pattern learning replaces hardcoded process handlers
+- **BREAKING**: Removed handler plugin system and configuration files (handlers.md)
+- Simplified pane resolution - target parameter no longer optional on most commands
+- Output capture uses terminal emulation with tmux pipe-pane streaming
+- Commands return when ready patterns match instead of polling
 
 ### Fixed
 
 ### Removed
+- Process handler system (9 handler files: Python, Claude, shell, SSH, confirmation, etc.)
+- Handler configuration via handlers.md YAML
+- Synchronous command execution with polling
+- `/pane/` module package structure (flattened to single file)
+- Session management modules (tmux/session.py, tmux/stream.py)
+- Complex `/proc` filesystem inspection and process tree parsing
+- `run()` command - service orchestration (may be re-added later)
+- `track()` command - monitoring (replaced by companion queue view)
 
 ## [0.10.2] - 2025-12-17
 
