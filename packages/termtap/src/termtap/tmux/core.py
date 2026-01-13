@@ -6,10 +6,9 @@ PUBLIC API:
 
 import os
 import subprocess
-from typing import Optional, Tuple, List
 
 
-def run_tmux(args: List[str]) -> Tuple[int, str, str]:
+def run_tmux(args: list[str]) -> tuple[int, str, str]:
     """Run tmux command and return result.
 
     Args:
@@ -40,7 +39,7 @@ def _check_tmux_available() -> bool:
     return code == 0
 
 
-def _get_current_pane() -> Optional[str]:
+def _get_current_pane() -> str | None:
     """Get current tmux pane ID if inside tmux."""
     if not os.environ.get("TMUX"):
         return None
@@ -61,7 +60,7 @@ def _is_current_pane(pane_id: str) -> bool:
     return current == pane_id if current else False
 
 
-def _get_pane_id(session: str, window: str, pane: str) -> Optional[str]:
+def _get_pane_id(session: str, window: str, pane: str) -> str | None:
     """Get pane ID for a specific session:window.pane location.
 
     Args:

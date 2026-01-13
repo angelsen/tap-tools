@@ -1,12 +1,12 @@
 [project]
 name = "termtap"
-version = "0.10.2"
-description = "Process-native tmux session manager with MCP support"
+version = "0.11.0"
+description = "Daemon-based tmux pane manager with learning patterns"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Fredrik Angelsen", email = "fredrikangelsen@gmail.com" }]
 requires-python = ">=3.12"
-keywords = ["tmux", "terminal", "mcp", "session-manager"]
+keywords = ["tmux", "terminal", "mcp", "daemon"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3.12",
@@ -16,8 +16,11 @@ classifiers = [
     "Topic :: System :: Shells",
 ]
 dependencies = [
+    "platformdirs>=4.4.0",
+    "pyte>=0.8.2",
+    "pyyaml>=6.0.2",
     "replkit2[all]>=0.12.0",
-    "tmux-popup>=0.2.2",
+    "textual>=7.0.3",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +49,6 @@ exclude = [
 
 [tool.uv.sources]
 replkit2 = { path = "../../../replkit2", editable = true }
-tmux-popup = { workspace = true }
 
 [tool.basedpyright]
 typeCheckingMode = "standard"

@@ -1,7 +1,21 @@
 """Complex structure creation - handles multi-window/pane creation."""
 
 from .core import run_tmux, _get_pane_id
-from .session import session_exists, create_session
+
+
+def _session_exists(session: str) -> bool:
+    """Check if session exists."""
+    code, _, _ = run_tmux(["has-session", "-t", session])
+    return code == 0
+
+
+def _create_session(session: str, start_dir: str = ".") -> tuple[str, str]:
+    """Create new session and return (pane_id, swp)."""
+    code, stdout, stderr = run_tmux(["new-session", "-d", "-s", session, "-c", start_dir, "-P", "-F", "#{pane_id}"])
+    if code != 0:
+        raise RuntimeError(f"Failed to create session: {stderr}")
+    pane_id = stdout.strip()
+    return pane_id, f"{session}:0.0"
 
 
 def _get_or_create_session_with_structure(
@@ -23,11 +37,11 @@ def _get_or_create_session_with_structure(
     if pane_id:
         return pane_id, swp
 
-    if not session_exists(session):
+    if not _session_exists(session):
         if window == 0 and pane == 0:
-            return create_session(session, start_dir)
+            return _create_session(session, start_dir)
         else:
-            pane_id, _ = create_session(session, start_dir)
+            pane_id, _ = _create_session(session, start_dir)
 
     if window > 0:
         code, _, _ = run_tmux(["list-windows", "-t", f"{session}:{window}", "-F", "#{window_index}"])

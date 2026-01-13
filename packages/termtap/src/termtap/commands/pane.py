@@ -1,32 +1,108 @@
-"""Interact with tmux panes.
+"""Read output from tmux pane(s).
 
 PUBLIC API:
-  - pane: Read and interact with target pane with caching and pagination
+  - pane: Read single pane with paging support (MCP tool)
+  - panes: Read multiple panes with preview (MCP resource)
 """
 
 from typing import Any
 
-from ..app import app, DEFAULT_LINES_PER_PAGE
-from ..tmux import resolve_targets_to_panes
+from ..app import app
+from ..client import DaemonClient
+from ..pane import Pane
+from ..tmux.resolution import resolve_target
+from ._helpers import build_tips, build_range_info
+
+__all__ = ["pane", "panes"]
 
 
-def _build_interaction_hints(target: str) -> dict[str, str]:
-    """Build interaction hint text for a pane.
+@app.command(
+    display="markdown",
+    fastmcp={
+        "type": "tool",
+        "mime_type": "text/markdown",
+        "tags": {"inspection", "output"},
+        "description": "Read single pane with paging support",
+    },
+)
+def pane(
+    state,
+    target: str = None,  # pyright: ignore[reportArgumentType]
+    tail: int = 100,
+    offset: int = None,  # pyright: ignore[reportArgumentType]
+    limit: int = None,  # pyright: ignore[reportArgumentType]
+) -> dict[str, Any]:
+    """Read single pane with paging support.
 
     Args:
-        target: The session:window.pane identifier.
+        state: Application state (unused).
+        target: Pane target (session:window.pane). If None, prompts via Companion.
+        tail: Number of lines from end (default 100, used if offset/limit not set).
+        offset: Starting line number for paging (0-indexed).
+        limit: Number of lines to read for paging.
 
     Returns:
-        Dict with type and content for the hint element.
+        Markdown formatted result with pane output.
     """
-    return {
-        "type": "text",
-        "content": f"""To interact with this pane:
-- Execute: `mcp__termtap__execute(command="...", target="{target}")`
-- Send: `mcp__termtap__send(message="...", target="{target}")`
-- Interrupt: `mcp__termtap__interrupt(target="{target}")`
-- Send keys: `mcp__termtap__send_keys(keys="...", target="{target}")`""",
-    }
+    # Resolution
+    resolved_target: str
+    if target is None:
+        client = DaemonClient()
+        result = client.select_pane("pane")
+
+        if result["status"] != "completed":
+            return {
+                "elements": [{"type": "text", "content": f"Pane selection {result['status']}"}],
+                "frontmatter": {"status": result["status"]},
+            }
+
+        resolved_target = result["pane"]
+    else:
+        resolved_target = target
+
+    # Resolve to pane ID
+    pane_id = resolve_target(resolved_target)
+    if not pane_id:
+        return {
+            "elements": [{"type": "text", "content": f"Error: Pane not found: {resolved_target}"}],
+            "frontmatter": {"status": "error", "error": f"Pane not found: {resolved_target}"},
+        }
+
+    try:
+        # Capture using Pane abstraction
+        if offset is not None and limit is not None:
+            p = Pane.capture_range(pane_id, offset, limit)
+        else:
+            p = Pane.capture_tail(pane_id, tail)
+
+        # Build response
+        elements = [
+            build_tips(resolved_target),
+        ]
+
+        if p.content:
+            elements.append({"type": "code_block", "content": p.content, "language": "text"})
+        else:
+            elements.append({"type": "text", "content": "(empty)"})
+
+        elements.append(build_range_info(resolved_target, p.range, p.total_lines))
+
+        return {
+            "elements": elements,
+            "frontmatter": {
+                "pane": resolved_target,
+                "status": "ok",
+                "range": list(p.range),
+                "total_lines": p.total_lines,
+                "truncated": False,
+            },
+        }
+
+    except Exception as e:
+        return {
+            "elements": [{"type": "text", "content": f"Error: {e}"}],
+            "frontmatter": {"status": "error", "error": str(e)},
+        }
 
 
 @app.command(
@@ -35,141 +111,86 @@ def _build_interaction_hints(target: str) -> dict[str, str]:
         "type": "resource",
         "mime_type": "text/markdown",
         "tags": {"inspection", "output"},
-        "description": "Read output from tmux pane with pagination",
-        "stub": {
-            "response": {
-                "description": "Read output from tmux pane with optional pagination",
-                "usage": [
-                    "termtap://pane - Interactive pane selection",
-                    "termtap://pane/session1 - Read from specific pane (fresh read)",
-                    "termtap://pane/session1/1 - Page 1 (most recent cached)",
-                    "termtap://pane/session1/2 - Page 2 (older output)",
-                    "termtap://pane/session1/-1 - Last page (oldest output)",
-                ],
-                "discovery": "Use termtap://ls to find available pane targets",
-            }
-        },
+        "description": "Read panes with preview (multi-select via Companion)",
     },
 )
-def pane(
-    state,
-    target: list = None,  # type: ignore[assignment]
-    page: int = None,  # type: ignore[assignment]
-) -> dict[str, Any]:
-    """Read full pane buffer with caching and pagination.
+def panes(state) -> dict[str, Any]:
+    """Read panes with preview.
+
+    Prompts for pane selection via Companion. Smart capture:
+    - Single pane: capture visible (full screen)
+    - Multiple panes: 10-line preview each
 
     Args:
-        state: Application state with read_cache.
-        target: List of target panes. None for interactive selection.
-        page: Page number for pagination. None for fresh read, 1+ for pages (1-based), -1 for oldest.
+        state: Application state (unused).
 
     Returns:
         Markdown formatted result with pane output(s).
     """
-    from ._cache_utils import _format_pane_output
+    client = DaemonClient()
+    result = client.select_panes("panes")
 
-    if target is None:
-        from ._popup_utils import _select_multiple_panes
-        from .ls import ls
-
-        available_panes = ls(state)
-        if not available_panes:
-            return {
-                "elements": [{"type": "text", "content": "Error: No panes available"}],
-                "frontmatter": {"error": "No panes available", "status": "error"},
-            }
-
-        selected_pane_ids = _select_multiple_panes(
-            available_panes, title="Pane Output", action="Select Panes (Tab to select, Enter to confirm)"
-        )
-
-        if not selected_pane_ids:
-            return {
-                "elements": [{"type": "text", "content": "Error: No panes selected"}],
-                "frontmatter": {"error": "No panes selected", "status": "error"},
-            }
-
-        targets_to_resolve = selected_pane_ids
-    else:
-        targets_to_resolve = target
-
-    try:
-        panes_to_read = resolve_targets_to_panes(targets_to_resolve)
-    except RuntimeError as e:
+    if result["status"] == "error":
         return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"error": str(e), "status": "error"},
+            "elements": [{"type": "text", "content": f"Error: {result.get('error', 'Unknown error')}"}],
+            "frontmatter": {"status": "error", "error": result.get("error")},
         }
 
-    if not panes_to_read:
+    if result["status"] != "completed":
         return {
-            "elements": [{"type": "text", "content": "Error: No panes found for target(s)"}],
-            "frontmatter": {"error": "No panes found", "status": "error"},
+            "elements": [{"type": "text", "content": f"Pane selection {result['status']}"}],
+            "frontmatter": {"status": result["status"]},
         }
 
-    # Use cached content when page is specified
-    if page is not None:
-        outputs = []
-        for pane_id, swp in panes_to_read:
-            if swp in state.read_cache:
-                cache = state.read_cache[swp]
-                outputs.append((swp, cache.content))
+    targets = result.get("panes", [])
+    if not targets:
+        return {
+            "elements": [{"type": "text", "content": "No panes selected"}],
+            "frontmatter": {"status": "cancelled"},
+        }
+
+    # Smart capture: visible for single, preview for multiple
+    use_visible = len(targets) == 1
+
+    # Build elements
+    elements = []
+    results = []
+
+    for target in targets:
+        pane_id = resolve_target(target)
+        if not pane_id:
+            continue
+
+        try:
+            if use_visible:
+                p = Pane.capture(pane_id)
             else:
-                outputs.append((swp, "[No cached content - run pane() first]"))
+                p = Pane.capture_tail(pane_id, 10)
 
-        cache_time = 0.0
-        if outputs and panes_to_read[0][1] in state.read_cache:
-            cache_time = state.read_cache[panes_to_read[0][1]].timestamp
+            # Per-pane section
+            elements.append({"type": "heading", "content": target, "level": 3})
+            elements.append(build_tips(target))
 
-        return _format_pane_output(
-            outputs, page=page, lines_per_page=DEFAULT_LINES_PER_PAGE, cached=True, cache_time=cache_time
-        )
+            if p.content:
+                elements.append({"type": "code_block", "content": p.content, "language": "text"})
+            else:
+                elements.append({"type": "text", "content": "(empty)"})
 
-    # Fresh read when page is None
-    from ..pane import Pane, process_scan
+            elements.append(build_range_info(target, p.range, p.total_lines))
 
-    outputs = []
-    for pane_id, swp in panes_to_read:
-        with process_scan(pane_id):
-            pane = Pane(pane_id)
-            output = pane.handler.capture_output(pane, state=state)
+            results.append({
+                "pane": target,
+                "range": list(p.range),
+                "total_lines": p.total_lines,
+            })
 
-        if swp in state.read_cache:
-            full_content = state.read_cache[swp].content
-        else:
-            full_content = output
+        except Exception:
+            continue
 
-        outputs.append((swp, full_content))
-
-    # Format the output, then add interaction hints
-    result = _format_pane_output(
-        outputs,
-        page=None,
-        lines_per_page=DEFAULT_LINES_PER_PAGE,
-        cached=False,
-    )
-
-    # Add interaction hints for each pane
-    if outputs and "elements" in result:
-        # Build enhanced elements with hints for each pane
-        enhanced_elements = []
-        i = 0
-
-        for pane_id, swp in panes_to_read:
-            # For multiple panes, there's a heading
-            if len(panes_to_read) > 1:
-                # Add the heading
-                enhanced_elements.append(result["elements"][i])
-                i += 1
-
-            # Add interaction hints for this pane
-            enhanced_elements.append(_build_interaction_hints(swp))
-            enhanced_elements.append({"type": "text", "content": ""})
-
-            # Add the code block with output
-            enhanced_elements.append(result["elements"][i])
-            i += 1
-
-        result["elements"] = enhanced_elements
-
-    return result
+    return {
+        "elements": elements,
+        "frontmatter": {
+            "panes": [r["pane"] for r in results],
+            "status": "ok" if results else "error",
+        },
+    }

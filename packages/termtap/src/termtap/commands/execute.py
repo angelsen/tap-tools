@@ -1,14 +1,14 @@
-"""Execute commands in tmux panes.
+"""Execute command in tmux pane.
 
 PUBLIC API:
-  - execute: Execute command in target pane with output caching
+  - execute: Execute command in pane via daemon
 """
 
 from typing import Any
 
-from ..app import app, DEFAULT_LINES_PER_PAGE
-from ..pane import Pane, send_command
-from ..tmux import resolve_or_create_target
+from ..app import app
+from ..client import DaemonClient
+from ._helpers import build_tips, build_hint, _require_target
 
 
 @app.command(
@@ -16,110 +16,82 @@ from ..tmux import resolve_or_create_target
     fastmcp={
         "type": "tool",
         "mime_type": "text/markdown",
-        "tags": {"execution", "shell"},
-        "description": "Execute command in any shell or REPL within tmux pane",
-        "aliases": [
-            {
-                "name": "send",
-                "description": "Send a message to the target pane",
-                "param_mapping": {"command": "message"},
-            }
-        ],
+        "tags": {"execution"},
+        "description": "Execute command in tmux pane and wait for completion",
     },
 )
-def execute(
-    state,
-    command: str,
-    target: str = None,  # type: ignore[assignment]
-    wait: bool = True,
-    timeout: float = 30.0,
-) -> dict[str, Any]:
-    """Execute command in target pane with output caching.
+def execute(state, command: str, target: str = None) -> dict[str, Any]:  # pyright: ignore[reportArgumentType]
+    """Execute command in tmux pane.
 
     Args:
-        state: Application state with read_cache for output caching.
+        state: Application state (unused).
         command: Command to execute.
-        target: Target pane identifier. None for interactive selection.
-        wait: Whether to wait for command completion. Defaults to True.
-        timeout: Command timeout in seconds. 0 means no timeout.
+        target: Pane target (session:window.pane).
 
     Returns:
-        Markdown formatted result with command output and metadata.
-        Full output is cached, but only last 50 lines are displayed.
+        Markdown formatted result with output and state.
     """
-    if target is None:
-        from ._popup_utils import _select_or_create_pane
-        from .ls import ls
+    import os
 
-        available_panes = ls(state)
-        result = _select_or_create_pane(
-            available_panes, title="Execute Command", action="Choose Target Pane for Command Execution"
-        )
+    client = DaemonClient()
 
-        if not result:
-            return {
-                "elements": [{"type": "text", "content": "Operation cancelled"}],
-                "frontmatter": {"status": "cancelled"},
-            }
+    # Pass client's pane (empty string if not in tmux)
+    client_pane = os.environ.get("TMUX_PANE", "")
 
-        pane_id, session_window_pane = result
-    else:
-        try:
-            pane_id, session_window_pane = resolve_or_create_target(target)
-        except RuntimeError as e:
-            return {
-                "elements": [{"type": "text", "content": f"Error: {e}"}],
-                "frontmatter": {"error": str(e), "status": "error"},
-            }
+    resolved_target, error = _require_target(client, "execute", target)
+    if error:
+        return error
+    assert resolved_target is not None
 
-    from ._cache_utils import _build_frontmatter, _truncate_command
+    try:
+        result = client.execute(resolved_target, command, client_pane=client_pane)
 
-    pane = Pane(pane_id)
-    result = send_command(pane, command, wait=wait, timeout=timeout, state=state)
+        # Get status
+        status = result.get("status", "unknown")
 
-    # Handler already cached, use returned data for display
-    displayed_output = result["output"]
-    lines = displayed_output.splitlines() if displayed_output else []
-    lines_shown = len(lines)
+        # Build elements
+        elements = [build_tips(resolved_target)]
 
-    truncated = False
-    if session_window_pane in state.read_cache:
-        cache = state.read_cache[session_window_pane]
-        full_lines = cache.content.splitlines()
-        truncated = len(full_lines) > DEFAULT_LINES_PER_PAGE
+        # Output handling based on status
+        if status == "completed" and result.get("result"):
+            output = result["result"].get("output", "")
+            if output:
+                elements.append({"type": "code_block", "content": output, "language": "text"})
+            else:
+                elements.append({"type": "text", "content": "(no output)"})
+            elements.append(build_hint(resolved_target))
+        elif status == "watching":
+            elements.append({"type": "text", "content": "Command sent, watching for completion..."})
+            elements.append(build_hint(resolved_target))
+        elif status == "busy":
+            elements.append({"type": "text", "content": "Terminal is busy"})
+            elements.append(build_hint(resolved_target))
+        elif status == "ready_check":
+            elements.append({"type": "text", "content": "Waiting for pattern learning via Companion..."})
+        else:
+            elements.append({"type": "text", "content": f"Status: {status}"})
 
-    elements = []
+        return {
+            "elements": elements,
+            "frontmatter": {
+                "pane": resolved_target,
+                "command": command[:50] + ("..." if len(command) > 50 else ""),
+                "status": status,
+            },
+        }
 
-    # Add "read more" hint if output is truncated
-    code_content = displayed_output
-    if truncated and displayed_output:
-        hint = f'... read more with readMcpResource("termtap://pane/{session_window_pane}/2", "termtap")\n'
-        code_content = hint + displayed_output
-
-    if code_content:
-        elements.append({"type": "code_block", "content": code_content, "language": result["language"]})
-
-    if result["status"] == "timeout":
-        elements.append({"type": "blockquote", "content": f"Command timed out after {result['elapsed']:.1f}s"})
-
-    total_lines = lines_shown
-    cache_time = None
-    if session_window_pane in state.read_cache:
-        cache = state.read_cache[session_window_pane]
-        total_lines = len(cache.content.splitlines())
-        cache_time = cache.timestamp
-
-    return {
-        "elements": elements,
-        "frontmatter": _build_frontmatter(
-            target=session_window_pane,
-            lines_shown=lines_shown,
-            total_lines=total_lines,
-            cached=bool(cache_time),
-            cache_time=cache_time,
-            command=_truncate_command(result["command"]),
-            status=result["status"],
-            elapsed=round(result["elapsed"], 2),
-            truncated=truncated,
-        ),
-    }
+    except TimeoutError:
+        return {
+            "elements": [
+                {
+                    "type": "text",
+                    "content": "Command timed out waiting for ready state. Run 'termtap companion' to respond.",
+                }
+            ],
+            "frontmatter": {"status": "timeout", "pane": resolved_target},
+        }
+    except Exception as e:
+        return {
+            "elements": [{"type": "text", "content": f"Error: {e}"}],
+            "frontmatter": {"status": "error", "error": str(e)},
+        }

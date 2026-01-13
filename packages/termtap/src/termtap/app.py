@@ -1,50 +1,19 @@
 """Main application entry point for termtap terminal pane manager.
 
 Provides dual REPL/MCP functionality for terminal pane management with tmux
-integration. Built on ReplKit2 framework with pane-centric design for
-process-native terminal operations leveraging OS-level information.
+integration. Built on ReplKit2 framework with daemon architecture.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from replkit2 import App
-
-DEFAULT_TIMEOUT = 30.0
-DEFAULT_LINES_PER_PAGE = 50
-
-
-@dataclass
-class PaneCache:
-    """Cache entry for a single pane's output.
-
-    Stores command output with metadata for efficient pagination
-    and browsing without re-execution.
-
-    Attributes:
-        content: Captured output content from the pane.
-        timestamp: Unix timestamp when content was captured.
-        lines_per_page: Number of lines to display per page.
-        source: Source of the content, either "execute" or "read".
-    """
-
-    content: str
-    timestamp: float
-    lines_per_page: int = 50
-    source: str = "read"
 
 
 @dataclass
 class TermTapState:
-    """Application state for termtap pane management.
+    """Application state for termtap."""
 
-    Includes per-pane cache for command outputs to enable efficient
-    pagination and browsing without re-execution.
-
-    Attributes:
-        read_cache: Mapping of session_window_pane identifiers to PaneCache entries.
-    """
-
-    read_cache: dict[str, PaneCache] = field(default_factory=dict)
+    pass
 
 
 # Must be created before command imports for decorator registration
@@ -53,7 +22,7 @@ app = App(
     TermTapState,
     mcp_config={
         "uri_scheme": "termtap",
-        "instructions": "Terminal pane manager with tmux",
+        "instructions": "Terminal pane manager with tmux and daemon architecture",
     },
 )
 
@@ -64,12 +33,23 @@ from .commands import pane  # noqa: E402, F401
 from .commands import ls  # noqa: E402, F401
 from .commands import interrupt  # noqa: E402, F401
 from .commands import send_keystrokes  # noqa: E402, F401
-from .commands import track  # noqa: E402, F401
-from .commands import run  # noqa: E402, F401
+
+
+def _ensure_daemon():
+    """Ensure daemon is running before app starts."""
+    from .daemon.lifecycle import is_daemon_running, start_daemon
+
+    if not is_daemon_running():
+        try:
+            start_daemon()
+        except Exception:
+            pass  # Continue even if daemon fails
 
 
 if __name__ == "__main__":
     import sys
+
+    _ensure_daemon()
 
     if "--mcp" in sys.argv:
         app.mcp.run()

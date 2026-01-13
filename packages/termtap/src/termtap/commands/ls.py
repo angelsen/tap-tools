@@ -1,69 +1,76 @@
-"""List all tmux panes with their current process.
+"""List all tmux panes.
 
 PUBLIC API:
-  - ls: List all tmux panes with their current process
+  - ls: List all tmux panes
 """
 
 from ..app import app
-from ..pane import Pane, process_scan, get_process_info
-from ..tmux import list_panes
+from ..client import DaemonClient
 
 
 @app.command(
     display="table",
-    headers=["Pane", "Shell", "Process", "State"],
+    headers=["Pane", "Session", "Window", "PID"],
     fastmcp={
         "type": "resource",
         "mime_type": "text/plain",
         "tags": {"discovery", "inspection"},
-        "description": "List all tmux panes with process information",
+        "description": "List all tmux panes",
         "stub": {
             "response": {
                 "description": "List tmux panes with optional filtering",
-                "usage": ["termtap://ls - List all panes", "termtap://ls/python - Filter by 'python'"],
+                "usage": [
+                    "termtap://ls - List all panes",
+                    "termtap://ls/python - Filter by 'python'",
+                ],
             }
         },
     },
 )
-def ls(state, filter: str = None):  # type: ignore[assignment]
-    """List all tmux panes with their current process.
+def ls(state, filter: str = None):  # pyright: ignore[reportArgumentType]
+    """List all tmux panes.
 
     Args:
         state: Application state (unused).
-        filter: Filter string to search pane/process names. None shows all.
+        filter: Filter string to search pane names. None shows all.
 
     Returns:
-        Table data with pane information and process states.
+        Table data with pane information.
     """
-    tmux_panes = list_panes()
+    client = DaemonClient(auto_start=False)
 
-    with process_scan():
-        results = []
+    try:
+        result = client.ls()
+        panes = result.get("panes", [])
+    except Exception:
+        # Fallback to direct tmux if daemon not running
+        from ..tmux.ops import list_panes
 
-        for tmux_pane in tmux_panes:
-            pane = Pane(tmux_pane.pane_id)
-            info = get_process_info(pane)
+        panes = [
+            {
+                "swp": p.swp,
+                "session": p.session,
+                "window_index": p.window_index,
+                "pane_pid": p.pane_pid,
+            }
+            for p in list_panes()
+        ]
 
-            if filter:
-                searchable = f"{tmux_pane.swp} {info.get('process', '')}".lower()
-                if filter.lower() not in searchable:
-                    continue
+    results = []
+    for pane in panes:
+        swp = pane.get("swp", "")
 
-            is_ready = info.get("ready")
-            if is_ready is None:
-                status = "unknown"
-            elif is_ready:
-                status = "ready"
-            else:
-                status = "busy"
+        if filter:
+            if filter.lower() not in swp.lower():
+                continue
 
-            results.append(
-                {
-                    "Pane": tmux_pane.swp,
-                    "Shell": info.get("shell", "-"),
-                    "Process": info.get("process", "-"),
-                    "State": status,
-                }
-            )
+        results.append(
+            {
+                "Pane": swp,
+                "Session": pane.get("session", "-"),
+                "Window": pane.get("window_index", 0),
+                "PID": pane.get("pane_pid", "-"),
+            }
+        )
 
     return results

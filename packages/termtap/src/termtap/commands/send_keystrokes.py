@@ -1,14 +1,16 @@
-"""Send raw keystrokes to tmux panes for interactive programs.
+"""Send raw keystrokes to tmux panes.
 
 PUBLIC API:
-  - send_keystrokes: Send raw keystrokes to target pane
+  - send_keystrokes: Send keystrokes to pane
 """
 
 from typing import Any
 
 from ..app import app
-from ..pane import Pane, send_keys as pane_send_keys
-from ..tmux import resolve_target_to_pane
+from ..client import DaemonClient
+from ..tmux.ops import send_keys
+from ..tmux.resolution import resolve_target
+from ._helpers import _require_target, build_hint
 
 
 @app.command(
@@ -28,15 +30,15 @@ Use this for:
 NOT for running shell commands - use 'execute' for commands instead.""",
     },
 )
-def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any]:  # type: ignore[assignment]
+def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any]:  # pyright: ignore[reportArgumentType]
     """Send raw keystrokes to target pane.
 
     Each keystroke in the list is sent individually. Special keys like Enter, Escape, C-c are supported.
 
     Args:
         state: Application state (unused).
-        keys: List of keystrokes to send (e.g., ["q"], ["Down", "Down", "Enter"], ["C-c"]).
-        target: Target pane identifier. None for interactive selection.
+        keys: List of keystrokes (e.g., ["q"], ["Down", "Enter"], ["C-c"]).
+        target: Pane target (session:window.pane).
 
     Returns:
         Markdown formatted result with keystroke sending status.
@@ -47,53 +49,56 @@ def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any
         send_keystrokes(["Down", "Down", "Enter"])       # Navigate and select
         send_keystrokes(["C-c"])                         # Send Ctrl+C
         send_keystrokes(["Escape", ":q", "Enter"])       # Exit vim
-        send_keystrokes(["Hello", "Enter", "World"])     # Type text with newline
     """
-    if target is None:
-        from ._popup_utils import _select_single_pane
-        from .ls import ls
+    client = DaemonClient()
+    resolved_target, error = _require_target(client, "send_keystrokes", target)
+    if error:
+        return error
+    assert resolved_target is not None
 
-        available_panes = ls(state)
-        target = _select_single_pane(
-            available_panes, title="Send Keystrokes", action="Choose Target Pane for Keystroke Input"
-        )
-
-        if not target:
-            return {
-                "elements": [{"type": "text", "content": "Operation cancelled"}],
-                "frontmatter": {"status": "cancelled"},
-            }
-
-    try:
-        pane_id, session_window_pane = resolve_target_to_pane(target)
-    except RuntimeError as e:
+    if not keys:
         return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"error": str(e), "status": "error"},
+            "elements": [{"type": "text", "content": "Error: No keys to send"}],
+            "frontmatter": {"status": "error", "error": "No keys to send"},
         }
 
-    pane = Pane(pane_id)
+    pane_id = resolve_target(resolved_target)
+    if not pane_id:
+        return {
+            "elements": [{"type": "text", "content": f"Error: Pane not found: {resolved_target}"}],
+            "frontmatter": {"status": "error", "error": f"Pane not found: {resolved_target}"},
+        }
 
-    # Join the list of keystrokes with spaces for the underlying pane_send_keys function
-    keys_string = " ".join(keys)
-    result = pane_send_keys(pane, keys_string)
+    try:
+        from ..types import LineEnding
 
-    elements = []
+        success = send_keys(pane_id, *keys, line_ending=LineEnding.NONE)
 
-    if result["output"]:
-        elements.append({"type": "code_block", "content": result["output"], "language": result["language"]})
+        keys_display = " ".join(keys)
+        if len(keys_display) > 40:
+            keys_display = keys_display[:37] + "..."
 
-    if result["status"] == "failed":
-        elements.append(
-            {"type": "blockquote", "content": f"Failed to send keystrokes: {result.get('error', 'Unknown error')}"}
-        )
+        if success:
+            return {
+                "elements": [
+                    {"type": "text", "content": f"Sent **{len(keys)}** keystroke(s) to **{resolved_target}**"},
+                    {"type": "code_block", "content": " ".join(keys), "language": ""},
+                    build_hint(resolved_target),
+                ],
+                "frontmatter": {
+                    "keys": keys_display,
+                    "pane": resolved_target,
+                    "status": "sent",
+                },
+            }
+        else:
+            return {
+                "elements": [{"type": "text", "content": f"Failed to send keystrokes to {resolved_target}"}],
+                "frontmatter": {"status": "failed", "pane": resolved_target},
+            }
 
-    return {
-        "elements": elements,
-        "frontmatter": {
-            "keys": keys_string[:40] + ("..." if len(keys_string) > 40 else ""),
-            "status": result["status"],
-            "pane": result["pane"],
-            "elapsed": round(result["elapsed"], 2),
-        },
-    }
+    except Exception as e:
+        return {
+            "elements": [{"type": "text", "content": f"Error: {e}"}],
+            "frontmatter": {"status": "error", "error": str(e)},
+        }

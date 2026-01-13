@@ -1,0 +1,138 @@
+/* === Variables === */
+$preview-max-height: 40%;
+$border-color: $primary;
+
+/* === Base Layout === */
+Screen {
+    layout: vertical;
+}
+
+/* === Queue Screen === */
+#queue-table {
+    height: 1fr;
+}
+
+#empty-message {
+    height: 1fr;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+#empty-message.-hidden {
+    display: none;
+}
+
+/* === FzfSelector (reusable component) === */
+FzfSelector {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+FzfSelector #query-display {
+    height: auto;
+    min-height: 1;
+    padding: 0 1;
+    background: $surface;
+}
+
+FzfSelector OptionList {
+    height: 1fr;
+    border: solid $border-color;
+}
+
+/* === PreviewPane (reusable component) === */
+PreviewPane {
+    border: solid $border-color;
+    overflow: hidden;
+    padding: 0 1;
+}
+
+/* === Pane Selector Screens === */
+.pane-selector {
+    height: 1fr;
+    width: 100%;
+    overflow: hidden;
+}
+
+/* Preview hidden by default, shown with -visible class */
+#preview {
+    display: none;
+}
+
+#preview.-visible {
+    display: block;
+}
+
+/* Horizontal layout (wide terminal >= 120) */
+.pane-selector.-horizontal {
+    layout: horizontal;
+}
+
+.pane-selector.-horizontal FzfSelector {
+    width: 1fr;
+    height: 100%;
+}
+
+.pane-selector.-horizontal #preview {
+    width: 1fr;
+    height: 100%;
+}
+
+/* Vertical layout (narrow terminal < 120) */
+.pane-selector.-vertical {
+    layout: vertical;
+}
+
+.pane-selector.-vertical FzfSelector {
+    width: 100%;
+    height: 1fr;
+}
+
+.pane-selector.-vertical #preview {
+    width: 100%;
+    height: auto;
+    max-height: $preview-max-height;
+}
+
+/* === Pattern Screen === */
+#process-info {
+    height: auto;
+    background: $primary;
+    padding: 0 1;
+    text-style: bold;
+}
+
+PatternScreen OutputPane {
+    height: 2fr;
+    border: solid green;
+}
+
+PatternScreen #pattern-editor {
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+    border: solid cyan;
+}
+
+PatternScreen #pattern-editor.-matches {
+    border: solid green;
+}
+
+PatternScreen #pattern-editor.-diverged {
+    border: solid cyan;
+}
+
+PatternScreen #dsl-reference {
+    height: auto;
+    padding: 0;
+}
+
+/* === Pattern List Screen === */
+PatternListScreen OptionList {
+    height: 1fr;
+}
+
+PatternListScreen .option-list--option {
+    height: auto;
+}

@@ -1,4 +1,4 @@
-"""Termtap REPL commands with pane-centric architecture.
+"""Termtap REPL commands with daemon architecture.
 
 Commands are registered directly with ReplKit2 app via decorators.
 All imports handled by app.py for command registration.
@@ -6,31 +6,26 @@ All imports handled by app.py for command registration.
 PUBLIC API:
   - execute: Execute command in tmux pane
   - interrupt: Send interrupt signal to pane
-  - ls: List all tmux panes with process info
-  - pane: Read and interact with tmux pane
-  - run: Run development environment from configuration
-  - run_list: List available run configurations
-  - kill: Stop running environment
+  - ls: List all tmux panes
+  - pane: Read single pane with paging
+  - panes: Read multiple panes with preview
   - send_keystrokes: Send raw keystrokes to pane
-  - track: Track process state changes (development tool)
+  - debug: Debug daemon state via Python eval
 """
 
+from .debug import debug
 from .execute import execute
 from .interrupt import interrupt
 from .ls import ls
-from .pane import pane
-from .run import run, run_list, kill
+from .pane import pane, panes
 from .send_keystrokes import send_keystrokes
-from .track import track
 
 __all__ = [
+    "debug",
     "execute",
     "interrupt",
     "ls",
     "pane",
-    "run",
-    "run_list",
-    "kill",
+    "panes",
     "send_keystrokes",
-    "track",
 ]
