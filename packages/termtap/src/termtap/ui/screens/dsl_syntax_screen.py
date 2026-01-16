@@ -4,86 +4,31 @@ PUBLIC API:
   - DslSyntaxScreen: Full DSL syntax reference with types, brackets, anchors
 """
 
-from rich.console import Group
-from rich.panel import Panel
-from rich.table import Table
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Vertical
 from textual.widgets import Footer, Static
 
 from ._base import TermtapScreen
+from ..widgets.cards import example_card
 
 __all__ = ["DslSyntaxScreen"]
 
 
-def _build_types_card() -> Panel:
-    """Build types × quantifiers reference table."""
-    table = Table(
-        show_header=True,
-        header_style="bold",
-        show_lines=True,
-        padding=(0, 1),
-        expand=True,
-    )
+# Content constants for cards
+TYPES_CONTENT = r"""[bold]       1    1+   N    0+   0-1  regex[/]
+[dim]digit #[/] #    #+   #N   #*   #?   \d
+[dim]word  w[/] w    w+   wN   w*   w?   \w
+[dim]any   .[/] .    .+   .N   .*   .?   .
+[dim]space _[/] _    _+   _N   _*   _?   ' '"""
 
-    table.add_column("", justify="left", width=9)
-    table.add_column("1", justify="center", width=6)
-    table.add_column("1+", justify="center", width=6)
-    table.add_column("N", justify="center", width=6)
-    table.add_column("0+", justify="center", width=6)
-    table.add_column("0-1", justify="center", width=6)
-    table.add_column("regex", justify="left", width=20)
+BRACKETS_CONTENT = r"""[bold cyan]\[text][/]     literal match (brackets escaped)         → escaped
+[bold cyan]\[N][/]        exact N character gap                    → .{N}
+[bold cyan]\[*][/]        any gap (0+ chars)                       → .*
+[bold cyan]\[+][/]        any gap (1+ chars)                       → .+"""
 
-    table.add_row("digit #", "#", "#+", "#N", "#*", "#?", "\\d")
-    table.add_row("word  w", "w", "w+", "wN", "w*", "w?", "\\w")
-    table.add_row("any   .", ".", ".+", ".N", ".*", ".?", ".")
-    table.add_row("space _", "_", "_+", "_N", "_*", "_?", "' '")
-
-    return Panel(
-        table,
-        title="Types × Quantifiers",
-        title_align="left",
-        border_style="blue",
-        padding=(0, 1),
-    )
-
-
-def _build_brackets_card() -> Panel:
-    """Build brackets reference."""
-    from rich.text import Text
-
-    lines = [
-        Text.assemble(("[text]", "bold cyan"), ("     literal match (brackets escaped)         → escaped", "dim")),
-        Text.assemble(("[N]", "bold cyan"), ("        exact N character gap                    → .{N}", "dim")),
-        Text.assemble(("[*]", "bold cyan"), ("        any gap (0+ chars)                       → .*", "dim")),
-        Text.assemble(("[+]", "bold cyan"), ("        any gap (1+ chars)                       → .+", "dim")),
-    ]
-
-    return Panel(
-        Group(*lines),
-        title="Brackets",
-        title_align="left",
-        border_style="blue",
-        padding=(0, 1),
-    )
-
-
-def _build_anchors_card() -> Panel:
-    """Build anchors reference."""
-    from rich.text import Text
-
-    lines = [
-        Text.assemble(("$", "bold cyan"), ("          end of line", "dim")),
-        Text.assemble(("^", "bold cyan"), ("          start of line", "dim")),
-    ]
-
-    return Panel(
-        Group(*lines),
-        title="Anchors",
-        title_align="left",
-        border_style="blue",
-        padding=(0, 1),
-    )
+ANCHORS_CONTENT = """[bold cyan]$[/]          end of line
+[bold cyan]^[/]          start of line"""
 
 
 class DslSyntaxScreen(TermtapScreen):
@@ -103,11 +48,13 @@ class DslSyntaxScreen(TermtapScreen):
     ]
 
     def compose(self) -> ComposeResult:
-        yield Static("[bold]DSL Syntax Reference[/bold]", id="screen-title")
-        yield Static(_build_types_card())
-        yield Static(_build_brackets_card())
-        yield Static(_build_anchors_card())
-        yield Footer()
+        # Content layer - all screen content
+        with Vertical(classes="content-panel"):
+            yield Static("[bold]DSL Syntax Reference[/bold]", classes="screen-title")
+            yield example_card("Types × Quantifiers", TYPES_CONTENT, "card-info")
+            yield example_card("Brackets", BRACKETS_CONTENT, "card-info")
+            yield example_card("Anchors", ANCHORS_CONTENT, "card-info")
+            yield Footer()
 
     def action_back(self) -> None:
         """Go back to pattern screen."""

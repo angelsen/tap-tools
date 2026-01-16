@@ -6,14 +6,14 @@ PUBLIC API:
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, Vertical
 from textual.widgets import Footer, OptionList, Static
 
 from rich.text import Text
 
 from ._base import TermtapScreen
 from ..widgets import FzfSelector, FzfItem, PreviewPane
-from ...tmux import capture_last_n
+from ...tmux import capture_pane
 
 __all__ = ["PaneSelectScreen"]
 
@@ -33,57 +33,85 @@ class PaneSelectScreen(TermtapScreen):
         Binding("enter", "noop", "Select", show=True),
         Binding("escape", "back", "Cancel"),
         Binding("ctrl+underscore", "toggle_preview", "Preview", priority=True),
+        Binding("ctrl+s", "toggle_sort", "Sort", priority=True),
     ]
 
     def __init__(self, action: dict, multi_select: bool = False):
         super().__init__()
         self.action = action
         self.multi_select = multi_select
+        self._show_working_set = True  # Default: working set only
+        self._all_panes = []  # Store all panes for filtering
 
     def compose(self) -> ComposeResult:
-        yield Static("[bold]Select Pane[/bold]", id="screen-title")
+        # Content layer - all screen content
+        with Vertical(classes="content-panel"):
+            yield Static("[bold]Select Pane[/bold]", classes="screen-title")
 
-        # Determine orientation based on terminal width
-        orientation = "-horizontal" if self.app.size.width >= 120 else "-vertical"
-        with Container(classes=f"pane-selector {orientation}"):
-            yield PreviewPane(id="preview")  # Always in DOM
-            yield FzfSelector([], multi_select=self.multi_select)
-        yield Footer()
+            # Determine orientation based on terminal width
+            orientation = "-horizontal" if self.app.size.width >= 120 else "-vertical"
+            with Container(classes=f"pane-selector {orientation}"):
+                yield PreviewPane(id="preview")  # Always in DOM
+                yield FzfSelector([], multi_select=self.multi_select)
+            yield Footer()
 
     def on_mount(self) -> None:
         """Load pane list from daemon."""
+        # Show preview by default using Python display property
+        preview = self.query_one("#preview")
+        preview.display = True
+
         result = self.rpc("ls")
         if result:
-            panes = result.get("panes", [])
+            self._all_panes = result.get("panes", [])
+            self._update_pane_list()
 
-            # Calculate max widths for alignment
-            max_session = max((len(p.get("session", "")) for p in panes), default=0)
-            max_pane_idx = max((len(f"{p['window_index']}.{p['pane_index']}") for p in panes), default=0)
+    def _update_pane_list(self) -> None:
+        """Filter and sort panes based on mode."""
+        panes = self._all_panes
 
-            # Build FzfItems
-            items = []
-            for p in panes:
-                session = p.get("session", "")
-                pane_idx = f"{p['window_index']}.{p['pane_index']}"
-                process = p.get("pane_current_command", "")
-                pane_id = p.get("pane_id", "")
+        if self._show_working_set:
+            # Only panes with last_accessed > 0, sorted by recency
+            filtered = [p for p in panes if p.get("last_accessed", 0) > 0]
+            filtered.sort(key=lambda p: p.get("last_accessed", 0), reverse=True)
+            # Fall back to all panes if working set is empty
+            if not filtered:
+                filtered = panes
+            panes = filtered
 
-                # Display: Rich Text with colors
-                label = Text()
-                label.append(session.ljust(max_session), style="cyan")
-                label.append("  ")
-                label.append(pane_idx.ljust(max_pane_idx), style="dim")
-                label.append("  ")
-                label.append(process, style="green")
+        # Calculate max widths for alignment
+        max_session = max((len(p.get("session", "")) for p in panes), default=0)
+        max_pane_idx = max((len(f"{p['window_index']}.{p['pane_index']}") for p in panes), default=0)
 
-                # Search: concatenate searchable fields
-                search_text = f"{session} {pane_idx} {process}"
+        # Build FzfItems
+        items = []
+        for p in panes:
+            session = p.get("session", "")
+            pane_idx = f"{p['window_index']}.{p['pane_index']}"
+            process = p.get("pane_current_command", "")
+            pane_id = p.get("pane_id", "")
 
-                items.append(FzfItem(display=label, value=pane_id, search=search_text))
+            # Display: Rich Text with theme-aware markup
+            label = Text()
+            label.append(session.ljust(max_session), style="bold")
+            label.append("  ")
+            label.append(pane_idx.ljust(max_pane_idx), style="dim")
+            label.append("  ")
+            label.append(process, style="italic")
 
-            # Update selector with live pane list
-            selector = self.query_one(FzfSelector)
-            selector.update_items(items)
+            # Search: concatenate searchable fields
+            search_text = f"{session} {pane_idx} {process}"
+
+            items.append(FzfItem(display=label, value=pane_id, search=search_text))
+
+        # Update selector with live pane list
+        selector = self.query_one(FzfSelector)
+        selector.update_items(items)
+
+    def action_toggle_sort(self) -> None:
+        """Toggle between working set and all panes."""
+        self._show_working_set = not self._show_working_set
+        self._update_pane_list()
 
     def on_fzf_selector_selected(self, event: FzfSelector.Selected) -> None:
         """Handle pane selection from FzfSelector."""
@@ -102,31 +130,46 @@ class PaneSelectScreen(TermtapScreen):
         """Placeholder - FzfSelector handles Enter key internally."""
         pass
 
-    def action_toggle_preview(self) -> None:
-        """Toggle preview visibility via CSS class."""
-        preview = self.query_one("#preview")
-        preview.toggle_class("-visible")
-        if preview.has_class("-visible"):
+    def on_resize(self, event) -> None:
+        """Update preview when size is known/changed."""
+        preview = self.query_one("#preview", PreviewPane)
+        if preview.display:
             self._update_preview()
+
+    def action_toggle_preview(self) -> None:
+        """Toggle preview visibility using Python display property."""
+        preview = self.query_one("#preview")
+        preview.display = not preview.display
+        if preview.display:
+            # Defer until layout updates
+            self.call_after_refresh(self._update_preview)
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         """Update preview when navigation changes."""
         preview = self.query_one("#preview")
-        if preview.has_class("-visible"):
+        if preview.display:
             self._update_preview()
 
     def _update_preview(self) -> None:
-        """Fetch and update preview content for highlighted pane."""
+        """Fetch content based on widget size."""
         preview = self.query_one("#preview", PreviewPane)
+
+        lines = preview.get_line_capacity()
+        if lines is None:
+            # Size not known yet - will be called again from on_resize
+            return
 
         selector = self.query_one(FzfSelector)
         pane_id = selector.get_highlighted_value()
 
         if pane_id:
-            content = capture_last_n(pane_id, 30)
+            all_content = capture_pane(pane_id)
+            all_lines = all_content.splitlines() if all_content else []
+            tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+            content = "\n".join(tail_lines)
             preview.set_content(content)
         else:
-            preview.set_content("(preview unavailable)")
+            preview.set_content("(no pane selected)")
 
     def _resolve_action(self, result: dict) -> None:
         """Send resolve RPC and pop screen."""

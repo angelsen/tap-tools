@@ -1,53 +1,24 @@
-"""Target resolution - resolve target string to pane_id.
+"""Pane ID validation - verify pane ID exists in tmux.
 
 PUBLIC API:
-  - resolve_target: Resolve target to pane_id
+  - validate_pane_id: Validate pane ID format and existence
 """
 
-from .core import run_tmux, _get_pane_id
+from .core import run_tmux
 
-__all__ = ["resolve_target"]
+__all__ = ["validate_pane_id"]
 
 
-def resolve_target(target: str) -> str | None:
-    """Resolve target string to pane_id.
-
-    Supports:
-    - Pane ID directly (%42)
-    - Session:window.pane (dev:0.0)
-    - Session name (dev) -> first pane
-    - Session:window (dev:0) -> first pane in window
+def validate_pane_id(pane_id: str) -> str | None:
+    """Validate pane ID exists.
 
     Args:
-        target: Target identifier
+        pane_id: Must be %id format (e.g., "%42")
 
     Returns:
-        Pane ID or None if not found
+        pane_id if valid, None if not found or invalid format
     """
-    target = target.strip()
-
-    # Direct pane ID
-    if target.startswith("%"):
-        # Verify it exists
-        code, _, _ = run_tmux(["list-panes", "-t", target, "-F", "#{pane_id}"])
-        return target if code == 0 else None
-
-    # Parse session:window.pane format
-    session = target
-    window = "0"
-    pane = "0"
-
-    if ":" in target:
-        parts = target.split(":", 1)
-        session = parts[0]
-        rest = parts[1] if len(parts) > 1 else "0"
-
-        if "." in rest:
-            wp = rest.split(".", 1)
-            window = wp[0] or "0"
-            pane = wp[1] or "0"
-        else:
-            window = rest or "0"
-            pane = "0"
-
-    return _get_pane_id(session, window, pane)
+    if not pane_id.startswith("%"):
+        return None
+    code, _, _ = run_tmux(["list-panes", "-t", pane_id, "-F", "#{pane_id}"])
+    return pane_id if code == 0 else None

@@ -8,36 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Daemon-based architecture with persistent background process
-- Pattern learning system - teach termtap process states interactively
-- Textual-based Companion UI (`termtap companion`) for pattern management
-- Terminal emulation with SlimScreen (pyte-based) for precise output capture
-- Action queue with unified state machine (SELECTING → READY_CHECK → WATCHING → COMPLETED)
-- JSON-RPC client/server communication over Unix domain sockets
-- Pattern editor with live preview and DSL syntax highlighting
-- Queue viewer showing pending/watching actions in real-time
-- `debug()` command for daemon introspection
+- `termtap repl` subcommand for explicit REPL mode
+- Pattern pairing system (link ready/busy patterns)
+- Pattern lifecycle hooks (on_add, on_update, on_delete)
+- LogoText widget with custom background rendering
+- Background widget for gradient patterns
+- Pattern editor screen in companion UI
+- BaseTerminalPane for widget reuse
+- Card builders for theme-aware layouts
+- DaemonContext for dependency injection
+- Client context system for session-aware operations
 
 ### Changed
-- **BREAKING**: Commands now communicate via RPC instead of direct tmux interaction
-- **BREAKING**: Command execution lifecycle managed by action states, not wait/timeout parameters
-- **BREAKING**: Pattern learning replaces hardcoded process handlers
-- **BREAKING**: Removed handler plugin system and configuration files (handlers.md)
-- Simplified pane resolution - target parameter no longer optional on most commands
-- Output capture uses terminal emulation with tmux pipe-pane streaming
-- Commands return when ready patterns match instead of polling
+- **BREAKING**: Default `termtap` invocation runs companion (TTY) or MCP (piped stdin)
+- **BREAKING**: Removed `--mcp` flag (auto-detected via stdin)
+- **BREAKING**: All commands use `pane_id` parameter (strict %format) instead of flexible `target`
+- Daemon handlers extracted to modular `daemon/handlers/` directory
+- Pattern matching returns metadata about which pattern matched
+- Companion TCSS organized into 4 sections (tokens, containers, components, screens)
 
 ### Fixed
+- LogoText whitespace now matches card background (explicit bgcolor in render_line)
 
 ### Removed
-- Process handler system (9 handler files: Python, Claude, shell, SSH, confirmation, etc.)
-- Handler configuration via handlers.md YAML
-- Synchronous command execution with polling
-- `/pane/` module package structure (flattened to single file)
-- Session management modules (tmux/session.py, tmux/stream.py)
-- Complex `/proc` filesystem inspection and process tree parsing
-- `run()` command - service orchestration (may be re-added later)
-- `track()` command - monitoring (replaced by companion queue view)
+- YAML-based configuration system (config.py, CONFIG_PATH)
 
 ## [0.10.2] - 2025-12-17
 

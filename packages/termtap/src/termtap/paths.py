@@ -2,13 +2,12 @@
 
 PUBLIC API:
   - get_runtime_dir: Runtime directory (sockets, PID)
-  - get_config_dir: Config directory (config.yaml, patterns.yaml)
+  - get_config_dir: Config directory (patterns.yaml)
   - get_state_dir: State directory (logs)
   - SOCKET_PATH: Main daemon RPC socket
   - EVENTS_SOCKET_PATH: Event broadcast socket
   - COLLECTOR_SOCK_PATH: Stream collector socket
   - PID_PATH: PID file path
-  - CONFIG_PATH: Config file path
   - PATTERNS_PATH: Patterns file path
   - LOG_PATH: Log file path
 """
@@ -24,7 +23,6 @@ __all__ = [
     "EVENTS_SOCKET_PATH",
     "COLLECTOR_SOCK_PATH",
     "PID_PATH",
-    "CONFIG_PATH",
     "PATTERNS_PATH",
     "LOG_PATH",
 ]
@@ -69,8 +67,7 @@ COLLECTOR_SOCK_PATH = get_runtime_dir() / "collector.sock"
 # PID file
 PID_PATH = get_runtime_dir() / "daemon.pid"
 
-# Config files
-CONFIG_PATH = get_config_dir() / "config.yaml"
+# Config file
 PATTERNS_PATH = get_config_dir() / "patterns.yaml"
 
 # Log file

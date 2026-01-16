@@ -6,20 +6,13 @@ PUBLIC API:
 
 from __future__ import annotations
 
-from textual.widgets import TextArea
+from .base import BaseTerminalPane
 
 __all__ = ["OutputPane"]
 
 
-class OutputPane(TextArea):
+class OutputPane(BaseTerminalPane):
     """Read-only pane output with cursor and selection."""
-
-    def __init__(self, content: str = ""):
-        super().__init__(content, read_only=True, show_line_numbers=False, soft_wrap=False)
-
-    def set_content(self, content: str) -> None:
-        """Update displayed content."""
-        self.load_text(content)
 
     def get_entry_for_pattern(self) -> tuple[str, int, int]:
         """Get text and position for pattern entry.

@@ -19,36 +19,35 @@ def main():
 
     Commands:
     - termtap daemon start|stop|status
-    - termtap companion [--popup]
-    - termtap (REPL mode)
-    - termtap --mcp (MCP mode)
+    - termtap companion [--popup|--master]
+    - termtap repl
+    - termtap (auto-detect: companion if tty, MCP if piped)
     """
     args = sys.argv[1:]
 
-    # Daemon commands
     if args and args[0] == "daemon":
         _handle_daemon_command(args[1:])
         return
 
-    # Companion command
     if args and args[0] == "companion":
         _handle_companion_command(args[1:])
         return
 
-    # Eager daemon start for MCP/REPL modes
+    if args and args[0] == "repl":
+        _ensure_daemon_running()
+        from .app import app
+
+        app.run(title="termtap - Terminal Pane Manager")
+        return
+
     _ensure_daemon_running()
 
-    # MCP mode
-    if "--mcp" in args:
+    if sys.stdin.isatty():
+        _handle_companion_command([])
+    else:
         from .app import app
 
         app.mcp.run()
-        return
-
-    # Default: REPL mode
-    from .app import app
-
-    app.run(title="termtap - Terminal Pane Manager")
 
 
 def _handle_daemon_command(args: list[str]):
@@ -96,7 +95,9 @@ def _handle_companion_command(args: list[str]):
     from .ui.companion import run_companion
 
     popup_mode = "--popup" in args
-    run_companion(popup_mode=popup_mode)
+    master_mode = "--master" in args
+
+    run_companion(popup_mode=popup_mode, master_mode=master_mode)
 
 
 def _ensure_daemon_running():

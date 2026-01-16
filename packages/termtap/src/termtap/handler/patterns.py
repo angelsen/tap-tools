@@ -4,18 +4,29 @@ PUBLIC API:
   - PatternStore: Load/save/match patterns from YAML
   - Pattern: Single or multi-line pattern with DSL
   - compile_dsl: Compile DSL string to regex
+  - DSLError: DSL parsing and compilation errors
 """
 
 import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from ..paths import PATTERNS_PATH
 
-__all__ = ["PatternStore", "Pattern", "compile_dsl"]
+if TYPE_CHECKING:
+    from .hooks import HookManager
+
+__all__ = ["PatternStore", "Pattern", "PatternPair", "compile_dsl", "DSLError"]
+
+
+class DSLError(Exception):
+    """DSL parsing and compilation errors."""
+
+    pass
 
 
 def parse_quantifier(dsl: str, pos: int) -> tuple[str, int]:
@@ -83,7 +94,14 @@ def compile_dsl(dsl: str) -> re.Pattern:
 
         # Literal brackets
         elif char == "[":
-            end = dsl.index("]", i)
+            try:
+                end = dsl.index("]", i)
+            except ValueError:
+                context_start = max(0, i - 5)
+                context_end = min(len(dsl), i + 10)
+                raise DSLError(
+                    f"Invalid DSL pattern at position {i}: unmatched '[' (context: '{dsl[context_start:context_end]}')"
+                )
             content = dsl[i + 1 : end]
             if content == "*":
                 result.append(".*")
@@ -188,14 +206,38 @@ class Pattern:
 
 
 @dataclass
+class PatternPair:
+    """Linked ready+busy pattern pair."""
+
+    ready: str
+    busy: str
+
+
+@dataclass
 class PatternStore:
     """Load, save, and match patterns."""
 
     path: Path = field(default_factory=lambda: PATTERNS_PATH)
     patterns: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    _hook_manager: "HookManager | None" = field(default=None, repr=False, init=False)
 
     def __post_init__(self):
         self.load()
+
+    @property
+    def hook_manager(self):
+        """Lazy-initialized hook manager."""
+        if self._hook_manager is None:
+            from .hooks import HookManager
+
+            self._hook_manager = HookManager()
+            self._hook_manager.load_from_patterns(self.patterns)
+        return self._hook_manager
+
+    def reload_hooks(self):
+        """Reload hooks after pattern changes."""
+        if self._hook_manager:
+            self._hook_manager.load_from_patterns(self.patterns)
 
     def load(self):
         """Load patterns from YAML file."""
@@ -207,6 +249,7 @@ class PatternStore:
                 self.patterns = {}
         else:
             self.patterns = {}
+        self.reload_hooks()
 
     def save(self):
         """Save patterns to YAML file (atomic write)."""
@@ -218,6 +261,7 @@ class PatternStore:
             temp_path = Path(f.name)
 
         temp_path.rename(self.path)
+        self.reload_hooks()
 
     def match(self, process: str, output: str) -> str | None:
         """Find matching pattern, return state.
@@ -229,43 +273,75 @@ class PatternStore:
         Returns:
             State name ("ready" or "busy") or None if no match
         """
-        if process in ("ssh", "", None):
-            return self._match_all(output)
-        return self._match_process(process, output)
+        state, _ = self.match_with_info(process, output)
+        return state
 
-    def _match_process(self, process: str, output: str) -> str | None:
-        """Check patterns for specific process.
+    def match_with_info(self, process: str, output: str) -> tuple[str | None, str | None]:
+        """Find matching pattern, return state and matched pattern.
+
+        Args:
+            process: Process name (e.g., "python", "ssh")
+            output: Output text to match against
+
+        Returns:
+            Tuple of (state, matched_pattern) or (None, None) if no match
+        """
+        if process in ("ssh", "", None):
+            return self._match_all_with_info(output)
+        return self._match_process_with_info(process, output)
+
+    def _match_process_with_info(self, process: str, output: str) -> tuple[str | None, str | None]:
+        """Check patterns for specific process with matched pattern info.
 
         Args:
             process: Process name
             output: Output text
 
         Returns:
-            State if matched, None otherwise
+            Tuple of (state, matched_pattern) or (None, None)
         """
         if process not in self.patterns:
-            return None
+            return (None, None)
 
+        # Check pairs first
+        pairs_raw = self.patterns[process].get("pairs", [])
+        # Type check: pairs is a list of dicts, not strings
+        if isinstance(pairs_raw, list) and pairs_raw and isinstance(pairs_raw[0], dict):
+            for pair_dict in pairs_raw:
+                if isinstance(pair_dict, dict):
+                    ready_pattern = pair_dict.get("ready")
+                    if ready_pattern and isinstance(ready_pattern, str):
+                        pattern = Pattern(raw=ready_pattern, process=process, state="ready")
+                        if pattern.matches(output):
+                            return ("ready", ready_pattern)
+
+        # Check standalone patterns
         for state, pattern_list in self.patterns[process].items():
+            if state in ("pairs", "hooks"):  # Skip pairs and hooks (config sections, not states)
+                continue
+            if not isinstance(pattern_list, list):
+                continue
             for raw in pattern_list:
                 pattern = Pattern(raw=raw, process=process, state=state)
                 if pattern.matches(output):
-                    return state
-        return None
+                    return (state, raw)
 
-    def _match_all(self, output: str) -> str | None:
-        """Check all patterns (for ssh/unknown).
+        return (None, None)
+
+    def _match_all_with_info(self, output: str) -> tuple[str | None, str | None]:
+        """Check all patterns with info (for ssh/unknown).
 
         Args:
             output: Output text
 
         Returns:
-            State if matched, None otherwise
+            Tuple of (state, matched_pattern) or (None, None)
         """
         for process in self.patterns:
-            if result := self._match_process(process, output):
-                return result
-        return None
+            state, pattern = self._match_process_with_info(process, output)
+            if state:
+                return (state, pattern)
+        return (None, None)
 
     def add(self, process: str, pattern: str, state: str):
         """Add pattern.
@@ -277,6 +353,49 @@ class PatternStore:
         """
         self.patterns.setdefault(process, {}).setdefault(state, []).append(pattern)
         self.save()
+
+    def add_pair(self, process: str, ready: str, busy: str):
+        """Add linked ready+busy pattern pair.
+
+        Args:
+            process: Process name
+            ready: Ready pattern DSL
+            busy: Busy pattern DSL
+        """
+        proc_patterns = self.patterns.setdefault(process, {})
+        # Get or create pairs list (typing: list[dict] not list[str])
+        if "pairs" not in proc_patterns:
+            proc_patterns["pairs"] = []  # type: ignore
+        pairs_list = proc_patterns["pairs"]
+        # Type narrowing for list operations
+        if isinstance(pairs_list, list):
+            pairs_list.append({"ready": ready, "busy": busy})  # type: ignore
+        self.save()
+
+    def get_pair_for_ready(self, process: str, ready_pattern: str) -> PatternPair | None:
+        """Find pair that contains this ready pattern.
+
+        Args:
+            process: Process name
+            ready_pattern: Ready pattern DSL to search for
+
+        Returns:
+            PatternPair if found, None otherwise
+        """
+        if process not in self.patterns:
+            return None
+
+        pairs_raw = self.patterns[process].get("pairs", [])
+        # Type check: pairs is a list of dicts
+        if isinstance(pairs_raw, list):
+            for item in pairs_raw:
+                if isinstance(item, dict):
+                    ready_val = item.get("ready")
+                    busy_val = item.get("busy")
+                    if ready_val == ready_pattern and isinstance(ready_val, str) and isinstance(busy_val, str):
+                        return PatternPair(ready=ready_val, busy=busy_val)
+
+        return None
 
     def remove(self, process: str, pattern: str, state: str):
         """Remove pattern.
@@ -301,6 +420,42 @@ class PatternStore:
 
         self.save()
 
+    def remove_pair(self, process: str, ready: str, busy: str):
+        """Remove pattern pair.
+
+        Args:
+            process: Process name
+            ready: Ready pattern DSL
+            busy: Busy pattern DSL
+        """
+        if process not in self.patterns:
+            return
+
+        pairs_raw = self.patterns[process].get("pairs", [])
+        if not isinstance(pairs_raw, list):
+            return
+
+        # Filter out the matching pair
+        new_pairs = []
+        for item in pairs_raw:
+            if isinstance(item, dict):
+                if item.get("ready") == ready and item.get("busy") == busy:
+                    continue  # Skip this pair
+                new_pairs.append(item)
+
+        if new_pairs:
+            self.patterns[process]["pairs"] = new_pairs  # type: ignore
+        else:
+            # Remove empty pairs list
+            if "pairs" in self.patterns[process]:
+                del self.patterns[process]["pairs"]
+
+        # Clean up empty process
+        if not self.patterns[process]:
+            del self.patterns[process]
+
+        self.save()
+
     def get(self, process: str) -> dict[str, list[str]]:
         """Get patterns for a process.
 
@@ -319,3 +474,27 @@ class PatternStore:
             Full patterns dict
         """
         return self.patterns
+
+    def get_hooks(self, process: str | None = None) -> dict:
+        """Get hooks, optionally filtered by process.
+
+        Args:
+            process: Process name to filter by (optional)
+
+        Returns:
+            Dict of hooks (all or filtered by process)
+        """
+        if process:
+            hooks = self.patterns.get(process, {}).get("hooks", {})
+            return hooks if isinstance(hooks, dict) else {}
+        return {p: d.get("hooks", {}) for p, d in self.patterns.items() if isinstance(d.get("hooks"), dict)}
+
+    def update_process_config(self, process: str, config: dict):
+        """Update entire process config (patterns + hooks).
+
+        Args:
+            process: Process name
+            config: Full config dict for the process
+        """
+        self.patterns[process] = config
+        self.save()

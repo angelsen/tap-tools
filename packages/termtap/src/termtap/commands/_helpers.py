@@ -15,18 +15,18 @@ def build_tips(pane_id: str) -> dict[str, str]:
     """Build per-pane interaction tips.
 
     Args:
-        pane_id: Pane identifier (in %id or session:window.pane format)
+        pane_id: Pane identifier (%id format)
 
     Returns:
         Markdown text element with interaction tips
     """
     return {
         "type": "text",
-        "content": f"""**Tips:**
-- Execute: `execute(command="...", target="{pane_id}")`
-- Send keys: `send_keystrokes(keys=[...], target="{pane_id}")`
-- Interrupt: `interrupt(target="{pane_id}")`
-- Read more: `pane(target="{pane_id}")`""",
+        "content": f"""**Next steps:**
+- Execute: `mcp__termtap__execute(command="...", pane_id="{pane_id}")`
+- Send keys: `mcp__termtap__send_keystrokes(keys=["..."], pane_id="{pane_id}")`
+- Interrupt: `mcp__termtap__interrupt(pane_id="{pane_id}")`
+- Page: `mcp__termtap__pane(pane_id="{pane_id}", offset=N, limit=M)`""",
     }
 
 
@@ -41,7 +41,7 @@ def build_hint(pane_id: str) -> dict[str, str]:
     """
     return {
         "type": "blockquote",
-        "content": f'Use `pane(target="{pane_id}")` to see result',
+        "content": f'Use `mcp__termtap__pane(pane_id="{pane_id}")` to see result',
     }
 
 
@@ -59,39 +59,33 @@ def build_range_info(pane_id: str, range_: tuple[int, int], total: int) -> dict[
     start, end = range_
     return {
         "type": "blockquote",
-        "content": f'Lines {start}-{end} of {total} | `pane(target="{pane_id}")` for more',
+        "content": f'Lines {start}-{end} of {total} | `mcp__termtap__pane(pane_id="{pane_id}")` for more',
     }
 
 
-def _require_target(
-    client: Any, command_name: str, target: str | None
-) -> tuple[str, None] | tuple[None, dict[str, Any]]:
-    """Get target, triggering selection if needed.
+def _require_pane_id(client: Any, command_name: str, pane_id: str | None) -> str:
+    """Get pane ID, triggering selection if needed.
 
     Args:
         client: DaemonClient instance
-        command_name: Name of command that needs target
-        target: Optional target pane identifier
+        command_name: Name of command that needs pane ID
+        pane_id: Optional pane identifier (%format)
 
     Returns:
-        (target, None) on success
-        (None, error_response) on failure
+        Validated pane ID
+
+    Raises:
+        ValueError: If pane selection fails or is cancelled
     """
-    if target:
-        return target, None
+    if pane_id:
+        return pane_id
 
     result = client.select_pane(command_name)
 
     if result["status"] == "completed":
-        return result["pane"], None
+        return result["pane"]
 
     if result["status"] == "timeout":
-        return None, {
-            "elements": [{"type": "text", "content": "Pane selection timed out. Run 'termtap companion' to respond."}],
-            "frontmatter": {"status": "timeout"},
-        }
+        raise ValueError("Pane selection timed out. Run 'termtap companion' to respond.")
 
-    return None, {
-        "elements": [{"type": "text", "content": f"Pane selection {result['status']}"}],
-        "frontmatter": {"status": result["status"]},
-    }
+    raise ValueError(f"Pane selection {result['status']}")

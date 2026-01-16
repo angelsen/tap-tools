@@ -26,7 +26,7 @@ class FzfItem(NamedTuple):
     """Item for FzfSelector.
 
     Attributes:
-        display: Any Rich renderable (Panel, Text, str, etc.)
+        display: Rich renderable (Panel, Text, str, etc.)
         value: String returned on selection
         search: Text used for fuzzy matching
     """

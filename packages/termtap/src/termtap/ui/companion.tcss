@@ -1,28 +1,94 @@
-/* === Variables === */
-$preview-max-height: 40%;
-$border-color: $primary;
+/* ============================================
+   SECTION 1: Design Tokens & Variables
+   ============================================ */
 
-/* === Base Layout === */
-Screen {
-    layout: vertical;
-}
+$border-success: $success;
+$border-warning: $warning;
+$border-error: $error;
+$border-info: $primary;
 
-/* === Queue Screen === */
-#queue-table {
+/* ============================================
+   SECTION 2: Container Patterns
+   ============================================ */
+
+/* Background fills screen and centers children */
+Background {
+    width: 1fr;
     height: 1fr;
+    align: center middle;
 }
 
-#empty-message {
+/* LogoText - ASCII logo with gradient animation */
+LogoText {
+    width: 61;        /* Logo character width */
+    height: 6;        /* Logo line count */
+    align: center middle;
+    background: $surface;
+}
+
+/* Content card - solid background over animated Background */
+.content-card {
+    width: auto;
+    height: auto;
+    background: $surface;
+    opacity: 1.0;
+    border: tall $primary;
+    padding: 1 2;
+}
+
+/* Full-width content panel - for screens without animation */
+.content-panel {
+    width: 1fr;
     height: 1fr;
-    content-align: center middle;
-    color: $text-muted;
+    background: $surface;
 }
 
-#empty-message.-hidden {
-    display: none;
+/* Common title styling */
+TermtapScreen .screen-title {
+    height: auto;
+    padding: 0 1;
+    text-style: bold;
 }
 
-/* === FzfSelector (reusable component) === */
+/* Semantic card styles - theme-aware */
+.card {
+    border: solid $primary;
+    padding: 0 1;
+}
+
+.card-success {
+    border: solid $success;
+    padding: 0 1;
+}
+
+.card-warning {
+    border: solid $warning;
+    padding: 0 1;
+}
+
+.card-info {
+    border: solid $primary;
+    padding: 0 1;
+}
+
+.card-title {
+    text-style: bold;
+}
+
+.card-dim {
+    color: $foreground 60%;
+}
+
+.card-highlight {
+    text-style: bold;
+    color: $accent;
+}
+
+/* ============================================
+   SECTION 3: Reusable Components
+   ============================================ */
+
+/* --- FzfSelector --- */
 FzfSelector {
     width: 100%;
     height: 100%;
@@ -36,32 +102,69 @@ FzfSelector #query-display {
     background: $surface;
 }
 
+/* OptionList styling */
 FzfSelector OptionList {
     height: 1fr;
-    border: solid $border-color;
+    border: solid $primary;
 }
 
-/* === PreviewPane (reusable component) === */
+/* --- PreviewPane --- */
 PreviewPane {
-    border: solid $border-color;
+    border: solid $primary;
     overflow: hidden;
     padding: 0 1;
 }
 
-/* === Pane Selector Screens === */
+/* --- OutputPane --- */
+OutputPane {
+    border: solid $border-success;
+}
+
+/* --- PatternEditor with state borders --- */
+PatternEditor {
+    border: solid $primary;
+}
+
+PatternEditor.-matches {
+    border: solid $border-success;
+}
+
+PatternEditor.-diverged {
+    border: solid $border-warning;
+}
+
+PatternEditor.-invalid {
+    border: round $border-error;
+}
+
+/* --- DslReference --- */
+DslReference {
+    height: auto;
+}
+
+/* ============================================
+   SECTION 4: Screen-Specific Overrides
+   ============================================ */
+
+/* --- QueueScreen - Background container with card --- */
+QueueScreen .content-card {
+    width: 70;        /* Logo is 61 chars + padding */
+    height: 16;       /* Logo (6 lines) + title + ~4 table rows */
+}
+
+QueueScreen #queue-table {
+    height: 1fr;      /* Takes available space, scrolls */
+}
+
+QueueScreen Footer {
+    dock: bottom;
+}
+
+/* --- PaneSelectScreen - responsive layout --- */
 .pane-selector {
     height: 1fr;
     width: 100%;
     overflow: hidden;
-}
-
-/* Preview hidden by default, shown with -visible class */
-#preview {
-    display: none;
-}
-
-#preview.-visible {
-    display: block;
 }
 
 /* Horizontal layout (wide terminal >= 120) */
@@ -91,48 +194,93 @@ PreviewPane {
 
 .pane-selector.-vertical #preview {
     width: 100%;
-    height: auto;
-    max-height: $preview-max-height;
+    height: 40%;
 }
 
-/* === Pattern Screen === */
-#process-info {
+/* --- PatternScreen - info headers --- */
+PatternScreen #process-info {
     height: auto;
     background: $primary;
     padding: 0 1;
     text-style: bold;
 }
 
+PatternScreen #process-info.-pair-mode {
+    background: $warning;
+}
+
+PatternScreen #pane-info {
+    padding: 0 1;
+}
+
 PatternScreen OutputPane {
     height: 2fr;
-    border: solid green;
 }
 
 PatternScreen #pattern-editor {
     height: auto;
     min-height: 3;
     max-height: 8;
-    border: solid cyan;
 }
 
-PatternScreen #pattern-editor.-matches {
-    border: solid green;
+PatternScreen #pattern-cards-row {
+    height: auto;
 }
 
-PatternScreen #pattern-editor.-diverged {
-    border: solid cyan;
+PatternScreen #pattern-cards-row > Container {
+    width: 1fr;
 }
 
-PatternScreen #dsl-reference {
+PatternScreen #syntax-ref {
+    height: auto;
+}
+
+/* --- PatternListScreen --- */
+PatternListScreen ListView {
+    height: 1fr;
+}
+
+PatternListScreen ListItem {
+    height: auto;
+}
+
+PatternListScreen Container {
+    height: auto;
+}
+
+/* --- PatternEditorScreen --- */
+PatternEditorScreen #editor-title {
+    height: auto;
+    background: $primary;
+    padding: 0 1;
+    text-style: bold;
+}
+
+PatternEditorScreen #examples-row {
+    height: auto;
+}
+
+PatternEditorScreen #examples-row > Container {
+    width: 1fr;
+    height: auto;
+}
+
+PatternEditorScreen #syntax-ref {
+    height: auto;
+}
+
+PatternEditorScreen #yaml-reference {
     height: auto;
     padding: 0;
 }
 
-/* === Pattern List Screen === */
-PatternListScreen OptionList {
+PatternEditorScreen #yaml-editor {
     height: 1fr;
+    min-height: 10;
+    border: solid $primary;
 }
 
-PatternListScreen .option-list--option {
+PatternEditorScreen #validation {
     height: auto;
+    padding: 0 1;
 }

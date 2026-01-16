@@ -4,17 +4,20 @@ PUBLIC API:
   - PaneInfo: Complete pane information data class
   - list_panes: List all panes with full information
   - get_pane: Get single pane by ID
-  - resolve_pane_id: Resolve target string to pane_id
+  - get_client_for_pane: Get client name for a pane
+  - validate_pane_id: Validate pane ID format and existence
   - get_pane_pid: Get process ID for pane
   - send_keys: Send keystrokes to pane
   - send_via_paste_buffer: Send content using paste buffer
   - capture_visible: Capture visible pane content
   - capture_last_n: Capture last N lines from pane
   - create_panes_with_layout: Create multiple panes with layout
+  - build_client_context: Build client context from tmux environment
 """
 
 from dataclasses import dataclass
 import json
+import os
 import subprocess
 import hashlib
 import warnings
@@ -34,6 +37,7 @@ class PaneInfo:
     Attributes:
         pane_id: Tmux pane ID (e.g., '%42').
         session: Session name.
+        window_id: Tmux window ID (e.g., '@3').
         window_index: Window index.
         window_name: Window name.
         pane_index: Pane index.
@@ -47,6 +51,7 @@ class PaneInfo:
 
     pane_id: str  # %42
     session: str
+    window_id: str  # @3
     window_index: int
     window_name: str
     pane_index: int
@@ -58,20 +63,45 @@ class PaneInfo:
     swp: SessionWindowPane  # session:window.pane
 
 
-def resolve_pane_id(target: str) -> str | None:
-    """Resolve target string to pane_id.
-
-    Alias for resolution.resolve_target for use by server.py.
-
-    Args:
-        target: Target identifier (pane_id, session:window.pane, etc.)
+def build_client_context() -> dict[str, str]:
+    """Build client context from tmux environment.
 
     Returns:
-        Pane ID or None if not found
+        Dict with pane, session, window, and client from current tmux environment.
+        Empty strings if not in tmux.
     """
-    from .resolution import resolve_target
+    pane = os.environ.get("TMUX_PANE", "")
+    if not pane:
+        return {"pane": "", "session": "", "window": "", "client": ""}
 
-    return resolve_target(target)
+    # Get pane info (includes session and window_id)
+    pane_info = get_pane(pane)
+    if not pane_info:
+        return {"pane": pane, "session": "", "window": "", "client": ""}
+
+    session = pane_info.session
+    window_id = pane_info.window_id  # e.g., "@3"
+
+    # Get client name
+    client = get_client_for_pane(pane)
+
+    return {"pane": pane, "session": session, "window": window_id, "client": client}
+
+
+def validate_pane_id(pane_id: str) -> str | None:
+    """Validate pane ID exists.
+
+    Alias for resolution.validate_pane_id for use by server.py.
+
+    Args:
+        pane_id: Must be %id format (e.g., "%42")
+
+    Returns:
+        pane_id if valid, None if not found or invalid format
+    """
+    from .resolution import validate_pane_id as _validate
+
+    return _validate(pane_id)
 
 
 def send_keys(
@@ -316,7 +346,7 @@ def list_panes(all: bool = True, session: str | None = None, window: str | None 
         cmd.append("-a")
 
     # First run: Get all fields except pane_title as JSON (safe from escaping issues)
-    json_format = '{"pane_id":"#{pane_id}","session_name":"#{session_name}","window_index":"#{window_index}","window_name":"#{window_name}","pane_index":"#{pane_index}","pane_pid":"#{pane_pid}","pane_active":"#{pane_active}","pane_current_command":"#{pane_current_command}"}'
+    json_format = '{"pane_id":"#{pane_id}","session_name":"#{session_name}","window_id":"#{window_id}","window_index":"#{window_index}","window_name":"#{window_name}","pane_index":"#{pane_index}","pane_pid":"#{pane_pid}","pane_active":"#{pane_active}","pane_current_command":"#{pane_current_command}"}'
 
     cmd.extend(["-F", json_format])
     code, stdout, _ = run_tmux(cmd)
@@ -352,6 +382,7 @@ def list_panes(all: bool = True, session: str | None = None, window: str | None 
                 PaneInfo(
                     pane_id=data["pane_id"],
                     session=data["session_name"],
+                    window_id=data["window_id"],
                     window_index=window_idx,
                     window_name=data["window_name"] or str(window_idx),
                     pane_index=pane_idx,
@@ -370,6 +401,35 @@ def list_panes(all: bool = True, session: str | None = None, window: str | None 
     return panes
 
 
+def get_client_for_pane(pane_id: str) -> str:
+    """Get client name for a specific pane.
+
+    Args:
+        pane_id: Pane ID (e.g. '%42').
+
+    Returns:
+        Client name (e.g. '/dev/pts/3') or empty string if not found.
+    """
+    json_format = '{"pane_id":"#{pane_id}","client_name":"#{client_name}"}'
+    cmd = ["list-clients", "-F", json_format]
+    code, stdout, _ = run_tmux(cmd)
+
+    if code != 0:
+        return ""
+
+    for line in stdout.strip().split("\n"):
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+            if data["pane_id"] == pane_id:
+                return data["client_name"]
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return ""
+
+
 def __strip_trailing_empty_lines(content: str) -> str:
     """Strip tmux pane height padding lines."""
     if not content:
@@ -383,28 +443,22 @@ def __strip_trailing_empty_lines(content: str) -> str:
     return ""
 
 
-def capture_visible(pane_id: str) -> str:
-    """Capture visible content from pane.
+def capture_pane(pane_id: str) -> str:
+    """Capture all pane content (history + visible screen).
+
+    Always uses -S - to capture everything. Works correctly for:
+    - Fresh panes with no history (captures visible screen)
+    - Panes with history (captures history + visible screen)
+
+    Filtering and pagination should be done in Python, not via tmux flags.
 
     Args:
-        pane_id: Tmux pane ID.
+        pane_id: Tmux pane ID (%format).
 
     Returns:
-        Visible pane content.
+        All pane content with trailing empty lines stripped.
     """
-    code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p"])
-    return __strip_trailing_empty_lines(stdout) if code == 0 else ""
-
-
-def _capture_all(pane_id: str) -> str:
-    """Capture all history from pane."""
     code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", "-"])
-    return __strip_trailing_empty_lines(stdout) if code == 0 else ""
-
-
-def capture_last_n(pane_id: str, lines: int) -> str:
-    """Capture last N lines from pane."""
-    code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", f"-{lines}"])
     return __strip_trailing_empty_lines(stdout) if code == 0 else ""
 
 

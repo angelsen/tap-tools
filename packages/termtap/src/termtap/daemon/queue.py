@@ -46,6 +46,10 @@ class Action:
     timestamp: float = field(default_factory=lambda: time.time())
     result: dict | None = None
     multi_select: bool = False
+    pair_mode: bool = False
+    linked_busy_pattern: str | None = None
+    matched_ready_pattern: str | None = None
+    client_context: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert to dict for serialization."""
@@ -56,6 +60,10 @@ class Action:
             "state": self.state.value,
             "timestamp": self.timestamp,
             "multi_select": self.multi_select,
+            "pair_mode": self.pair_mode,
+            "linked_busy_pattern": self.linked_busy_pattern,
+            "matched_ready_pattern": self.matched_ready_pattern,
+            "client_context": self.client_context,
         }
 
 
@@ -82,6 +90,7 @@ class ActionQueue:
         command: str,
         state: ActionState,
         multi_select: bool = False,
+        client_context: dict | None = None,
     ) -> Action:
         """Add action to queue.
 
@@ -90,6 +99,7 @@ class ActionQueue:
             command: Command that triggered the action
             state: Initial state of the action
             multi_select: Whether this is a multi-select action
+            client_context: Client context (pane, session) for popup targeting
 
         Returns:
             Action (result will be set when resolved)
@@ -107,6 +117,7 @@ class ActionQueue:
             state=state,
             timestamp=time.time(),
             multi_select=multi_select,
+            client_context=client_context or {},
         )
 
         self.pending.append(action)

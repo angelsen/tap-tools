@@ -8,7 +8,7 @@ from typing import Any
 
 from ..app import app
 from ..client import DaemonClient
-from ._helpers import _require_target, build_hint
+from ._helpers import _require_pane_id, build_hint
 
 
 @app.command(
@@ -20,32 +20,33 @@ from ._helpers import _require_target, build_hint
         "description": "Send interrupt signal (Ctrl+C) to stop running process in tmux pane",
     },
 )
-def interrupt(state, target: str = None) -> dict[str, Any]:  # pyright: ignore[reportArgumentType]
+def interrupt(state, pane_id: str = None) -> dict[str, Any]:  # pyright: ignore[reportArgumentType]
     """Send interrupt signal (Ctrl+C) to pane.
 
     Args:
         state: Application state (unused).
-        target: Pane target (session:window.pane).
+        pane_id: Pane ID (%format).
 
     Returns:
         Markdown formatted result with interrupt status.
     """
     client = DaemonClient()
-    resolved_target, error = _require_target(client, "interrupt", target)
-    if error:
-        return error
-    assert resolved_target is not None
 
     try:
-        client.interrupt(resolved_target)
+        resolved_pane_id = _require_pane_id(client, "interrupt", pane_id)
+    except ValueError as e:
+        return {"elements": [{"type": "text", "content": str(e)}]}
+
+    try:
+        client.interrupt(resolved_pane_id)
 
         return {
             "elements": [
-                {"type": "text", "content": f"Interrupt signal sent to **{resolved_target}**"},
-                build_hint(resolved_target),
+                {"type": "text", "content": f"Interrupt signal sent to **{resolved_pane_id}**"},
+                build_hint(resolved_pane_id),
             ],
             "frontmatter": {
-                "pane": resolved_target,
+                "pane": resolved_pane_id,
                 "status": "sent",
             },
         }

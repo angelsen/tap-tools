@@ -145,12 +145,39 @@ class SlimScreen:
     def erase_in_display(self, how: int = 0) -> None:
         """Clear screen (respects preserve_before boundary).
 
+        how=0: Cursor to end of display
+        how=1: Beginning of display to cursor
         how=2: Clear entire screen → clear from preserve_before onward
-        how=0: Cursor to end
-        how=1: Beginning to cursor
         """
-        if how == 2:
-            # Clear from preserve_before, keep history
+        current_logical = self.preserve_before + self.cursor_row
+        physical = self._logical_to_physical(current_logical)
+
+        if how == 0:
+            # Erase from cursor to end of display
+            if physical is not None:
+                # Clear from cursor to end of current line
+                line = self.lines[physical]
+                line._chars = line._chars[: self.cursor_col]
+
+                # Clear all lines after current
+                end_physical = len(self.lines)
+                for i in range(physical + 1, end_physical):
+                    self.lines[i] = LineBuffer()
+
+        elif how == 1:
+            # Erase from beginning of display to cursor
+            start_physical = self._logical_to_physical(self.preserve_before)
+            if start_physical is not None and physical is not None:
+                # Clear all lines before current
+                for i in range(start_physical, physical):
+                    self.lines[i] = LineBuffer()
+
+                # Clear from start of current line to cursor
+                line = self.lines[physical]
+                line._chars = [" "] * self.cursor_col + line._chars[self.cursor_col :]
+
+        elif how == 2:
+            # Clear entire screen (all scrollback - we don't track pane dimensions)
             physical_start = self._logical_to_physical(self.preserve_before)
             if physical_start is not None:
                 self.lines = self.lines[:physical_start]

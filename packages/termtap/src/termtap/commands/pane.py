@@ -10,7 +10,7 @@ from typing import Any
 from ..app import app
 from ..client import DaemonClient
 from ..pane import Pane
-from ..tmux.resolution import resolve_target
+from ..tmux.resolution import validate_pane_id
 from ._helpers import build_tips, build_range_info
 
 __all__ = ["pane", "panes"]
@@ -27,7 +27,7 @@ __all__ = ["pane", "panes"]
 )
 def pane(
     state,
-    target: str = None,  # pyright: ignore[reportArgumentType]
+    pane_id: str = None,  # pyright: ignore[reportArgumentType]
     tail: int = 100,
     offset: int = None,  # pyright: ignore[reportArgumentType]
     limit: int = None,  # pyright: ignore[reportArgumentType]
@@ -36,7 +36,7 @@ def pane(
 
     Args:
         state: Application state (unused).
-        target: Pane target (session:window.pane). If None, prompts via Companion.
+        pane_id: Pane ID (%format). If None, prompts via Companion.
         tail: Number of lines from end (default 100, used if offset/limit not set).
         offset: Starting line number for paging (0-indexed).
         limit: Number of lines to read for paging.
@@ -45,8 +45,8 @@ def pane(
         Markdown formatted result with pane output.
     """
     # Resolution
-    resolved_target: str
-    if target is None:
+    resolved_pane_id: str
+    if pane_id is None:
         client = DaemonClient()
         result = client.select_pane("pane")
 
@@ -56,28 +56,40 @@ def pane(
                 "frontmatter": {"status": result["status"]},
             }
 
-        resolved_target = result["pane"]
+        resolved_pane_id = result["pane"]
     else:
-        resolved_target = target
+        resolved_pane_id = pane_id
 
-    # Resolve to pane ID
-    pane_id = resolve_target(resolved_target)
-    if not pane_id:
+    # Validate pane ID
+    validated_pane_id = validate_pane_id(resolved_pane_id)
+    if not validated_pane_id:
         return {
-            "elements": [{"type": "text", "content": f"Error: Pane not found: {resolved_target}"}],
-            "frontmatter": {"status": "error", "error": f"Pane not found: {resolved_target}"},
+            "elements": [
+                {
+                    "type": "text",
+                    "content": f"Error: Invalid pane ID format: {resolved_pane_id}. Use %id format (e.g., %42).",
+                }
+            ],
+            "frontmatter": {"status": "error", "error": f"Invalid pane ID format: {resolved_pane_id}"},
         }
+
+    # Touch via daemon to register intentional access (best-effort)
+    try:
+        client = DaemonClient()
+        client.call("touch", {"pane_id": validated_pane_id})
+    except Exception:
+        pass  # Daemon may not be running
 
     try:
         # Capture using Pane abstraction
         if offset is not None and limit is not None:
-            p = Pane.capture_range(pane_id, offset, limit)
+            p = Pane.capture_range(validated_pane_id, offset, limit)
         else:
-            p = Pane.capture_tail(pane_id, tail)
+            p = Pane.capture_tail(validated_pane_id, tail)
 
         # Build response
         elements = [
-            build_tips(resolved_target),
+            build_tips(resolved_pane_id),
         ]
 
         if p.content:
@@ -85,12 +97,12 @@ def pane(
         else:
             elements.append({"type": "text", "content": "(empty)"})
 
-        elements.append(build_range_info(resolved_target, p.range, p.total_lines))
+        elements.append(build_range_info(resolved_pane_id, p.range, p.total_lines))
 
         return {
             "elements": elements,
             "frontmatter": {
-                "pane": resolved_target,
+                "pane": resolved_pane_id,
                 "status": "ok",
                 "range": list(p.range),
                 "total_lines": p.total_lines,
@@ -157,15 +169,21 @@ def panes(state) -> dict[str, Any]:
     results = []
 
     for target in targets:
-        pane_id = resolve_target(target)
-        if not pane_id:
+        validated = validate_pane_id(target)
+        if not validated:
             continue
+
+        # Touch via daemon to register intentional access (best-effort)
+        try:
+            client.call("touch", {"pane_id": validated})
+        except Exception:
+            pass  # Daemon may not be running
 
         try:
             if use_visible:
-                p = Pane.capture(pane_id)
+                p = Pane.capture(validated)
             else:
-                p = Pane.capture_tail(pane_id, 10)
+                p = Pane.capture_tail(validated, 10)
 
             # Per-pane section
             elements.append({"type": "heading", "content": target, "level": 3})
@@ -178,11 +196,13 @@ def panes(state) -> dict[str, Any]:
 
             elements.append(build_range_info(target, p.range, p.total_lines))
 
-            results.append({
-                "pane": target,
-                "range": list(p.range),
-                "total_lines": p.total_lines,
-            })
+            results.append(
+                {
+                    "pane": target,
+                    "range": list(p.range),
+                    "total_lines": p.total_lines,
+                }
+            )
 
         except Exception:
             continue

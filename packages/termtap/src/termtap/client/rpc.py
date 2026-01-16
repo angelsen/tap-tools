@@ -3,6 +3,7 @@
 PUBLIC API:
   - DaemonClient: Sync/async client for daemon RPC
   - DaemonNotRunning: Exception when daemon is not available
+  - build_client_context: Build client context from environment (re-exported from tmux.ops)
 """
 
 import json
@@ -11,8 +12,9 @@ import time
 from typing import Any
 
 from ..paths import SOCKET_PATH
+from ..tmux.ops import build_client_context
 
-__all__ = ["DaemonClient", "DaemonNotRunning"]
+__all__ = ["DaemonClient", "DaemonNotRunning", "build_client_context"]
 
 
 class DaemonNotRunning(Exception):
@@ -86,20 +88,20 @@ class DaemonClient:
         finally:
             sock.close()
 
-    def execute(self, target: str, command: str, client_pane: str) -> dict:
+    def execute(self, pane_id: str, command: str) -> dict:
         """Execute command in pane.
 
         Polls until resolved. Caller handles interruption (Ctrl+C).
 
         Args:
-            target: Pane ID
+            pane_id: Pane ID (%format)
             command: Command to execute
-            client_pane: Client's active pane from $TMUX_PANE (use "" if not in tmux)
 
         Returns:
             Result dict with status and output
         """
-        params = {"target": target, "command": command, "client_pane": client_pane}
+        client_context = build_client_context()
+        params = {"target": pane_id, "command": command, "client_context": client_context}
         result = self.call("execute", params)
         status = result.get("status")
         if status in ("error", "busy"):
@@ -108,13 +110,14 @@ class DaemonClient:
             return self._poll_until_resolved(result["action_id"])
         return result
 
-    def send(self, target: str, message: str) -> dict:
+    def send(self, pane_id: str, message: str) -> dict:
         """Send message to pane (alias for execute)."""
-        return self.call("send", {"target": target, "message": message})
+        client_context = build_client_context()
+        return self.call("send", {"target": pane_id, "message": message, "client_context": client_context})
 
-    def interrupt(self, target: str) -> dict:
+    def interrupt(self, pane_id: str) -> dict:
         """Send Ctrl+C to pane."""
-        return self.call("interrupt", {"target": target})
+        return self.call("interrupt", {"target": pane_id})
 
     def ls(self) -> dict:
         """List panes."""
@@ -147,7 +150,8 @@ class DaemonClient:
             dict with status ("completed", "cancelled", "error")
             and optionally "pane" or "error" fields
         """
-        result = self.call("select_pane", {"command": command})
+        client_context = build_client_context()
+        result = self.call("select_pane", {"command": command, "client_context": client_context})
         if result.get("status") != "selecting_pane":
             return result
         status = self._poll_until_resolved(result["action_id"])
@@ -168,7 +172,8 @@ class DaemonClient:
             dict with status ("completed", "cancelled", "error")
             and optionally "panes" (list) or "error" fields
         """
-        result = self.call("select_panes", {"command": command})
+        client_context = build_client_context()
+        result = self.call("select_panes", {"command": command, "client_context": client_context})
         if result.get("status") != "selecting_pane":
             return result
         status = self._poll_until_resolved(result["action_id"])

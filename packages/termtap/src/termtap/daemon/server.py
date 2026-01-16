@@ -13,96 +13,23 @@ from asyncio import StreamReader, StreamWriter
 from ..handler.patterns import PatternStore
 from ..paths import SOCKET_PATH, EVENTS_SOCKET_PATH, COLLECTOR_SOCK_PATH
 from ..terminal.manager import PaneManager
-from .queue import ActionQueue
+from .queue import ActionQueue, ActionState
 from .rpc import RPCDispatcher
 
 __all__ = ["TermtapDaemon"]
 
 logger = logging.getLogger(__name__)
 
-
-def _format_queue_state(queue) -> dict:
-    """Format queue state for debug output."""
-    import time
-    now = time.time()
-
-    return {
-        "pending": [
-            {
-                "id": a.id,
-                "pane_id": a.pane_id,
-                "command": a.command[:50],
-                "state": a.state.value,
-                "age_seconds": now - a.timestamp,
-            }
-            for a in queue.pending
-        ],
-        "resolved_count": len(queue.resolved),
-        "utilization": len(queue.pending) / queue.max_size,
-    }
+# Popup spawn delays per action state (seconds)
+# Allows fast auto-resolution before showing popup
+POPUP_DELAYS = {
+    ActionState.READY_CHECK: 2.0,  # Pattern learning might auto-resolve
+    ActionState.WATCHING: 2.0,  # Command running, might complete fast
+    ActionState.SELECTING_PANE: 0.0,  # User interaction required immediately
+}
 
 
-def _format_panes_state(manager) -> dict:
-    """Format pane manager state for debug output."""
-    import time
-    now = time.time()
-
-    result = {}
-    for pane_id, pane in manager.panes.items():
-        action_info = None
-        if pane.action:
-            action_info = {
-                "id": pane.action.id,
-                "state": pane.action.state.value,
-                "age_seconds": now - pane.action.timestamp,
-            }
-
-        result[pane_id] = {
-            "process": pane.process,
-            "collecting": pane_id in manager._active_pipes,
-            "bytes_fed": pane.bytes_fed,
-            "action": action_info,
-            "buffer": {
-                "line_count": pane.screen.line_count,
-                "base_idx": pane.screen.base_idx,
-                "mark_idx": pane.screen.mark_idx,
-                "preserve_before": pane.screen.preserve_before,
-            },
-        }
-
-    return result
-
-
-def _format_patterns_state(patterns) -> dict:
-    """Format pattern store state for debug output."""
-    process_counts = {}
-    for process, states in patterns.patterns.items():
-        counts = {state: len(plist) for state, plist in states.items()}
-        process_counts[process] = counts
-
-    return {
-        "path": str(patterns.path),
-        "processes": process_counts,
-        "total_patterns": sum(
-            len(plist)
-            for states in patterns.patterns.values()
-            for plist in states.values()
-        ),
-    }
-
-
-def _make_serializable(obj):
-    """Convert non-JSON types to serializable format."""
-    if isinstance(obj, (str, int, float, bool, type(None))):
-        return obj
-    if isinstance(obj, dict):
-        return {k: _make_serializable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_make_serializable(v) for v in obj]
-    if isinstance(obj, set):
-        return list(obj)
-    # For other types, use repr
-    return repr(obj)
+# Import helpers from context module
 
 
 class TermtapDaemon:
@@ -111,6 +38,8 @@ class TermtapDaemon:
     def __init__(self):
         self.rpc = RPCDispatcher()
         self.event_clients: list[StreamWriter] = []
+        self.companion_windows: dict[str, StreamWriter] = {}  # window_id -> writer
+        self.master_companion: StreamWriter | None = None
         self._running = False
         self._servers: list[asyncio.Server] = []
         self._log_buffer: list[str] = []  # Ring buffer for recent logs
@@ -130,12 +59,14 @@ class TermtapDaemon:
         self.pane_manager = PaneManager(
             patterns=self.patterns,
             on_resolve=self._handle_auto_resolve,
+            on_hook_fire=self._handle_hook_fire,
         )
 
         self._register_handlers()
 
     def _setup_log_handler(self):
         """Add handler to capture logs in memory."""
+
         class BufferHandler(logging.Handler):
             def __init__(self, buffer: list[str]):
                 super().__init__()
@@ -182,9 +113,7 @@ class TermtapDaemon:
             pane.bytes_since_watching = 0  # Reset counter for new data tracking
 
             asyncio.create_task(
-                self.broadcast_event(
-                    {"type": "action_watching", "id": action.id, "action": action.to_dict()}
-                )
+                self.broadcast_event({"type": "action_watching", "id": action.id, "action": action.to_dict()})
             )
             return
 
@@ -203,375 +132,83 @@ class TermtapDaemon:
             )
         )
 
+    def _handle_hook_fire(self, pane_id: str, hook, output: str):
+        """Execute hook action.
+
+        Args:
+            pane_id: Pane identifier
+            hook: Hook instance that fired
+            output: Output that triggered the hook
+        """
+        from ..tmux.ops import send_keys
+
+        if hook.action == "send_keys" and hook.keys:
+            logger.info(f"Hook sending keys to {pane_id}: {hook.keys}")
+            for key in hook.keys:
+                send_keys(pane_id, key, line_ending="")
+
     def _register_handlers(self):
         """Register RPC method handlers."""
-        assert self.queue is not None
-        assert self.patterns is not None
-        assert self.pane_manager is not None
-
-        queue = self.queue
-        patterns = self.patterns
-        pane_manager = self.pane_manager
-
-        @self.rpc.method("execute")
-        async def execute(target: str, command: str, client_pane: str):
-            """Execute command with live pattern matching.
-
-            Flow:
-            1. Pre-check pattern state
-            2. If ready: mark, send_keys, create WATCHING action
-            3. If busy: return busy status
-            4. If unknown: return READY_CHECK action for UI
-
-            Args:
-                target: Target pane identifier
-                command: Command to execute
-                client_pane: Client's active pane from $TMUX_PANE (use "" if not in tmux)
-            """
-            from ..tmux.ops import send_keys, resolve_pane_id
-            from .queue import ActionState
-
-            # Resolve pane ID
-            pane_id = resolve_pane_id(target)
-            if not pane_id:
-                return {"status": "error", "error": f"Pane not found: {target}"}
-
-            # Check if trying to execute in client's active pane
-            if client_pane and pane_id == client_pane:
-                return {"status": "error", "error": "Cannot execute in your active pane"}
-
-            # Ensure pipe-pane is active
-            pane_manager.ensure_pipe_pane(pane_id)
-
-            # Get or create pane terminal
-            pane = pane_manager.get_or_create(pane_id)
-
-            # Pre-check: pattern match current state
-            # check_patterns handles both empty stream (tmux capture) and stream buffer
-            state = pane.check_patterns(patterns)
-
-            logger.debug(f"Execute pre-check: pane={pane_id} process={pane.process} state={state or 'unknown'}")
-
-            if state == "ready":
-                # Clear stream, send command, create WATCHING action
-                pane.screen.clear()
-                send_keys(pane_id, command)
-
-                action = queue.add(
-                    pane_id=pane_id,
-                    command=command,
-                    state=ActionState.WATCHING,
-                )
-                pane.action = action
-
-                logger.info(f"Action {action.id} created: pane={pane_id} cmd={command[:50]} state=WATCHING")
-
-                await self.broadcast_event({"type": "action_added", "action": action.to_dict()})
-
-                return {"status": "watching", "action_id": action.id}
-
-            elif state == "busy":
-                # Terminal is busy
-                logger.debug(f"Execute busy: pane={pane_id}")
-                return {"status": "busy"}
-
-            else:
-                # Unknown state - needs user pattern
-                action = queue.add(
-                    pane_id=pane_id,
-                    command=command,
-                    state=ActionState.READY_CHECK,
-                )
-                pane.action = action  # Assign so manager can auto-resolve if pattern matches later
-
-                logger.info(f"Action {action.id} created: pane={pane_id} cmd={command[:50]} state=READY_CHECK")
-
-                await self.broadcast_event({"type": "action_added", "action": action.to_dict()})
-
-                return {"status": "ready_check", "action_id": action.id}
-
-        @self.rpc.method("send")
-        async def send(target: str, message: str):
-            """Send message (alias for execute)."""
-            return await execute(target, message)
-
-        @self.rpc.method("check_ready")
-        async def check_ready(target: str):
-            """Check if pane is ready for input."""
-            from ..tmux.ops import resolve_pane_id
-
-            pane_id = resolve_pane_id(target)
-            if not pane_id:
-                return {"status": "error", "error": f"Pane not found: {target}"}
-
-            pane = pane_manager.get_or_create(pane_id)
-            state = pane.check_patterns(patterns)
-
-            if state == "ready":
-                return {"status": "ready"}
-            elif state == "busy":
-                return {"status": "busy"}
-            else:
-                return {"status": "unknown"}
-
-
-        @self.rpc.method("resolve")
-        async def resolve(action_id: str, result: dict[str, str]):
-            """Resolve action with user response.
-
-            Handles state transitions:
-            - READY_CHECK + ready: mark stream, send command, transition to WATCHING
-            - WATCHING + ready: capture output since mark, complete action
-            - Otherwise: just resolve as-is
-            """
-            from ..tmux.ops import send_keys
-            from .queue import ActionState
-
-            action = queue.get(action_id)
-            if not action:
-                return {"ok": False, "error": "Action not found"}
-
-            # Handle READY_CHECK → WATCHING transition
-            if action.state == ActionState.READY_CHECK and result.get("state") == "ready":
-                pane = pane_manager.get_or_create(action.pane_id)
-                pane.screen.clear()
-                send_keys(action.pane_id, action.command)
-
-                # Transition to WATCHING
-                action.state = ActionState.WATCHING
-                pane.action = action
-                pane.bytes_since_watching = 0  # Reset counter for new data tracking
-
-                await self.broadcast_event({"type": "action_watching", "id": action_id, "action": action.to_dict()})
-                return {"ok": True, "status": "watching"}
-
-            # Handle WATCHING completion
-            if action.state == ActionState.WATCHING and result.get("state") == "ready":
-                pane = pane_manager.get_or_create(action.pane_id)
-                output = pane.screen.all_content()
-
-                action.result = {"output": output, "truncated": False, "state": "ready"}
-                queue.resolve(action_id, action.result)
-
-                await self.broadcast_event({"type": "action_resolved", "id": action_id})
-                return {"ok": True, "status": "completed", "result": action.result}
-
-            # Handle SELECTING_PANE resolution (pane selected by user)
-            if action.state == ActionState.SELECTING_PANE:
-                selected_pane = result.get("pane_id") or result.get("panes")
-                if selected_pane:
-                    # Complete the selection
-                    queue.resolve(action_id, result)
-                    await self.broadcast_event({"type": "action_resolved", "id": action_id})
-                    return {"ok": True, "status": "completed", "result": result}
-
-            # Default: just resolve
-            queue.resolve(action_id, result)
-            await self.broadcast_event({"type": "action_resolved", "id": action_id})
-            return {"ok": True}
-
-        @self.rpc.method("get_queue")
-        async def get_queue():
-            return {"actions": queue.to_dict()}
-
-        @self.rpc.method("get_status")
-        async def get_status(action_id: str):
-            from .queue import ActionState
-
-            action = queue.get(action_id)
-            if not action:
-                return {"status": "not_found"}
-            if action.state == ActionState.COMPLETED:
-                return {"status": "completed", "result": action.result}
-            if action.state == ActionState.CANCELLED:
-                return {"status": "cancelled", "result": action.result}
-            if action.state == ActionState.WATCHING:
-                return {"status": "watching"}
-            if action.state == ActionState.READY_CHECK:
-                return {"status": "ready_check"}
-            if action.state == ActionState.SELECTING_PANE:
-                return {"status": "selecting_pane"}
-            return {"status": "unknown"}
-
-        @self.rpc.method("learn_pattern")
-        async def learn_pattern(process: str, pattern: str, state: str):
-            patterns.add(process, pattern, state)
-            return {"ok": True}
-
-        @self.rpc.method("get_patterns")
-        async def get_patterns(process: str | None = None):
-            if process:
-                return {"patterns": patterns.get(process)}
-            return {"patterns": patterns.all()}
-
-        @self.rpc.method("remove_pattern")
-        async def remove_pattern(process: str, pattern: str, state: str):
-            patterns.remove(process, pattern, state)
-            return {"ok": True}
-
-        @self.rpc.method("interrupt")
-        async def interrupt(target: str):
-            from ..tmux.ops import send_keys
-
-            send_keys(target, "C-c")
-            return {"status": "sent"}
-
-        @self.rpc.method("get_pane_data")
-        async def get_pane_data(pane_id: str, lines: int = 20):
-            """Get live pane data for display."""
-            from ..pane import Pane
-            from ..tmux.ops import get_pane
-
-            captured = Pane.capture_tail(pane_id, lines)
-            # Get swp from pane info (Pane doesn't include this)
-            info = get_pane(pane_id)
-
-            return {
-                "content": captured.content,
-                "process": captured.process,  # Use Pane's synced process
-                "swp": info.swp if info else "",
-            }
-
-        @self.rpc.method("ls")
-        async def ls():
-            from ..tmux.ops import list_panes
-            from dataclasses import asdict
-
-            panes = list_panes()
-            return {"panes": [asdict(p) for p in panes]}
-
-        @self.rpc.method("cleanup")
-        async def cleanup():
-            removed = pane_manager.cleanup_dead()
-            return {"removed": len(removed)}
-
-        @self.rpc.method("ping")
-        async def ping():
-            return {"pong": True}
-
-        @self.rpc.method("debug_eval")
-        async def debug_eval(code: str):
-            """Execute Python code with daemon state context.
-
-            Args:
-                code: Python expression/statement to execute
-
-            Returns:
-                dict with result, logs (if any), error (if any)
-            """
-            from types import SimpleNamespace
-
-            captured = []
-
-            # Build context object
-            ctx = SimpleNamespace(
-                queue=lambda: _format_queue_state(queue),
-                panes=lambda: _format_panes_state(pane_manager),
-                patterns=lambda: _format_patterns_state(patterns),
-                health=lambda: {
-                    "running": self._running,
-                    "event_clients": len(self.event_clients),
-                    "servers": len(self._servers),
-                    "logs_buffered": len(self._log_buffer),
-                },
-                logs=lambda n=50: self._log_buffer[-n:] if self._log_buffer else [],
-                raw=SimpleNamespace(
-                    queue=queue,
-                    pane_manager=pane_manager,
-                    patterns=patterns,
-                    daemon=self,
-                ),
-                log=lambda *args: captured.append(" ".join(str(a) for a in args)),
-            )
-
-            try:
-                # Use exec() for statements, capture result variable if set
-                import builtins
-                namespace = {"ctx": ctx, "result": None, "__builtins__": builtins}
-                exec(code, namespace)
-                result = namespace.get("result")
-
-                # Serialize non-JSON types
-                result = _make_serializable(result)
-
-                return {
-                    "result": result,
-                    **({"logs": captured} if captured else {}),
-                }
-            except Exception as e:
-                return {
-                    "result": None,
-                    "error": str(e),
-                    **({"logs": captured} if captured else {}),
-                }
-
-        @self.rpc.method("select_pane")
-        async def select_pane(command: str):
-            from ..tmux.ops import list_panes
-            from .queue import ActionState
-
-            panes = list_panes()
-
-            if not panes:
-                return {"status": "error", "error": "No panes available"}
-
-            if len(panes) == 1:
-                return {"status": "completed", "pane": panes[0].pane_id}
-
-            action = queue.add(
-                pane_id="",
-                command=command,
-                state=ActionState.SELECTING_PANE,
-            )
-
-            await self.broadcast_event({"type": "action_added", "action": action.to_dict()})
-            return {"status": "selecting_pane", "action_id": action.id}
-
-        @self.rpc.method("select_panes")
-        async def select_panes(command: str):
-            """Select multiple panes via companion UI."""
-            from ..tmux.ops import list_panes
-            from .queue import ActionState
-
-            panes = list_panes()
-            if not panes:
-                return {"status": "error", "error": "No panes available"}
-
-            action = queue.add(
-                pane_id="",
-                command=command,
-                state=ActionState.SELECTING_PANE,
-                multi_select=True,
-            )
-
-            await self.broadcast_event({"type": "action_added", "action": action.to_dict()})
-            return {"status": "selecting_pane", "action_id": action.id}
-
-    def _ensure_companion_running(self):
-        """Launch companion in popup if not connected."""
-        if self.event_clients:
-            return  # Already connected
+        from .context import DaemonContext
+        from .handlers import register_all_handlers
+
+        ctx = DaemonContext(
+            daemon=self,
+            queue=self.queue,
+            patterns=self.patterns,
+            pane_manager=self.pane_manager,
+        )
+
+        register_all_handlers(self.rpc, ctx)
+
+    def _ensure_companion_running(self, client_context: dict | None = None):
+        """Launch companion popup in client's window.
+
+        Only spawns if master companion exists or window has companion.
+        Uses -c flag to target the correct tmux client for popup display.
+
+        Args:
+            client_context: Client context with window and client for targeting.
+        """
+        if not client_context:
+            return
+
+        # Master companion handles all windows
+        if self.master_companion:
+            return
+
+        window = client_context.get("window")
+        if not window:
+            return
+
+        # Check if companion already running in this window
+        if window in self.companion_windows:
+            return
 
         import subprocess
         import sys
 
-        subprocess.Popen(
-            [
-                "tmux",
-                "display-popup",
-                "-E",
-                "-w",
-                "80%",
-                "-h",
-                "60%",
-                sys.executable,
-                "-m",
-                "termtap",
-                "companion",
-                "--popup",
-            ]
-        )
+        cmd = ["tmux", "display-popup", "-E", "-w", "80%", "-h", "60%"]
+
+        # Target the client directly with -c flag
+        if client_context.get("client"):
+            cmd.extend(["-c", client_context["client"]])
+
+        cmd.extend([sys.executable, "-m", "termtap", "companion", "--popup"])
+
+        subprocess.Popen(cmd)
         # Don't block - companion will load queue when it connects
+
+    async def _delayed_popup(self, action_id: str, client_context: dict, delay: float):
+        """Spawn popup after delay if action still pending."""
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+        # Check if action still needs user interaction
+        if self.queue:
+            action = self.queue.get(action_id)
+            if action and action.state in (ActionState.READY_CHECK, ActionState.SELECTING_PANE):
+                self._ensure_companion_running(client_context)
 
     async def start(self):
         """Start daemon and listen on all sockets."""
@@ -705,9 +342,38 @@ class TermtapDaemon:
             await writer.wait_closed()
 
     async def _handle_events(self, reader: StreamReader, writer: StreamWriter):
-        """Handle event listener connection."""
+        """Handle event listener connection.
+
+        Expects companion to send handshake with either:
+        - {"type": "hello", "master": true} for global companion
+        - {"type": "hello", "context": {...}} for window-specific companion
+        """
         self.event_clients.append(writer)
+        window_id: str | None = None
+        is_master: bool = False
+
         try:
+            # Wait for handshake (with timeout)
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=2.0)
+                if line:
+                    handshake = json.loads(line.decode())
+                    if handshake.get("type") == "hello":
+                        # Check for master mode
+                        if handshake.get("master"):
+                            is_master = True
+                            self.master_companion = writer
+                            logger.info("Master companion registered")
+                        # Otherwise check for context with window
+                        else:
+                            context = handshake.get("context", {})
+                            window_id = context.get("window")
+                            if window_id:
+                                self.companion_windows[window_id] = writer
+                                logger.info(f"Companion registered for window {window_id}")
+            except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
+                logger.warning("Companion connected without valid handshake")
+
             # Keep connection open until client disconnects
             while True:
                 data = await reader.read(1)
@@ -718,6 +384,12 @@ class TermtapDaemon:
         finally:
             if writer in self.event_clients:
                 self.event_clients.remove(writer)
+            if is_master and self.master_companion == writer:
+                self.master_companion = None
+                logger.info("Master companion unregistered")
+            if window_id and window_id in self.companion_windows:
+                del self.companion_windows[window_id]
+                logger.info(f"Companion unregistered from window {window_id}")
             writer.close()
             await writer.wait_closed()
 
@@ -725,7 +397,19 @@ class TermtapDaemon:
         """Broadcast event to all connected event listeners."""
         # Ensure companion is running when action needs user interaction
         if event.get("type") == "action_added":
-            self._ensure_companion_running()
+            action_data = event.get("action", {})
+            client_context = action_data.get("client_context", {})
+            action_id = action_data.get("id")
+            state_str = action_data.get("state", "")
+
+            # Get delay based on action state
+            try:
+                state = ActionState(state_str)
+                delay = POPUP_DELAYS.get(state, 0.0)
+            except ValueError:
+                delay = 0.0
+
+            asyncio.create_task(self._delayed_popup(action_id, client_context, delay))
 
         if not self.event_clients:
             return

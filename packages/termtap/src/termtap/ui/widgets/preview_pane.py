@@ -4,21 +4,16 @@ PUBLIC API:
   - PreviewPane: Scrollable preview of pane content
 """
 
-from textual.widgets import Static
+from .base import BaseTerminalPane
 
 __all__ = ["PreviewPane"]
 
 
-class PreviewPane(Static):
+class PreviewPane(BaseTerminalPane):
     """Scrollable preview of pane content.
 
+    Read-only TextArea with no wrapping for raw terminal output.
     All styling via companion.tcss - no DEFAULT_CSS to avoid conflicts.
     """
 
-    def set_content(self, text: str) -> None:
-        """Update preview content.
-
-        Args:
-            text: Content to display. Empty string shows "(empty)".
-        """
-        self.update(text or "(empty)")
+    can_focus = False  # Display-only, no cursor/selection

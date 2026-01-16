@@ -13,9 +13,22 @@ __all__ = ["TermtapScreen"]
 
 
 class TermtapScreen(Screen):
-    """Base screen with common patterns."""
+    """Base screen with common patterns.
+
+    Screens use container pattern:
+    - Background wraps children (animated background with card content)
+    - Solid panels (.content-panel) for other screens
+    """
 
     BINDINGS = [Binding("escape", "back", "Back")]
+
+    DEFAULT_CSS = """
+    TermtapScreen {
+        width: 1fr;
+        height: 1fr;
+        background: transparent;
+    }
+    """
 
     def __init__(self):
         super().__init__()

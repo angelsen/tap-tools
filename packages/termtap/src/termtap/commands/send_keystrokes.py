@@ -9,8 +9,7 @@ from typing import Any
 from ..app import app
 from ..client import DaemonClient
 from ..tmux.ops import send_keys
-from ..tmux.resolution import resolve_target
-from ._helpers import _require_target, build_hint
+from ._helpers import _require_pane_id, build_hint
 
 
 @app.command(
@@ -30,7 +29,7 @@ Use this for:
 NOT for running shell commands - use 'execute' for commands instead.""",
     },
 )
-def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any]:  # pyright: ignore[reportArgumentType]
+def send_keystrokes(state, keys: list[str], pane_id: str = None) -> dict[str, Any]:  # pyright: ignore[reportArgumentType]
     """Send raw keystrokes to target pane.
 
     Each keystroke in the list is sent individually. Special keys like Enter, Escape, C-c are supported.
@@ -38,7 +37,7 @@ def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any
     Args:
         state: Application state (unused).
         keys: List of keystrokes (e.g., ["q"], ["Down", "Enter"], ["C-c"]).
-        target: Pane target (session:window.pane).
+        pane_id: Pane ID (%format).
 
     Returns:
         Markdown formatted result with keystroke sending status.
@@ -51,10 +50,11 @@ def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any
         send_keystrokes(["Escape", ":q", "Enter"])       # Exit vim
     """
     client = DaemonClient()
-    resolved_target, error = _require_target(client, "send_keystrokes", target)
-    if error:
-        return error
-    assert resolved_target is not None
+
+    try:
+        resolved_pane_id = _require_pane_id(client, "send_keystrokes", pane_id)
+    except ValueError as e:
+        return {"elements": [{"type": "text", "content": str(e)}]}
 
     if not keys:
         return {
@@ -62,17 +62,10 @@ def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any
             "frontmatter": {"status": "error", "error": "No keys to send"},
         }
 
-    pane_id = resolve_target(resolved_target)
-    if not pane_id:
-        return {
-            "elements": [{"type": "text", "content": f"Error: Pane not found: {resolved_target}"}],
-            "frontmatter": {"status": "error", "error": f"Pane not found: {resolved_target}"},
-        }
-
     try:
         from ..types import LineEnding
 
-        success = send_keys(pane_id, *keys, line_ending=LineEnding.NONE)
+        success = send_keys(resolved_pane_id, *keys, line_ending=LineEnding.NONE)
 
         keys_display = " ".join(keys)
         if len(keys_display) > 40:
@@ -81,20 +74,20 @@ def send_keystrokes(state, keys: list[str], target: str = None) -> dict[str, Any
         if success:
             return {
                 "elements": [
-                    {"type": "text", "content": f"Sent **{len(keys)}** keystroke(s) to **{resolved_target}**"},
+                    {"type": "text", "content": f"Sent **{len(keys)}** keystroke(s) to **{resolved_pane_id}**"},
                     {"type": "code_block", "content": " ".join(keys), "language": ""},
-                    build_hint(resolved_target),
+                    build_hint(resolved_pane_id),
                 ],
                 "frontmatter": {
                     "keys": keys_display,
-                    "pane": resolved_target,
+                    "pane": resolved_pane_id,
                     "status": "sent",
                 },
             }
         else:
             return {
-                "elements": [{"type": "text", "content": f"Failed to send keystrokes to {resolved_target}"}],
-                "frontmatter": {"status": "failed", "pane": resolved_target},
+                "elements": [{"type": "text", "content": f"Failed to send keystrokes to {resolved_pane_id}"}],
+                "frontmatter": {"status": "failed", "pane": resolved_pane_id},
             }
 
     except Exception as e:

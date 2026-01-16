@@ -34,6 +34,7 @@ class PaneTerminal:
     action: Action | None = None
     bytes_fed: int = 0
     bytes_since_watching: int = 0  # Track data received since WATCHING started
+    last_accessed: float = 0.0  # Unix timestamp of last intentional access
 
     @classmethod
     def create(cls, pane_id: str, max_lines: int = 5000) -> "PaneTerminal":

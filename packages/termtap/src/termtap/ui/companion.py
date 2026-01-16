@@ -27,9 +27,10 @@ class TermtapCompanion(App):
 
     CSS_PATH = "companion.tcss"
 
-    def __init__(self, popup_mode: bool = False):
+    def __init__(self, popup_mode: bool = False, master_mode: bool = False):
         super().__init__()
         self.popup_mode = popup_mode
+        self.master_mode = master_mode
         self._event_task: asyncio.Task | None = None
         self._queue_screen: QueueScreen | None = None
         self._exit_timer: Timer | None = None
@@ -91,8 +92,20 @@ class TermtapCompanion(App):
         while True:
             try:
                 reader, writer = await asyncio.open_unix_connection(str(EVENTS_SOCKET_PATH))
-                # Queue already loaded in on_mount(), just listen for new events
 
+                # Send handshake with context or master flag
+                from ..tmux.ops import build_client_context
+
+                if self.master_mode:
+                    handshake = {"type": "hello", "master": True}
+                else:
+                    context = build_client_context()
+                    handshake = {"type": "hello", "context": context}
+
+                writer.write(json.dumps(handshake).encode() + b"\n")
+                await writer.drain()
+
+                # Queue already loaded in on_mount(), just listen for new events
                 while True:
                     line = await reader.readline()
                     if not line:
@@ -181,11 +194,12 @@ class TermtapCompanion(App):
                 pass
 
 
-def run_companion(popup_mode: bool = False) -> None:
+def run_companion(popup_mode: bool = False, master_mode: bool = False) -> None:
     """Run companion app.
 
     Args:
         popup_mode: If True, auto-dismiss when queue empties
+        master_mode: If True, companion is global (not tied to a window)
     """
-    app = TermtapCompanion(popup_mode=popup_mode)
+    app = TermtapCompanion(popup_mode=popup_mode, master_mode=master_mode)
     app.run()
