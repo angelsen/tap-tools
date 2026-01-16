@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.12.0] - 2026-01-16
+
+### Added
 - `termtap repl` subcommand for explicit REPL mode
 - Pattern pairing system (link ready/busy patterns)
 - Pattern lifecycle hooks (on_add, on_update, on_delete)
