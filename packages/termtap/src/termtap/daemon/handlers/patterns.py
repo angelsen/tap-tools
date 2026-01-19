@@ -6,6 +6,7 @@ remove_pair, get_hooks, update_process_config.
 
 import logging
 
+from ...pane import Pane
 from ..context import DaemonContext
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ def register_handlers(rpc, ctx: DaemonContext):
                 ctx.patterns.add(pane.process, pattern, "busy")
 
             # IMMEDIATELY COMPLETE (key change!)
-            output = pane.screen.all_content()
+            output = Pane.get(action.pane_id, pane).content
             action.result = {"output": output, "truncated": False}
             action.state = ActionState.COMPLETED
             action.linked_busy_pattern = pattern

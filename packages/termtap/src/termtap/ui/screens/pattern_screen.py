@@ -4,10 +4,9 @@ PUBLIC API:
   - PatternScreen: Mark patterns for state detection
 """
 
-from textual.actions import SkipAction
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import VerticalScroll
 from textual.widgets import Footer, Static
 
 from ._base import TermtapScreen
@@ -22,17 +21,21 @@ class PatternScreen(TermtapScreen):
     Shows OutputPane with pane content and PatternEditor for DSL patterns.
     User can select text to add as literals, or edit DSL directly.
     Bottom shows DSL syntax reference and examples.
+
+    Key bindings:
+    - a/u: Add/undo selection (handled by OutputPane when focused)
+    - r/b/p: Resolve ready/busy/toggle pair mode (screen-level)
+    - ctrl+r: Refresh pane output
+    - ?: Show DSL syntax reference
     """
 
     BINDINGS = [
-        Binding("a", "add_to_pattern", "Add"),
-        Binding("ctrl+z", "undo_entry", "Undo", priority=True),
-        Binding("ctrl+r", "refresh", "Refresh"),
-        Binding("ctrl+g", "resolve_ready", "Go"),
-        Binding("ctrl+p", "resolve_pair", "Pair"),
-        Binding("ctrl+b", "resolve_busy", "Busy"),
-        Binding("question_mark", "show_syntax", "Syntax"),
-        Binding("escape", "back", "Back"),
+        ("r", "resolve_ready", "Ready"),
+        ("b", "resolve_busy", "Busy"),
+        ("p", "resolve_pair", "Pair"),
+        ("ctrl+r", "refresh", "Refresh"),
+        Binding("question_mark", "show_syntax", "Syntax", key_display="?"),
+        ("escape", "back"),
     ]
 
     def __init__(self, action: dict):
@@ -44,13 +47,13 @@ class PatternScreen(TermtapScreen):
 
     def compose(self) -> ComposeResult:
         # Content layer - all screen content
-        with Vertical(classes="content-panel"):
+        with VerticalScroll(classes="content-panel"):
             yield Static("Process: [bold]...[/bold]", id="process-info")
             yield Static("", id="pane-info")
             yield OutputPane("")
             yield PatternEditor()
             yield DslReference()
-            yield Footer()
+        yield Footer()
 
     def on_mount(self) -> None:
         """Schedule data load after layout is complete."""
@@ -79,12 +82,16 @@ class PatternScreen(TermtapScreen):
         self._data_loaded = True
 
         result = self.rpc("get_pane_data", {"pane_id": pane_id, "lines": lines})
+
         if result:
             # Update display widgets
             self._current_process = result.get("process", "unknown")
             self._update_process_header()
             self.query_one("#pane-info", Static).update(result.get("swp", ""))
-            output_pane.set_content(result.get("content", ""))
+
+            content = result.get("content", "")
+            # Set content after refresh to ensure widget is properly mounted
+            self.call_after_refresh(lambda: output_pane.set_content(content))
 
     def _update_process_header(self) -> None:
         """Update process header with optional pair mode indicator."""
@@ -102,26 +109,16 @@ class PatternScreen(TermtapScreen):
         else:
             process_info.remove_class("-pair-mode")
 
-    def action_add_to_pattern(self) -> None:
-        """Add entry with position tracking."""
-        output_pane = self.query_one(OutputPane)
+    def on_output_pane_add_selection(self, event: OutputPane.AddSelection) -> None:
+        """Handle add selection message from OutputPane."""
         editor = self.query_one(PatternEditor)
+        editor.add_entry(event.text, event.row, event.col)
 
-        text, row, col = output_pane.get_entry_for_pattern()
-        if text:
-            editor.add_entry(text, row, col)
-
-    def action_undo_entry(self) -> None:
-        """Undo pattern entry (only when OutputPane focused)."""
+    def on_output_pane_undo_selection(self, event: OutputPane.UndoSelection) -> None:
+        """Handle undo selection message from OutputPane."""
         editor = self.query_one(PatternEditor)
-
-        # If PatternEditor has focus, let TextArea handle Ctrl+Z natively
-        if editor.has_focus:
-            raise SkipAction()  # Pass through to TextArea's native undo
-
-        # Otherwise, undo pattern entry
         if not editor.undo_entry():
-            self.notify("No pattern entries to undo")
+            self.notify("No entries to undo")
 
     def action_refresh(self) -> None:
         """Refresh pane output and clear pattern."""

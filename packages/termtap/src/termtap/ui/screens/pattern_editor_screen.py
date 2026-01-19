@@ -6,7 +6,6 @@ PUBLIC API:
 
 import yaml
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static, TextArea
 
@@ -31,8 +30,8 @@ class PatternEditorScreen(TermtapScreen):
     """Mini YAML editor for pattern configuration."""
 
     BINDINGS = [
-        Binding("ctrl+s", "save", "Save"),
-        Binding("escape", "cancel", "Cancel"),
+        ("ctrl+s", "save", "Save"),
+        ("escape", "cancel", "Cancel"),
     ]
 
     def __init__(self, process: str, initial_config: dict):

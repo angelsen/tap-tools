@@ -13,7 +13,7 @@ from rich.text import Text
 
 from ._base import TermtapScreen
 from ..widgets import FzfSelector, FzfItem, PreviewPane
-from ...tmux import capture_pane
+from ...pane import Pane
 
 __all__ = ["PaneSelectScreen"]
 
@@ -24,16 +24,19 @@ class PaneSelectScreen(TermtapScreen):
     Args:
         action: Action dict with id, pane_id, etc.
         multi_select: If True, allow multiple selection
+
+    Key bindings:
+    - Type to filter, arrows to navigate (FzfSelector)
+    - Enter/Tab: Select (FzfSelector handles)
+    - Escape: Cancel
+    - Ctrl+S: Toggle sort order
+    - Ctrl+-: Toggle preview
     """
 
-    # Static bindings - FzfSelector handles actual key behavior
-    # Tab/Enter shown for multi, Enter for single (footer shows all, FzfSelector filters)
     BINDINGS = [
-        Binding("tab", "noop", "Toggle", show=True),
-        Binding("enter", "noop", "Select", show=True),
-        Binding("escape", "back", "Cancel"),
-        Binding("ctrl+underscore", "toggle_preview", "Preview", priority=True),
-        Binding("ctrl+s", "toggle_sort", "Sort", priority=True),
+        ("escape", "back", "Cancel"),
+        ("ctrl+s", "toggle_sort", "Sort"),
+        Binding("ctrl+underscore", "toggle_preview", "Preview", key_display="^-"),
     ]
 
     def __init__(self, action: dict, multi_select: bool = False):
@@ -126,10 +129,6 @@ class PaneSelectScreen(TermtapScreen):
         """Handle cancellation from FzfSelector."""
         self.app.pop_screen()
 
-    def action_noop(self) -> None:
-        """Placeholder - FzfSelector handles Enter key internally."""
-        pass
-
     def on_resize(self, event) -> None:
         """Update preview when size is known/changed."""
         preview = self.query_one("#preview", PreviewPane)
@@ -163,11 +162,8 @@ class PaneSelectScreen(TermtapScreen):
         pane_id = selector.get_highlighted_value()
 
         if pane_id:
-            all_content = capture_pane(pane_id)
-            all_lines = all_content.splitlines() if all_content else []
-            tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-            content = "\n".join(tail_lines)
-            preview.set_content(content)
+            pane = Pane.capture_tail(pane_id, lines)
+            preview.set_content(pane.content)
         else:
             preview.set_content("(no pane selected)")
 

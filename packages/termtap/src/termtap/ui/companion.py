@@ -178,6 +178,25 @@ class TermtapCompanion(App):
                 if self.popup_mode and not actions:
                     self._exit_timer = self.set_timer(0.6, self._check_and_exit)
 
+        elif event_type == "action_cancelled":
+            cancelled_id = event.get("id")
+            if self._queue_screen:
+                # Remove cancelled action
+                actions = [a for a in self._queue_screen.actions if a.get("id") != cancelled_id]
+                self._queue_screen.set_actions(actions)
+
+            # Pop screen if we're on the cancelled action's screen
+            if isinstance(self.screen, (PaneSelectScreen, PatternScreen)):
+                current_action_id = getattr(self.screen, "action", {}).get("id")
+                if current_action_id == cancelled_id:
+                    self.pop_screen()
+                    if self._queue_screen and self._queue_screen.actions:
+                        self.push_screen(self._create_action_screen(self._queue_screen.actions[0]))
+
+            # Handle popup mode exit
+            if self.popup_mode and self._queue_screen and not self._queue_screen.actions:
+                self._exit_timer = self.set_timer(0.6, self._check_and_exit)
+
     def _check_and_exit(self) -> None:
         """Exit if queue is still empty after delay."""
         self._exit_timer = None

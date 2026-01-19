@@ -4,7 +4,6 @@ PUBLIC API:
   - TermtapScreen: Base screen with common patterns
 """
 
-from textual.binding import Binding
 from textual.screen import Screen
 
 from ...client import DaemonClient
@@ -20,7 +19,7 @@ class TermtapScreen(Screen):
     - Solid panels (.content-panel) for other screens
     """
 
-    BINDINGS = [Binding("escape", "back", "Back")]
+    BINDINGS = [("escape", "back", "Back")]
 
     DEFAULT_CSS = """
     TermtapScreen {

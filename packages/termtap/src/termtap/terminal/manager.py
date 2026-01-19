@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from ..daemon.queue import Action, ActionState
 from ..handler.patterns import PatternStore
+from ..pane import Pane
 from .pane_terminal import PaneTerminal
 
 if TYPE_CHECKING:
@@ -117,14 +118,14 @@ class PaneManager:
 
                     # Check if busy pattern is currently visible
                     busy_regex = compile_dsl(pane.action.linked_busy_pattern)
-                    busy_visible = bool(busy_regex.search(pane.screen.last_n_lines(10)))
+                    busy_visible = bool(busy_regex.search(Pane.get(pane.pane_id, pane, n=10).content))
 
                     if busy_visible:
                         self._busy_tracking[action_id] = True
                         logger.debug(f"Action {action_id}: busy pattern visible")
                     elif self._busy_tracking.get(action_id, False) and state == "ready":
                         # Busy was seen, now gone, ready matches → complete
-                        output = pane.screen.all_content()
+                        output = Pane.get(pane.pane_id, pane).content
                         truncated = False
                         logger.info(f"Action {action_id} completed (auto-pair): busy disappeared")
                         pane.action.result = {"output": output, "truncated": truncated}
@@ -140,7 +141,7 @@ class PaneManager:
                     # Normal mode: complete when ready pattern matches
                     # (Manual teaching completes via set_linked_busy RPC before reaching here)
                     action_id = pane.action.id
-                    output = pane.screen.all_content()
+                    output = Pane.get(pane.pane_id, pane).content
                     truncated = False
                     logger.info(f"Action {action_id} completed: output={len(output)} chars")
                     pane.action.result = {"output": output, "truncated": truncated}
@@ -173,7 +174,7 @@ class PaneManager:
         if not pane.process:
             return
 
-        output = pane.screen.last_n_lines(10)
+        output = Pane.get(pane_id, pane, n=10).content
         if not output:
             return
 

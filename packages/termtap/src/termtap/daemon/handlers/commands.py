@@ -5,6 +5,7 @@ Handlers for execute, send, and check_ready RPC methods.
 
 import logging
 
+from ...pane import Pane
 from ..context import DaemonContext
 
 logger = logging.getLogger(__name__)
@@ -53,13 +54,7 @@ def register_handlers(rpc, ctx: DaemonContext):
         pane = ctx.pane_manager.get_or_create(pane_id)
 
         # Pre-check: pattern match current state with info about which pattern matched
-        from ...pane import Pane as PaneCapture
-
-        if pane.bytes_fed == 0:
-            pane_capture = PaneCapture.capture(pane_id)
-        else:
-            pane_capture = PaneCapture.from_stream(pane, n=10)
-
+        pane_capture = Pane.get(pane_id, pane, n=10)
         pane.process = pane_capture.process
         state, matched_pattern = ctx.patterns.match_with_info(pane_capture.process, pane_capture.content)
 
@@ -99,7 +94,7 @@ def register_handlers(rpc, ctx: DaemonContext):
         elif state == "busy":
             # Terminal is busy - capture current output
             logger.debug(f"Execute busy: pane={pane_id}")
-            output = pane.screen.all_content()
+            output = Pane.get(pane_id, pane).content
             return {"status": "busy", "output": output}
 
         else:
@@ -139,7 +134,7 @@ def register_handlers(rpc, ctx: DaemonContext):
         if state == "ready":
             return {"status": "ready"}
         elif state == "busy":
-            output = pane.screen.all_content()
+            output = Pane.get(pane_id, pane).content
             return {"status": "busy", "output": output}
         else:
             return {"status": "unknown"}

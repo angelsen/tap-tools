@@ -155,4 +155,26 @@ class Pane:
             range=(0, total),
         )
 
+    # --- Unified entry point ---
+
+    @classmethod
+    def get(cls, pane_id: str, terminal=None, n: int | None = None) -> "Pane":
+        """Unified retrieval - stream if available, capture if not.
+
+        Encapsulates the stream-or-capture decision in one place.
+        Use this instead of direct pane.screen access.
+
+        Args:
+            pane_id: Pane ID (%id format)
+            terminal: PaneTerminal if available (for stream access)
+            n: Number of lines (None = all content)
+
+        Returns:
+            Pane with content + process in sync
+        """
+        if terminal and terminal.bytes_fed > 0:
+            return cls.from_stream_all(terminal) if n is None else cls.from_stream(terminal, n)
+        else:
+            return cls.capture(pane_id) if n is None else cls.capture_tail(pane_id, n)
+
     # --- Helpers ---

@@ -8,12 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Pane.get()` unified API for pane content retrieval (stream if available, capture if not)
+- Cancel action support: `cancel` RPC method, delete key binding in queue screen, `action_cancelled` event
+- Busy state handling in actions: `READY_CHECK + busy` and `WATCHING + busy` capture output immediately
+- OutputPane message-passing: `AddSelection`/`UndoSelection` messages for pattern selection
+- FzfSelector action methods (`action_confirm()`, `action_cancel()`) with BINDINGS for footer display
 
 ### Changed
+- Textual bindings modernized from `Binding()` to tuple format across all screens
+- PatternScreen uses `VerticalScroll` with Footer outside scroll container
+- FzfSelector uses `display` property instead of CSS classes for visibility
+- Pane content access consolidated through `Pane.get()` instead of direct `pane.screen` calls
 
 ### Fixed
+- Card and content panel overflow with `height: auto` and `overflow-y: auto`
+- OutputPane minimum height constraint (`min-height: 10`)
 
 ### Removed
+- Unused `mark_idx` field from buffer state reporting
+- Placeholder `action_noop()` methods in screens
 
 ## [0.12.0] - 2026-01-16
 

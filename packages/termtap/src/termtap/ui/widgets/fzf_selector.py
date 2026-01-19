@@ -58,6 +58,11 @@ class FzfSelector(Vertical):
     - Escape: Cancel selection
     """
 
+    BINDINGS = [
+        ("enter", "confirm", "Select"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
     class Selected(Message):
         """Posted when an item is selected."""
 
@@ -103,7 +108,7 @@ class FzfSelector(Vertical):
         """Compose child widgets."""
         yield Label("", id="query-display")
         yield OptionList(*[Option(self._format_label(item), id=item.value) for item in self._all_items])
-        yield Label(self._empty_message or "", id="empty-message", classes="-hidden")
+        yield Label(self._empty_message or "", id="empty-message")
 
     def on_mount(self) -> None:
         """Focus widget on mount to capture keys."""
@@ -111,37 +116,34 @@ class FzfSelector(Vertical):
         self._update_empty_state()
 
     def on_key(self, event) -> None:
-        """Handle all keyboard input."""
+        """Handle all keyboard input.
+
+        FzfSelector captures all keys for filtering. Enter/escape call action
+        methods (BINDINGS exist for footer display only).
+        """
         key = event.key
 
         if key == "escape":
             event.stop()
-            self.post_message(self.Cancelled())
+            self.action_cancel()
             return
 
         if key == "enter":
             event.stop()
-            if self._multi_select:
-                # If nothing marked, select highlighted item
-                if not self._selected:
-                    option_list = self.query_one(OptionList)
-                    if option_list.highlighted is not None:
-                        option = option_list.get_option_at_index(option_list.highlighted)
-                        if option and option.id:
-                            self.post_message(self.Selected([str(option.id)]))
-                            return
-                # Confirm all selected items
-                self.post_message(self.Selected(list(self._selected)))
-            else:
-                self._select_current()
+            self.action_confirm()
             return
 
-        if key == "space" or key == "tab":
+        if key == "space":
             event.stop()
             if self._multi_select:
                 self._toggle_current()
             else:
                 self._select_current()
+            return
+
+        if key == "tab" and self._multi_select:
+            event.stop()
+            self._toggle_current()
             return
 
         if key == "up" or key == "down":
@@ -158,6 +160,26 @@ class FzfSelector(Vertical):
             event.stop()
             self._query += event.character
             self._update_filter()
+
+    def action_confirm(self) -> None:
+        """Confirm selection (enter key)."""
+        if self._multi_select:
+            # If nothing marked, select highlighted item
+            if not self._selected:
+                option_list = self.query_one(OptionList)
+                if option_list.highlighted is not None:
+                    option = option_list.get_option_at_index(option_list.highlighted)
+                    if option and option.id:
+                        self.post_message(self.Selected([str(option.id)]))
+                        return
+            # Confirm all selected items
+            self.post_message(self.Selected(list(self._selected)))
+        else:
+            self._select_current()
+
+    def action_cancel(self) -> None:
+        """Cancel selection (escape key)."""
+        self.post_message(self.Cancelled())
 
     def _format_label(self, item: FzfItem) -> RenderableType:
         """Add selection marker in multi mode."""
@@ -237,11 +259,11 @@ class FzfSelector(Vertical):
         option_list = self.query_one(OptionList)
 
         if self._all_items:
-            empty_label.add_class("-hidden")
-            option_list.remove_class("-hidden")
+            empty_label.display = False
+            option_list.display = True
         else:
-            empty_label.remove_class("-hidden")
-            option_list.add_class("-hidden")
+            empty_label.display = True
+            option_list.display = False
 
     def update_items(self, items: list[FzfItem]) -> None:
         """Update items and rebuild the option list.

@@ -43,8 +43,8 @@ class DslSyntaxScreen(TermtapScreen):
     """
 
     BINDINGS = [
-        Binding("question_mark", "back", "Close"),
-        Binding("escape", "back", "Back"),
+        Binding("question_mark", "back", "Close", key_display="?"),
+        ("escape", "back"),
     ]
 
     def compose(self) -> ComposeResult:

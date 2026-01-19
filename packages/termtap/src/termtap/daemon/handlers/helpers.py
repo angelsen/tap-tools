@@ -69,7 +69,6 @@ def format_panes_state(manager) -> dict:
             "buffer": {
                 "line_count": pane.screen.line_count,
                 "base_idx": pane.screen.base_idx,
-                "mark_idx": pane.screen.mark_idx,
                 "preserve_before": pane.screen.preserve_before,
             },
         }

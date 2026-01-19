@@ -8,7 +8,6 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, Static
 
@@ -81,12 +80,12 @@ class PatternListScreen(TermtapScreen):
     """View and manage learned patterns.
 
     Displays all patterns as cards with FzfSelector filtering.
+    Enter to edit is handled via FzfSelector.Selected message.
     """
 
     BINDINGS = [
-        Binding("enter", "edit_pattern", "Edit"),
-        Binding("ctrl+d", "delete_pattern", "Delete"),
-        Binding("escape", "back", "Back"),
+        ("delete", "delete_pattern", "Delete"),
+        ("escape", "back", "Back"),
     ]
 
     def __init__(self):

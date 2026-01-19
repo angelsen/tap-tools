@@ -5,7 +5,6 @@ PUBLIC API:
 """
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import DataTable, Footer, Static
 
@@ -31,9 +30,10 @@ class QueueScreen(TermtapScreen):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("p", "patterns", "Patterns"),
-        Binding("escape", "noop", show=False),  # Override base - root screen has no back
+        ("q", "quit", "Quit"),
+        ("p", "patterns", "Patterns"),
+        ("delete", "cancel_action", "Cancel"),
+        ("escape", "noop"),  # Override base - root screen has no back
     ]
 
     def __init__(self):
@@ -136,3 +136,14 @@ class QueueScreen(TermtapScreen):
         from .pattern_list_screen import PatternListScreen
 
         self.app.push_screen(PatternListScreen())
+
+    def action_cancel_action(self) -> None:
+        """Cancel the selected action from queue."""
+        table = self.query_one("#queue-table", DataTable)
+        if table.cursor_row is None or not self.actions:
+            return
+        if table.cursor_row >= len(self.actions):
+            return
+        action_id = self.actions[table.cursor_row].get("id")
+        if action_id:
+            self.rpc("cancel", {"action_id": action_id})

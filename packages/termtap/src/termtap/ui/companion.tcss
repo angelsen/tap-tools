@@ -41,6 +41,7 @@ LogoText {
     width: 1fr;
     height: 1fr;
     background: $surface;
+    overflow-y: auto;
 }
 
 /* Common title styling */
@@ -54,21 +55,25 @@ TermtapScreen .screen-title {
 .card {
     border: solid $primary;
     padding: 0 1;
+    height: auto;
 }
 
 .card-success {
     border: solid $success;
     padding: 0 1;
+    height: auto;
 }
 
 .card-warning {
     border: solid $warning;
     padding: 0 1;
+    height: auto;
 }
 
 .card-info {
     border: solid $primary;
     padding: 0 1;
+    height: auto;
 }
 
 .card-title {
@@ -215,6 +220,7 @@ PatternScreen #pane-info {
 
 PatternScreen OutputPane {
     height: 2fr;
+    min-height: 10;
 }
 
 PatternScreen #pattern-editor {
@@ -229,6 +235,7 @@ PatternScreen #pattern-cards-row {
 
 PatternScreen #pattern-cards-row > Container {
     width: 1fr;
+    height: auto;
 }
 
 PatternScreen #syntax-ref {
