@@ -31,27 +31,6 @@ class Pane:
     # --- Capture constructors ---
 
     @classmethod
-    def capture(cls, pane_id: str) -> "Pane":
-        """Capture all content (history + visible).
-
-        Args:
-            pane_id: Pane ID (%id format)
-
-        Returns:
-            Pane with all content
-        """
-        info = get_pane(pane_id)
-        content = capture_pane(pane_id)
-        lines = content.splitlines() if content else []
-        return cls(
-            pane_id=pane_id,
-            content=content,
-            process=info.pane_current_command if info else "unknown",
-            total_lines=len(lines),
-            range=(0, len(lines)),
-        )
-
-    @classmethod
     def capture_tail(cls, pane_id: str, n: int) -> "Pane":
         """Capture last N lines (Python-side filtering).
 
@@ -157,6 +136,9 @@ class Pane:
 
     # --- Unified entry point ---
 
+    # Default limit for capture fallback (when stream not available)
+    _DEFAULT_CAPTURE_LIMIT = 100
+
     @classmethod
     def get(cls, pane_id: str, terminal=None, n: int | None = None) -> "Pane":
         """Unified retrieval - stream if available, capture if not.
@@ -167,7 +149,7 @@ class Pane:
         Args:
             pane_id: Pane ID (%id format)
             terminal: PaneTerminal if available (for stream access)
-            n: Number of lines (None = all content)
+            n: Number of lines (None = all stream content, or default limit for capture)
 
         Returns:
             Pane with content + process in sync
@@ -175,6 +157,7 @@ class Pane:
         if terminal and terminal.bytes_fed > 0:
             return cls.from_stream_all(terminal) if n is None else cls.from_stream(terminal, n)
         else:
-            return cls.capture(pane_id) if n is None else cls.capture_tail(pane_id, n)
+            limit = n if n is not None else cls._DEFAULT_CAPTURE_LIMIT
+            return cls.capture_tail(pane_id, limit)
 
     # --- Helpers ---

@@ -161,8 +161,8 @@ def panes(state) -> dict[str, Any]:
             "frontmatter": {"status": "cancelled"},
         }
 
-    # Smart capture: visible for single, preview for multiple
-    use_visible = len(targets) == 1
+    # Smart capture: more lines for single, preview for multiple
+    lines = 100 if len(targets) == 1 else 10
 
     # Build elements
     elements = []
@@ -180,10 +180,7 @@ def panes(state) -> dict[str, Any]:
             pass  # Daemon may not be running
 
         try:
-            if use_visible:
-                p = Pane.capture(validated)
-            else:
-                p = Pane.capture_tail(validated, 10)
+            p = Pane.capture_tail(validated, lines)
 
             # Per-pane section
             elements.append({"type": "heading", "content": target, "level": 3})

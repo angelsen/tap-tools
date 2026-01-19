@@ -86,8 +86,8 @@ class PaneTerminal:
         from ..pane import Pane
 
         if self.bytes_fed == 0:
-            # Stream empty, use tmux capture
-            pane = Pane.capture(self.pane_id)
+            # Stream empty, use tmux capture (last 10 lines for pattern matching)
+            pane = Pane.capture_tail(self.pane_id, 10)
         else:
             # Use stream buffer
             pane = Pane.from_stream(self, n=10)
