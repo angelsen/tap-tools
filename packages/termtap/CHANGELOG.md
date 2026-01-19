@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.13.0] - 2026-01-19
+
+### Added
 - `Pane.get()` unified API for pane content retrieval (stream if available, capture if not)
 - Cancel action support: `cancel` RPC method, delete key binding in queue screen, `action_cancelled` event
 - Busy state handling in actions: `READY_CHECK + busy` and `WATCHING + busy` capture output immediately
