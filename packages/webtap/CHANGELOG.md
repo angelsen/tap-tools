@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.14.0] - 2026-01-20
+
+### Added
 - **Multi-browser support**: Chrome and Edge with canonical IDs (`chrome`, `edge`)
 - **macOS browser detection**: Platform-specific executable paths for `.app` bundles
 - **`install-extension` command**: Install bundled extension via `importlib.resources`

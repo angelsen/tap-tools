@@ -1,6 +1,6 @@
 [project]
 name = "webtap-tool"
-version = "0.13.0"
+version = "0.14.0"
 description = "Terminal-based web page inspector for AI debugging sessions"
 readme = "README.md"
 authors = [
@@ -41,9 +41,6 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/webtap"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/webtap/extension" = "webtap/extension"
 
 [project.scripts]
 webtap = "webtap:main"
