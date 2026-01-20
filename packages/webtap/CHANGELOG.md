@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.14.1] - 2026-01-20
+
+### Added
+
+### Changed
+
+### Fixed
 - **Package build**: Remove redundant `force-include` causing duplicate extension files in wheel
 
 ### Removed
