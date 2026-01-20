@@ -12,6 +12,7 @@ import typer
 
 from webtap.app import app
 from webtap.commands._builders import success_response, error_response
+from webtap.services.setup.platform import detect_browsers, find_browser_path, SUPPORTED_BROWSERS
 from webtap.utils.ports import find_available_port, is_port_available
 
 
@@ -37,24 +38,26 @@ def _unregister_port(state, port: int) -> None:
 
 @app.command(
     display="markdown",
-    typer={"name": "run-chrome", "help": "Launch Chrome with debugging enabled"},
+    typer={"name": "run-browser", "help": "Launch browser with debugging enabled"},
     fastmcp={"enabled": False},
 )
-def run_chrome(
+def run_browser(
     state,
     port: Annotated[
         int | None, typer.Option("--port", "-p", help="Debugging port (auto-assigns from 37650+ if not set)")
     ] = None,
     private: Annotated[bool, typer.Option("--private", help="Launch in incognito mode")] = False,
+    browser: Annotated[str | None, typer.Option("--browser", "-b", help="Browser ID (chrome, edge) or path")] = None,
 ) -> dict:
-    """Launch Chrome with debugging enabled. Blocks until Ctrl+C.
+    """Launch browser with debugging enabled. Blocks until Ctrl+C.
 
     Args:
         port: Debugging port (auto-assigns from 37650+ if not set)
         private: Launch in incognito mode
+        browser: Browser ID (chrome, edge) or full path (auto-detects if not set)
 
     Returns:
-        Status message when Chrome exits
+        Status message when browser exits
     """
     # Auto-assign port or validate explicit port
     if port is None:
@@ -65,34 +68,45 @@ def run_chrome(
         return error_response(
             f"Port {port} already in use",
             suggestions=[
-                "Omit --port to auto-assign: webtap run-chrome",
-                "Check existing Chrome: ps aux | grep chrome",
+                "Omit --port to auto-assign: webtap run-browser",
+                "Check existing browser: ps aux | grep chrome",
                 f"Kill existing: pkill -f 'remote-debugging-port={port}'",
             ],
         )
 
-    # Find Chrome executable
-    chrome_paths = [
-        "google-chrome-stable",
-        "google-chrome",
-        "chromium-browser",
-        "chromium",
-    ]
+    # Find browser executable
+    if browser:
+        # Check if it's a canonical ID first
+        browser_path = find_browser_path(browser)
+        if browser_path:
+            chrome_exe = browser_path
+        # Otherwise treat as path/name
+        elif shutil.which(browser) or Path(browser).exists():
+            chrome_exe = browser if shutil.which(browser) else browser
+        else:
+            return error_response(
+                f"Browser not found: {browser}",
+                suggestions=[f"Supported IDs: {', '.join(SUPPORTED_BROWSERS.keys())}"],
+            )
+    else:
+        found = detect_browsers()
 
-    chrome_exe = None
-    for path in chrome_paths:
-        if shutil.which(path):
-            chrome_exe = path
-            break
+        if len(found) == 0:
+            return error_response(
+                "No supported browser found",
+                suggestions=[
+                    "Install Chrome: yay -S google-chrome",
+                    "Install Edge: yay -S microsoft-edge-stable-bin",
+                    "Or specify: webtap run-browser --browser /path/to/browser",
+                ],
+            )
+        elif len(found) > 1:
+            return error_response(
+                "Multiple browsers found",
+                suggestions=[f"webtap run-browser --browser {b}" for b in found],
+            )
 
-    if not chrome_exe:
-        return error_response(
-            "Chrome not found",
-            suggestions=[
-                "Install google-chrome-stable: sudo apt install google-chrome-stable",
-                "Or install chromium: sudo apt install chromium-browser",
-            ],
-        )
+        chrome_exe = find_browser_path(found[0])
 
     # Use clean temp profile for debugging
     temp_config = Path("/tmp/webtap-chrome-debug")
@@ -131,7 +145,7 @@ def run_chrome(
     signal.signal(signal.SIGTERM, cleanup)
 
     # Print status
-    print(f"Chrome running on port {port}. Press Ctrl+C to stop.")
+    print(f"Browser running on port {port}. Press Ctrl+C to stop.")
 
     # Block until Chrome exits or signal received
     try:
@@ -144,9 +158,9 @@ def run_chrome(
     _unregister_port(state, port)
 
     if returncode == 0:
-        return success_response("Chrome closed normally")
+        return success_response("Browser closed normally")
     else:
-        return error_response(f"Chrome exited with code {returncode}")
+        return error_response(f"Browser exited with code {returncode}")
 
 
 def _get_connected_devices() -> list[tuple[str, str]]:
@@ -194,10 +208,10 @@ def _get_device_name(serial: str) -> str:
 
 @app.command(
     display="markdown",
-    typer={"name": "setup-android", "help": "Set up Android device debugging"},
+    typer={"name": "debug-android", "help": "Forward Android Chrome for debugging"},
     fastmcp={"enabled": False},
 )
-def setup_android(
+def debug_android(
     state,
     yes: Annotated[bool, typer.Option("-y", "--yes", help="Auto-configure without prompts")] = False,
     port: Annotated[
@@ -205,7 +219,7 @@ def setup_android(
     ] = None,
     device: Annotated[str | None, typer.Option("-d", "--device", help="Device serial")] = None,
 ) -> dict:
-    """Set up Android device for Chrome debugging.
+    """Forward Android Chrome for debugging via adb.
 
     Args:
         yes: Auto-configure without prompts (default: False)
@@ -228,8 +242,8 @@ def setup_android(
                 "Step 4": "Accept the debugging prompt on device",
             },
             tips=[
-                "webtap setup-android -y  # auto-configure (port 37650+)",
-                "webtap setup-android -y -p 9222  # explicit port",
+                "webtap debug-android -y  # auto-configure (port 37650+)",
+                "webtap debug-android -y -p 9222  # explicit port",
             ],
         )
 
@@ -252,7 +266,7 @@ def setup_android(
         return error_response(
             f"Port {port} already in use",
             suggestions=[
-                "Omit -p to auto-assign: webtap setup-android -y",
+                "Omit -p to auto-assign: webtap debug-android -y",
                 f"Check: lsof -i :{port}",
             ],
         )
@@ -287,7 +301,7 @@ def setup_android(
         device_serials = [d[0] for d in devices]
         return error_response(
             "Multiple devices connected. Specify with --device/-d",
-            suggestions=[f"webtap setup-android -y -d {d}" for d in device_serials],
+            suggestions=[f"webtap debug-android -y -d {d}" for d in device_serials],
         )
 
     # Get device name for display
@@ -341,4 +355,4 @@ def setup_android(
     return success_response("Android debugging stopped")
 
 
-__all__ = ["run_chrome", "setup_android"]
+__all__ = ["run_browser", "debug_android"]

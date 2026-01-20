@@ -4,12 +4,17 @@ PUBLIC API:
   - SetupService: Orchestrator for WebTap component installation
 """
 
-from typing import Dict, Any
+from typing import Any
 
-from .extension import ExtensionSetupService
-from .chrome import ChromeSetupService
+from .browser import BrowserSetupService
 from .desktop import DesktopSetupService
-from .platform import get_platform_info, ensure_directories, APP_NAME
+from .platform import (
+    get_platform_info,
+    ensure_directories,
+    get_browser_info,
+    SUPPORTED_BROWSERS,
+    APP_NAME,
+)
 
 _OLD_EXTENSION_PATH = ".config/webtap/extension"
 _OLD_WRAPPER_PATH = ".local/bin/wrappers/google-chrome-stable"
@@ -39,48 +44,62 @@ class SetupService:
         ensure_directories()
 
         # Initialize component services
-        self.extension_service = ExtensionSetupService()
-        self.chrome_service = ChromeSetupService()
+        self.browser_service = BrowserSetupService()
         self.desktop_service = DesktopSetupService()
 
-    def install_extension(self, force: bool = False) -> Dict[str, Any]:
-        """Install Chrome extension files.
+    def install_browser(self, browser_id: str, force: bool = False, bindfs: bool = False) -> dict[str, Any]:
+        """Install browser wrapper and desktop launcher.
 
         Args:
+            browser_id: Browser ID (e.g., 'chrome', 'edge')
             force: Overwrite existing files
+            bindfs: Use bindfs to mount real browser profile (Linux only)
 
         Returns:
-            Dict with success, message, path, details
+            Dict with success, message, path, details, wrapper_result, desktop_result
         """
-        return self.extension_service.install_extension(force=force)
+        # Get browser config
+        browser_config = get_browser_info(browser_id)
+        if not browser_config:
+            return {
+                "success": False,
+                "message": f"Unsupported browser: {browser_id}",
+                "details": f"Supported: {', '.join(SUPPORTED_BROWSERS.keys())}",
+            }
 
-    def install_chrome_wrapper(self, force: bool = False, bindfs: bool = False) -> Dict[str, Any]:
-        """Install Chrome wrapper script.
+        # Install wrapper first
+        wrapper_result = self.browser_service.install(browser_id, force=force, bindfs=bindfs)
+        if not wrapper_result["success"]:
+            return wrapper_result
 
-        Args:
-            force: Overwrite existing script
-            bindfs: Use bindfs to mount real Chrome profile (Linux only)
+        # Install desktop entry
+        desktop_result = self.desktop_service.install_launcher(browser_id, browser_config, force=force)
 
-        Returns:
-            Dict with success, message, path, details
-        """
-        return self.chrome_service.install_wrapper(force=force, bindfs=bindfs)
+        # Combine results
+        if desktop_result["success"]:
+            return {
+                "success": True,
+                "message": f"{browser_config['name']} Debug setup complete",
+                "wrapper_path": wrapper_result.get("path"),
+                "desktop_path": desktop_result.get("path"),
+                "details": wrapper_result.get("details", ""),
+                "browser": browser_config,
+                "wrapper_result": wrapper_result,
+                "desktop_result": desktop_result,
+            }
+        else:
+            # Wrapper installed but desktop failed
+            return {
+                "success": True,  # Partial success
+                "message": f"Wrapper installed, desktop entry failed: {desktop_result['message']}",
+                "wrapper_path": wrapper_result.get("path"),
+                "details": wrapper_result.get("details", ""),
+                "browser": browser_config,
+                "wrapper_result": wrapper_result,
+                "desktop_result": desktop_result,
+            }
 
-    def install_desktop_entry(self, force: bool = False) -> Dict[str, Any]:
-        """Install desktop entry or app bundle for GUI integration.
-
-        On Linux: Creates .desktop file
-        On macOS: Creates .app bundle
-
-        Args:
-            force: Overwrite existing entry
-
-        Returns:
-            Dict with success, message, path, details
-        """
-        return self.desktop_service.install_launcher(force=force)
-
-    def get_platform_info(self) -> Dict[str, Any]:
+    def get_platform_info(self) -> dict[str, Any]:
         """Get platform information for debugging.
 
         Returns:
@@ -88,7 +107,7 @@ class SetupService:
         """
         return self.info
 
-    def cleanup_old_installations(self, dry_run: bool = True) -> Dict[str, Any]:
+    def cleanup_old_installations(self, dry_run: bool = True) -> dict[str, Any]:
         """Clean up old WebTap installations.
 
         Checks locations that webtap previously wrote to:

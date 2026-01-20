@@ -8,12 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multi-browser support**: Chrome and Edge with canonical IDs (`chrome`, `edge`)
+- **macOS browser detection**: Platform-specific executable paths for `.app` bundles
+- **`install-extension` command**: Install bundled extension via `importlib.resources`
+- **`find_browser_path()`**: Cross-platform browser executable resolution
 
 ### Changed
+- **`setup-browser` command**: Merged `setup-chrome` + `setup-desktop` into single command
+- **`run-browser` command**: Renamed from `run-chrome`, added `--browser` flag
+- **Browser detection**: Auto-detects when one browser installed, requires `--browser` if multiple
+- **Extension bundling**: Moved `extension/` into package data (`src/webtap/extension/`)
 
 ### Fixed
 
 ### Removed
+- **`setup-chrome` command**: Replaced by `setup-browser`
+- **`setup-desktop` command**: Replaced by `setup-browser`
+- **`run-chrome` command**: Replaced by `run-browser`
+- **ExtensionSetupService**: GitHub download approach replaced by bundled extension
+- **Dead code**: `_CHROME_NAMES_LINUX`, `_CHROME_PATHS_*`, `get_chrome_path()`
 
 ## [0.13.0] - 2026-01-10
 

@@ -39,27 +39,6 @@ def run_daemon_server(host: str = "127.0.0.1", port: int = 37650):
     app_module.app_state = DaemonState()
     logger.info("Daemon initialized with CDPSession and WebTapService")
 
-    # Check extension once at startup (not on every connect)
-    from webtap.services.setup.extension import auto_update_extension
-    from webtap.services.setup.platform import get_platform_info
-
-    try:
-        ext_status = auto_update_extension()
-        # Generate notices directly instead of storing status
-        if ext_status.status == "missing":
-            app_module.app_state.service.notices.add(
-                "extension_installed",
-                path=str(get_platform_info()["paths"]["data_dir"] / "extension"),
-            )
-        elif ext_status.status == "manifest_changed":
-            app_module.app_state.service.notices.add("extension_manifest_changed")
-        elif ext_status.status == "outdated":
-            app_module.app_state.service.notices.add("extension_updated")
-        # dev_mode and ok: no notice needed
-        logger.info(f"Extension check complete: {ext_status.status}")
-    except Exception as e:
-        logger.warning(f"Extension check failed: {e}")
-
     # Initialize RPC framework and register handlers
     rpc = RPCFramework(app_module.app_state.service)
     register_handlers(rpc)

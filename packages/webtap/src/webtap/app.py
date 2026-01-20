@@ -54,5 +54,6 @@ from webtap.commands import quicktype  # noqa: E402, F401
 from webtap.commands import selections  # noqa: E402, F401
 from webtap.commands import setup  # noqa: E402, F401
 from webtap.commands import launch  # noqa: E402, F401
+from webtap.commands import extension  # noqa: E402, F401
 
 __all__ = ["app"]

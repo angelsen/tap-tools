@@ -35,7 +35,7 @@ def __getattr__(name: str):
 
 
 # CLI commands that need the app (typer-based)
-_APP_COMMANDS = {"setup-extension", "setup-chrome", "setup-desktop", "setup-cleanup", "run-chrome", "setup-android"}
+_APP_COMMANDS = {"install-extension", "setup-browser", "cleanup", "run-browser", "debug-android"}
 
 HELP_TEXT = f"""WebTap v{__version__} - Chrome DevTools Protocol debugger
 
@@ -45,12 +45,11 @@ USAGE:
   webtap < script.txt       MCP server mode (piped input)
 
 COMMANDS:
-  run-chrome                Launch Chrome with debugging enabled
-  setup-android             Set up Android device debugging
-  setup-extension           Download Chrome extension
-  setup-chrome              Install Chrome wrapper script
-  setup-desktop             Install desktop launcher
-  setup-cleanup             Clean up old installations
+  run-browser [--browser]   Launch browser with debugging (temp profile)
+  setup-browser [--browser] Install wrapper + desktop launcher
+  debug-android             Forward Android Chrome for debugging
+  install-extension [path]  Install Chrome extension
+  cleanup                   Clean up old installations
   daemon [start|stop|status]  Manage background daemon
   status                    Show daemon and connection status
 
@@ -65,7 +64,7 @@ REPL COMMANDS:
   Type 'help()' in REPL for full command list.
 
 EXAMPLES:
-  webtap run-chrome         Launch Chrome for debugging
+  webtap run-browser        Launch browser for debugging
   webtap                    Start REPL, then: connect(0)
   webtap status             Check daemon and connection state
 """

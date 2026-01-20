@@ -3,7 +3,6 @@
 import platform
 import shutil
 from pathlib import Path
-from typing import Optional
 
 import platformdirs
 
@@ -11,28 +10,33 @@ APP_NAME = "webtap"
 
 _APP_AUTHOR = "webtap"
 _BIN_DIR_NAME = ".local/bin"
-_WRAPPER_NAME = "chrome-debug"
 _TMP_RUNTIME_DIR = "/tmp"
 
-_CHROME_NAMES_LINUX = [
-    "google-chrome",
-    "google-chrome-stable",
-    "chromium",
-    "chromium-browser",
-]
-
-_CHROME_PATHS_MACOS = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-]
-
-_CHROME_PATHS_LINUX = [
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/snap/bin/chromium",
-]
+# Supported browsers with their configurations (keyed by canonical ID)
+SUPPORTED_BROWSERS = {
+    "chrome": {
+        "name": "Chrome",
+        "wrapper": "chrome-debug",
+        "config_dir": "google-chrome",
+        "icon": "google-chrome",
+        "wm_class": "Google-chrome",
+        "executables": {
+            "linux": ["google-chrome-stable", "google-chrome"],
+            "darwin": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+        },
+    },
+    "edge": {
+        "name": "Edge",
+        "wrapper": "edge-debug",
+        "config_dir": "microsoft-edge",
+        "icon": "microsoft-edge",
+        "wm_class": "Microsoft-edge",
+        "executables": {
+            "linux": ["microsoft-edge-stable"],
+            "darwin": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
+        },
+    },
+}
 
 _PLATFORM_DARWIN = "Darwin"
 _PLATFORM_LINUX = "Linux"
@@ -66,35 +70,58 @@ def get_platform_paths() -> dict[str, Path]:
     return paths
 
 
-def get_chrome_path() -> Optional[Path]:
-    """Find Chrome executable path for current platform.
+def get_browser_info(browser_id: str) -> dict | None:
+    """Get browser configuration from canonical browser ID.
+
+    Args:
+        browser_id: Browser ID (e.g., 'chrome', 'edge')
 
     Returns:
-        Path to Chrome executable or None if not found.
+        Browser info dict or None if not supported.
     """
-    system = platform.system()
+    return SUPPORTED_BROWSERS.get(browser_id)
 
-    if system == _PLATFORM_DARWIN:
-        # macOS standard locations
-        candidates = [
-            Path(_CHROME_PATHS_MACOS[0]),
-            Path.home() / _CHROME_PATHS_MACOS[1],
-        ]
-    elif system == _PLATFORM_LINUX:
-        # Linux standard locations
-        candidates = [Path(p) for p in _CHROME_PATHS_LINUX]
-    else:
+
+def detect_browsers() -> list[str]:
+    """Detect installed supported browsers.
+
+    Returns:
+        List of browser IDs found on the system.
+    """
+    system = platform.system().lower()
+    found = []
+    for browser_id, config in SUPPORTED_BROWSERS.items():
+        for exe in config.get("executables", {}).get(system, []):
+            if exe.startswith("/"):
+                if Path(exe).expanduser().exists():
+                    found.append(browser_id)
+                    break
+            elif shutil.which(exe):
+                found.append(browser_id)
+                break
+    return found
+
+
+def find_browser_path(browser_id: str) -> str | None:
+    """Find actual executable path for a browser.
+
+    Args:
+        browser_id: Browser ID (e.g., 'chrome', 'edge')
+
+    Returns:
+        Full path to browser executable or None if not found.
+    """
+    config = SUPPORTED_BROWSERS.get(browser_id)
+    if not config:
         return None
-
-    for path in candidates:
-        if path.exists():
-            return path
-
-    # Try to find in PATH
-    for name in _CHROME_NAMES_LINUX:
-        if found := shutil.which(name):
-            return Path(found)
-
+    system = platform.system().lower()
+    for exe in config.get("executables", {}).get(system, []):
+        if exe.startswith("/"):
+            path = Path(exe).expanduser()
+            if path.exists():
+                return str(path)
+        elif found := shutil.which(exe):
+            return found
     return None
 
 
@@ -116,18 +143,11 @@ def get_platform_info() -> dict:
     else:  # Linux
         paths["applications_dir"] = Path.home() / _LINUX_APPLICATIONS_DIR
 
-    chrome_path = get_chrome_path()
-
     return {
         "system": system.lower(),
         "is_macos": system == _PLATFORM_DARWIN,
         "is_linux": system == _PLATFORM_LINUX,
         "paths": paths,
-        "chrome": {
-            "path": chrome_path,
-            "found": chrome_path is not None,
-            "wrapper_name": _WRAPPER_NAME,
-        },
         "capabilities": {
             "desktop_files": system == _PLATFORM_LINUX,
             "app_bundles": system == _PLATFORM_DARWIN,

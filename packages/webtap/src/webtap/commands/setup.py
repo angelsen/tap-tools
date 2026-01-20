@@ -1,143 +1,125 @@
 """Setup commands for WebTap components."""
 
+from typing import Annotated
+
+import typer
+
 from webtap.app import app
-from webtap.services.setup import SetupService
+from webtap.services.setup import SetupService, SUPPORTED_BROWSERS
+from webtap.services.setup.platform import detect_browsers
 
 
 @app.command(
     display="markdown",
-    typer={"name": "setup-extension", "help": "Download Chrome extension from GitHub"},
+    typer={"name": "setup-browser", "help": "Install browser wrapper and desktop launcher"},
     fastmcp={"enabled": False},
 )
-def setup_extension(state, force: bool = False) -> dict:
-    """Download Chrome extension to platform-appropriate location.
+def setup_browser(
+    state,
+    browser: Annotated[str | None, typer.Option("--browser", "-b", help="Browser ID (chrome, edge)")] = None,
+    force: bool = False,
+    bindfs: bool = False,
+) -> dict:
+    """Install browser wrapper script and desktop launcher.
 
-    Linux: ~/.local/share/webtap/extension/
-    macOS: ~/Library/Application Support/webtap/extension/
+    Supported browsers:
+    - chrome -> chrome-debug wrapper + Chrome Debug launcher
+    - edge -> edge-debug wrapper + Edge Debug launcher
+
+    Auto-detects installed browser if only one is found.
+    Requires --browser flag if multiple browsers are installed.
 
     Args:
+        browser: Browser ID (auto-detects if not specified)
         force: Overwrite existing files (default: False)
+        bindfs: Use bindfs to mount real browser profile (Linux only, default: False)
 
     Returns:
         Markdown-formatted result with success/error messages
     """
+    # Detect browsers if not specified
+    if not browser:
+        found = detect_browsers()
+        if len(found) == 0:
+            return _format_error(
+                "No supported browser found",
+                [
+                    "Install Chrome: yay -S google-chrome",
+                    "Install Edge: yay -S microsoft-edge-stable-bin",
+                ],
+            )
+        elif len(found) > 1:
+            return _format_error(
+                "Multiple browsers found. Specify one with --browser",
+                [f"webtap setup-browser --browser {b}" for b in found],
+            )
+        browser = found[0]
+
+    # Validate browser
+    if browser not in SUPPORTED_BROWSERS:
+        return _format_error(
+            f"Unsupported browser: {browser}",
+            [f"Supported: {', '.join(SUPPORTED_BROWSERS.keys())}"],
+        )
+
     service = SetupService()
-    result = service.install_extension(force=force)
-    return _format_setup_result(result, "extension")
+    result = service.install_browser(browser, force=force, bindfs=bindfs)
+    return _format_setup_result(result)
 
 
-@app.command(
-    display="markdown",
-    typer={"name": "setup-chrome", "help": "Install Chrome wrapper script for debugging"},
-    fastmcp={"enabled": False},
-)
-def setup_chrome(state, force: bool = False, bindfs: bool = False) -> dict:
-    """Install Chrome wrapper script 'chrome-debug' to ~/.local/bin/.
-
-    The wrapper enables remote debugging on port 9222.
-    Same location on both Linux and macOS: ~/.local/bin/chrome-debug
-
-    Args:
-        force: Overwrite existing script (default: False)
-        bindfs: Use bindfs to mount real Chrome profile for debugging (Linux only, default: False)
-
-    Returns:
-        Markdown-formatted result with success/error messages
-    """
-    service = SetupService()
-    result = service.install_chrome_wrapper(force=force, bindfs=bindfs)
-    return _format_setup_result(result, "chrome")
+def _format_error(message: str, suggestions: list[str]) -> dict:
+    """Format error response as markdown."""
+    elements = [
+        {"type": "alert", "message": message, "level": "error"},
+        {"type": "heading", "level": 3, "content": "Suggestions"},
+        {"type": "list", "items": suggestions},
+    ]
+    return {"elements": elements}
 
 
-@app.command(
-    display="markdown",
-    typer={"name": "setup-desktop", "help": "Install Chrome Debug GUI launcher"},
-    fastmcp={"enabled": False},
-)
-def setup_desktop(state, force: bool = False) -> dict:
-    """Install Chrome Debug GUI launcher (separate from system Chrome).
-
-    Linux: Creates desktop entry at ~/.local/share/applications/chrome-debug.desktop
-           Shows as "Chrome Debug" in application menu.
-
-    macOS: Creates app bundle at ~/Applications/Chrome Debug.app
-           Shows as "Chrome Debug" in Launchpad and Spotlight.
-
-    Args:
-        force: Overwrite existing launcher (default: False)
-
-    Returns:
-        Markdown-formatted result with success/error messages
-    """
-    service = SetupService()
-    result = service.install_desktop_entry(force=force)
-    return _format_setup_result(result, "desktop")
-
-
-def _format_setup_result(result: dict, component: str) -> dict:
+def _format_setup_result(result: dict) -> dict:
     """Format setup result as markdown."""
     elements = []
 
-    # Main message as alert (using "message" key for consistency)
+    # Main message as alert
     level = "success" if result["success"] else "error"
     elements.append({"type": "alert", "message": result["message"], "level": level})
 
-    # Add details if present
-    if result.get("path"):
-        elements.append({"type": "text", "content": f"**Location:** `{result['path']}`"})
-    if result.get("details"):
-        elements.append({"type": "text", "content": f"**Details:** {result['details']}"})
+    # Show paths if present
+    if result.get("wrapper_path"):
+        elements.append({"type": "text", "content": f"**Wrapper:** `{result['wrapper_path']}`"})
+    if result.get("desktop_path"):
+        elements.append({"type": "text", "content": f"**Desktop:** `{result['desktop_path']}`"})
 
-    # Component-specific next steps
+    # Show details (PATH setup instructions, etc.)
+    if result.get("details"):
+        elements.append({"type": "text", "content": f"\n{result['details']}"})
+
+    # Next steps on success
     if result["success"]:
-        if component == "extension":
-            elements.append({"type": "text", "content": "\n**To install in Chrome:**"})
-            elements.append(
-                {
-                    "type": "list",
-                    "items": [
-                        "Open chrome://extensions/",
-                        "Enable Developer mode",
-                        "Click 'Load unpacked'",
-                        f"Select {result['path']}",
-                    ],
-                }
-            )
-        elif component == "chrome":
-            if "Add to PATH" in result.get("details", ""):
-                elements.append({"type": "text", "content": "\n**Setup PATH:**"})
-                elements.append(
-                    {
-                        "type": "code_block",
-                        "language": "bash",
-                        "content": 'export PATH="$HOME/.local/bin/wrappers:$PATH"',
-                    }
-                )
-                elements.append({"type": "text", "content": "Add to ~/.bashrc to make permanent"})
-            else:
-                elements.append({"type": "text", "content": "\n**Usage:**"})
-                elements.append(
-                    {
-                        "type": "list",
-                        "items": [
-                            "Run `chrome-debug` to start Chrome with debugging",
-                            "Or use `run-chrome` command for direct launch",
-                        ],
-                    }
-                )
-        elif component == "desktop":
-            # Platform-specific instructions are already in the service's details
-            pass
+        browser_config = result.get("browser", {})
+        wrapper_name = browser_config.get("wrapper", "browser-debug")
+        elements.append({"type": "heading", "level": 3, "content": "Usage"})
+        elements.append(
+            {
+                "type": "list",
+                "items": [
+                    f"Run `{wrapper_name}` to start browser with debugging",
+                    "Or use `webtap run-browser` for direct launch",
+                    f"Desktop launcher available as '{browser_config.get('name', 'Browser')} Debug'",
+                ],
+            }
+        )
 
     return {"elements": elements}
 
 
 @app.command(
     display="markdown",
-    typer={"name": "setup-cleanup", "help": "Clean up old WebTap installations"},
+    typer={"name": "cleanup", "help": "Clean up old WebTap installations"},
     fastmcp={"enabled": False},
 )
-def setup_cleanup(state, dry_run: bool = True) -> dict:
+def cleanup(state, dry_run: bool = True) -> dict:
     """Clean up old WebTap installations from previous versions.
 
     Checks for and removes:
@@ -199,7 +181,7 @@ def setup_cleanup(state, dry_run: bool = True) -> dict:
     elements.append({"type": "heading", "level": 3, "content": "Summary"})
     if dry_run:
         elements.append({"type": "text", "content": "**Dry-run mode** - no changes made"})
-        elements.append({"type": "text", "content": "To perform cleanup: `setup-cleanup --no-dry-run`"})
+        elements.append({"type": "text", "content": "To perform cleanup: `cleanup --no-dry-run`"})
     else:
         elements.append({"type": "alert", "message": "Cleanup completed", "level": "success"})
 
@@ -209,9 +191,9 @@ def setup_cleanup(state, dry_run: bool = True) -> dict:
         {
             "type": "list",
             "items": [
-                "Run `setup-extension` to install extension in new location",
-                "Run `setup-chrome --bindfs` for bindfs mode or `setup-chrome` for standard mode",
-                "Run `setup-desktop` to create Chrome Debug launcher",
+                "Run `webtap install-extension` to install extension",
+                "Run `webtap setup-browser` to install wrapper and desktop launcher",
+                "Or `webtap setup-browser --bindfs` for bindfs mode",
             ],
         }
     )
