@@ -220,7 +220,7 @@ def ensure_daemon() -> None:
     raise RuntimeError(f"Daemon failed to start. Check log: {LOG_FILE}")
 
 
-def start_daemon() -> None:
+def start_daemon(debug: bool = False) -> None:
     """Run daemon in foreground (--daemon flag).
 
     This function blocks until the daemon is shut down. It:
@@ -232,7 +232,20 @@ def start_daemon() -> None:
 
     The API server initialization is handled in api.py.
     Uvicorn handles SIGINT/SIGTERM signals for graceful shutdown.
+
+    Args:
+        debug: If True, enable DEBUG level logging for detailed output.
     """
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    if debug:
+        # Silence noisy HTTP client logs
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Check for existing daemon (pidfile or port scan)
@@ -336,10 +349,13 @@ def handle_cli(args: list[str]) -> None:
     Args:
         args: Command line arguments after 'daemon'
     """
-    action = args[0] if args else "start"
+    debug = "--debug" in args or "-d" in args
+    # Filter out flags to get the action
+    positional = [a for a in args if not a.startswith("-")]
+    action = positional[0] if positional else "start"
 
     if action == "start":
-        start_daemon()
+        start_daemon(debug=debug)
     elif action == "stop":
         try:
             _stop_daemon()
@@ -363,7 +379,7 @@ def handle_cli(args: list[str]) -> None:
                 print(f"Error: {status['error']}")
     else:
         print(f"Unknown action: {action}")
-        print("Usage: webtap daemon [start|stop|status]")
+        print("Usage: webtap daemon [start|stop|status] [--debug|-d]")
         sys.exit(1)
 
 

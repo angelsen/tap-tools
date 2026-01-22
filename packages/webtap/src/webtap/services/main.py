@@ -909,10 +909,6 @@ class WebTapService:
         def on_loading_finished(event: dict) -> None:
             import time
 
-            # Skip if Fetch capture is handling bodies (avoid duplicate capture)
-            if self.fetch.capture_enabled:
-                return
-
             params = event.get("params", {})
             request_id = params.get("requestId")
             if not request_id:
@@ -923,6 +919,15 @@ class WebTapService:
             if not resource_type or resource_type not in CAPTURE_TYPES:
                 resource_types.pop(request_id, None)  # Clean up
                 return  # Skip assets
+
+            # If Fetch capture already succeeded, skip (avoid duplicate capture)
+            # But if Fetch failed/timed out (streaming), try as fallback
+            if self.fetch.capture_enabled:
+                capture_status = cdp.has_body_capture(request_id)
+                if capture_status is True:
+                    resource_types.pop(request_id, None)
+                    return  # Already captured successfully by Fetch
+                # capture_status is False (failed) or None (not attempted) - try fallback
 
             # Submit to thread pool - non-blocking, record queue time for latency tracking
             queued_at = time.time()

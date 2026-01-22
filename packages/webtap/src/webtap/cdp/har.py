@@ -201,12 +201,13 @@ http_entries AS (
             THEN CAST((CAST(fin.finished_timestamp AS DOUBLE) - CAST(req.started_timestamp AS DOUBLE)) * 1000 AS INTEGER)
             ELSE NULL
         END as time_ms,
-        -- State priority: paused > failed > complete > loading > pending
+        -- State priority: failed > complete > loading > paused > pending
+        -- (paused only if no response yet - having response means request was continued)
         CASE
-            WHEN ap.paused_id IS NOT NULL THEN 'paused'
             WHEN fail.error_text IS NOT NULL THEN 'failed'
             WHEN fin.finished_timestamp IS NOT NULL THEN 'complete'
             WHEN resp.status IS NOT NULL THEN 'loading'
+            WHEN ap.paused_id IS NOT NULL THEN 'paused'
             ELSE 'pending'
         END as state,
         ap.pause_stage,

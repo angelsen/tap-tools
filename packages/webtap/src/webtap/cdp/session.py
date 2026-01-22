@@ -612,6 +612,33 @@ class CDPSession:
             logger.debug(f"Failed to fetch body for {request_id}: {error_msg}")
             return {"error": error_msg}
 
+    def has_body_capture(self, request_id: str) -> bool | None:
+        """Check if response body was already captured successfully.
+
+        Args:
+            request_id: Network request ID from CDP events.
+
+        Returns:
+            True if body captured successfully, False if capture failed, None if not attempted.
+        """
+        try:
+            rows = self._db_execute(
+                """
+                SELECT json_extract(event, '$.params.capture.ok') as ok
+                FROM events
+                WHERE method = 'Network.responseBodyCaptured'
+                  AND request_id = ?
+                LIMIT 1
+                """,
+                [request_id],
+            )
+            if rows:
+                ok_value = rows[0][0]
+                return ok_value == "true" or ok_value is True
+            return None  # No capture attempted
+        except Exception:
+            return None
+
     def store_response_body(
         self,
         request_id: str,
