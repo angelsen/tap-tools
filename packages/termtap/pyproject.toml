@@ -1,6 +1,6 @@
 [project]
 name = "termtap"
-version = "0.13.1"
+version = "0.13.2"
 description = "Daemon-based tmux pane manager with learning patterns"
 readme = "README.md"
 license = { text = "MIT" }
