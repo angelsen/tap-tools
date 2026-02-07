@@ -207,7 +207,7 @@ class TermtapDaemon:
         # Check if action still needs user interaction
         if self.queue:
             action = self.queue.get(action_id)
-            if action and action.state in (ActionState.READY_CHECK, ActionState.SELECTING_PANE):
+            if action and action.state not in (ActionState.COMPLETED, ActionState.CANCELLED):
                 self._ensure_companion_running(client_context)
 
     async def start(self):

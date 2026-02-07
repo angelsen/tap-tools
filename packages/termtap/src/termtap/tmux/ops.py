@@ -9,8 +9,7 @@ PUBLIC API:
   - get_pane_pid: Get process ID for pane
   - send_keys: Send keystrokes to pane
   - send_via_paste_buffer: Send content using paste buffer
-  - capture_visible: Capture visible pane content
-  - capture_last_n: Capture last N lines from pane
+  - capture_pane: Capture all pane content (history + visible)
   - create_panes_with_layout: Create multiple panes with layout
   - build_client_context: Build client context from tmux environment
 """
@@ -278,18 +277,6 @@ def get_pane_pid(pane_id: str) -> int:
         raise RuntimeError(f"Failed to parse PID: invalid format '{stdout}'")
 
 
-def __get_pane_session_window_pane(pane_id: str) -> SessionWindowPane:
-    """Get session:window.pane format for pane ID."""
-    code, stdout, stderr = run_tmux(
-        ["display-message", "-p", "-t", pane_id, "#{session_name}:#{window_index}.#{pane_index}"]
-    )
-
-    if code != 0:
-        raise PaneNotFoundError(f"Failed to get pane session:window.pane: {stderr}")
-
-    return stdout.strip()
-
-
 def get_pane(pane_id: str) -> PaneInfo | None:
     """Get pane by ID.
 
@@ -303,26 +290,6 @@ def get_pane(pane_id: str) -> PaneInfo | None:
         if pane.pane_id == pane_id:
             return pane
     return None
-
-
-def get_pane_info(pane_id: str) -> PaneInfo:
-    """Get detailed information for a specific pane.
-
-    Deprecated: Use get_pane() instead.
-
-    Args:
-        pane_id: Tmux pane ID.
-
-    Returns:
-        Complete pane information.
-
-    Raises:
-        PaneNotFoundError: If pane doesn't exist.
-    """
-    pane = get_pane(pane_id)
-    if pane is None:
-        raise PaneNotFoundError(f"Pane {pane_id} not found")
-    return pane
 
 
 def list_panes(all: bool = True, session: str | None = None, window: str | None = None) -> list[PaneInfo]:

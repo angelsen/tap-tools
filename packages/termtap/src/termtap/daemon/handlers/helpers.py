@@ -6,11 +6,7 @@ PUBLIC API:
   - format_patterns_state: Format patterns for debug output
   - make_serializable: Convert objects to JSON-serializable format
   - validate_pane_target: Validate pane target string
-  - transition_to_watching: Transition action to WATCHING state
-  - complete_action: Complete action with result
 """
-
-from ..context import DaemonContext
 
 __all__ = [
     "format_queue_state",
@@ -18,8 +14,6 @@ __all__ = [
     "format_patterns_state",
     "make_serializable",
     "validate_pane_target",
-    "transition_to_watching",
-    "complete_action",
 ]
 
 
@@ -121,36 +115,3 @@ def validate_pane_target(target: str) -> str:
     if not pane_id:
         raise ValueError(f"Invalid pane ID format: {target}. Use %id format (e.g., %42).")
     return pane_id
-
-
-async def transition_to_watching(ctx: DaemonContext, pane, action_id: str):
-    """Transition action from READY_CHECK to WATCHING and broadcast event.
-
-    Args:
-        ctx: Daemon context
-        pane: Pane terminal object
-        action_id: Action ID to transition
-    """
-    from ..queue import ActionState
-
-    action = ctx.queue.get(action_id)
-    if not action:
-        return
-
-    action.state = ActionState.WATCHING
-    pane.action = action
-    pane.bytes_since_watching = 0
-
-    await ctx.daemon.broadcast_event({"type": "action_watching", "id": action_id, "action": action.to_dict()})
-
-
-async def complete_action(ctx: DaemonContext, action_id: str, result: dict):
-    """Complete action with result and broadcast event.
-
-    Args:
-        ctx: Daemon context
-        action_id: Action ID to complete
-        result: Result data to store
-    """
-    ctx.queue.resolve(action_id, result)
-    await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action_id})

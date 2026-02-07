@@ -12,8 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- Cap execute output at 200 lines to prevent unbounded MCP responses; use `pane()` for full output
+- Companion popup now surfaces for WATCHING state (previously only READY_CHECK and SELECTING_PANE)
 
 ### Removed
+- Dead code: `tmux/_structure.py` module, `get_pane_info()`, `__get_pane_session_window_pane()`, unused helper functions
 
 ## [0.13.2] - 2026-02-07
 
