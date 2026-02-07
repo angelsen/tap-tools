@@ -7,13 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-### Changed
-
 ### Fixed
-
-### Removed
+- DSL pattern compilation now handles escaped brackets (`\[`, `\]`) in literal content
+  - PS1 prompts containing `[` and `]` (e.g., `[user@host ~]$`) no longer break pattern matching
+  - `compile_dsl()` now skips escaped brackets when finding the closing `]`, matching `parse_dsl_literals()` behavior
 
 ## [0.13.1] - 2026-01-19
 
