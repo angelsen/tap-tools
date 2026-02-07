@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.13.3] - 2026-02-07
+
+### Added
+
+### Changed
+
+### Fixed
 - Cap execute output at 200 lines to prevent unbounded MCP responses; use `pane()` for full output
 - Companion popup now surfaces for WATCHING state (previously only READY_CHECK and SELECTING_PANE)
 

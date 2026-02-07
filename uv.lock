@@ -1413,7 +1413,7 @@ dev = [
 
 [[package]]
 name = "termtap"
-version = "0.13.2"
+version = "0.13.3"
 source = { editable = "packages/termtap" }
 dependencies = [
     { name = "platformdirs" },
