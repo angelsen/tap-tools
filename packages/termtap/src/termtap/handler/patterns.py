@@ -94,9 +94,15 @@ def compile_dsl(dsl: str) -> re.Pattern:
 
         # Literal brackets
         elif char == "[":
-            try:
-                end = dsl.index("]", i)
-            except ValueError:
+            # Find closing ] that isn't escaped with backslash
+            j = i + 1
+            end = None
+            while j < len(dsl):
+                if dsl[j] == "]" and dsl[j - 1] != "\\":
+                    end = j
+                    break
+                j += 1
+            if end is None:
                 context_start = max(0, i - 5)
                 context_end = min(len(dsl), i + 10)
                 raise DSLError(
@@ -110,7 +116,9 @@ def compile_dsl(dsl: str) -> re.Pattern:
             elif content.isdigit():
                 result.append(f".{{{content}}}")  # [31] → .{31}
             else:
-                result.append(re.escape(content))  # literal
+                # Unescape \[ and \] before re.escape
+                unescaped = content.replace("\\[", "[").replace("\\]", "]")
+                result.append(re.escape(unescaped))
             i = end
 
         # Types with quantifiers
