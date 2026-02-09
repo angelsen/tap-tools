@@ -601,9 +601,12 @@ class NetworkService:
             if pattern == "*":
                 return har_entry
 
-            # Special: response.content triggers body fetch
+            # Special: response.content triggers body fetch (or frames for WebSocket)
             if pattern == "response.content" or pattern.startswith("response.content."):
-                self._fetch_response_content(har_entry, result)
+                if har_entry.get("protocol") == "websocket":
+                    self._fetch_websocket_frames_for_entry(har_entry, result)
+                else:
+                    self._fetch_response_content(har_entry, result)
                 continue
 
             # Special: websocket.frames triggers frame fetch

@@ -149,6 +149,7 @@ Show network requests with full data. Use row ID from output with `request()`.
 - **Parse HTML:** `request({id}, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').find('title').text")`
 - **Extract JSON:** `request({id}, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
 - **Find patterns:** `network(url="*api*")` - filter by URL pattern
+- **WebSocket frames:** `request({id}, ["websocket.frames"])` - fetch sent/received frame payloads
 - **Auto-capture:** Response bodies captured by default on connect
 
 ### console

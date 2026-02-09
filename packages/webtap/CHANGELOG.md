@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **WebSocket `response.content` alias**: `request(id, ["response.content"])` returns WebSocket frames when the entry is a WebSocket
+- **WebSocket frames tip**: `network()` output hints now mention `websocket.frames`
 
 ### Changed
 
