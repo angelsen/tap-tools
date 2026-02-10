@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`result` variable in expressions**: `request()`, `to_model()`, and `quicktype()` `expr` parameter now supports `result = ...` assignment for statement-only expressions
 
 ### Changed
 

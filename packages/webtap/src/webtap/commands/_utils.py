@@ -98,6 +98,9 @@ def evaluate_expression(expr: str, namespace: dict) -> Tuple[Any, str]:
             else:
                 # All statements, just exec everything
                 exec(compile(tree, "<string>", "exec"), namespace)
+                # Check if user set "result" variable (e.g. "result = data['key']")
+                if "result" in namespace and namespace["result"] is not result:
+                    result = namespace["result"]
 
     except SyntaxError:
         # Fallback to simple exec if parsing fails
