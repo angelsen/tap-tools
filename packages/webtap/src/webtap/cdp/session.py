@@ -192,6 +192,12 @@ class CDPSession:
             TimeoutError: If operation takes longer than 30 seconds
             RuntimeError: If database operation fails
         """
+        if not self._db_thread.is_alive():
+            logger.warning("DB thread dead, restarting")
+            self._db_running = True
+            self._db_thread = threading.Thread(target=self._db_worker, daemon=True)
+            self._db_thread.start()
+
         result_queue_id = None
         result_queue = None
 

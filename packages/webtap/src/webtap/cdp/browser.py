@@ -58,6 +58,7 @@ class BrowserSession:
         self._on_target_info_changed: Any | None = None
         self._on_sw_crashed: Any | None = None
         self._on_sw_reloaded: Any | None = None
+        self._on_browser_disconnect: Any | None = None
 
     def connect(self) -> None:
         """Connect to browser WebSocket endpoint.
@@ -485,6 +486,13 @@ class BrowserSession:
                         )
                     except Exception as e:
                         logger.error(f"Error calling disconnect callback for {session_id}: {e}")
+
+            # Notify service to remove this browser from registry
+            if self._on_browser_disconnect:
+                try:
+                    self._fire_callback(self._on_browser_disconnect, (self.port,), f"browser-removed-{self.port}")
+                except Exception as e:
+                    logger.error(f"Error calling browser disconnect callback: {e}")
 
     def _handle_browser_event(self, data: dict) -> None:
         """Handle browser-level CDP events.

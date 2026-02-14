@@ -153,6 +153,7 @@ class WebTapService:
         if port not in self._browsers:
             browser = BrowserSession(port=port)
             browser.connect()
+            browser._on_browser_disconnect = self._handle_browser_disconnect
             self._browsers[port] = browser
         return self._browsers[port]
 
@@ -419,6 +420,12 @@ class WebTapService:
         finally:
             self.conn_mgr.set_state(target_id, TargetState.ATTACHED)
             self._trigger_broadcast()
+
+    def _handle_browser_disconnect(self, port: int) -> None:
+        """Handle browser WebSocket disconnect. Remove stale BrowserSession."""
+        logger = logging.getLogger(__name__)
+        logger.info(f"Browser disconnected on port {port}, removing from registry")
+        self._browsers.pop(port, None)
 
     def _handle_disconnect(self, target_id: str, code: int, reason: str) -> None:
         """Handle target disconnect. Preserve CDPSession for URL-watched targets."""
