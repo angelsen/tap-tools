@@ -94,8 +94,8 @@ class ConsoleService:
         if targets is None and target is not None:
             targets = [target] if isinstance(target, str) else target
 
-        # Get CDPSessions for specified or tracked/all targets
-        cdps = self.service.get_cdps(targets)
+        # Get CDPSessions for specified or tracked/all targets (includes stashed DBs)
+        cdps = self.service.get_query_cdps(targets)
         if not cdps:
             return []
 
@@ -141,22 +141,6 @@ class ConsoleService:
         all_rows.sort(key=lambda r: r[4] or "", reverse=True)
         return all_rows[:limit]
 
-    def get_errors(self, limit: int = 20) -> list[tuple]:
-        """Get console errors only.
-
-        Args:
-            limit: Maximum results
-        """
-        return self.get_recent_messages(limit=limit, level="error")
-
-    def get_warnings(self, limit: int = 20) -> list[tuple]:
-        """Get console warnings only.
-
-        Args:
-            limit: Maximum results
-        """
-        return self.get_recent_messages(limit=limit, level="warning")
-
     def clear_browser_console(self, targets: list[str] | None = None) -> bool:
         """Clear console in the browser (CDP command) for all or specified targets.
 
@@ -183,29 +167,29 @@ class ConsoleService:
 
         return success
 
-    def get_entry_details(self, row_id: int, target: str | None = None) -> dict | None:
+    def get_entry_details(self, row_id: int, target: str) -> tuple[dict | None, dict]:
         """Get full console entry by database row ID.
 
         Args:
             row_id: Database rowid from events table
-            target: Target ID - required to find the correct CDPSession
+            target: Target ID (required — row IDs are per-DB)
 
         Returns:
-            Normalized console entry dict or None if not found
+            Tuple of (normalized console entry dict or None, resolution_info dict)
         """
         import json
 
         if not self.service:
-            return None
+            return None, {}
 
-        cdp = self.service.resolve_cdp(row_id, "events", id_column="rowid", target=target)
+        cdp, resolution = self.service.resolve_cdp(target)
         if not cdp:
-            return None
+            return None, resolution
 
         sql = "SELECT event FROM events WHERE rowid = ?"
         rows = cdp.query(sql, [row_id])
         if not rows:
-            return None
+            return None, resolution
 
         event = json.loads(rows[0][0])
         params = event.get("params", {})
@@ -222,7 +206,7 @@ class ConsoleService:
                 "timestamp": entry.get("timestamp"),
                 "entry": entry,
                 "stackTrace": entry.get("stackTrace"),
-            }
+            }, resolution
         else:  # Runtime.consoleAPICalled
             return {
                 "id": row_id,
@@ -234,7 +218,7 @@ class ConsoleService:
                 "args": params.get("args"),
                 "stackTrace": params.get("stackTrace"),
                 "executionContextId": params.get("executionContextId"),
-            }
+            }, resolution
 
     def select_fields(self, entry: dict, patterns: list[str] | None) -> dict:
         """Apply field selection patterns to console entry.

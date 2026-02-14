@@ -53,6 +53,10 @@ class StateSnapshot:
     tracked_targets: tuple[str, ...]
     connections: tuple[dict, ...]
 
+    # Watch state
+    watched_targets: tuple[str, ...]
+    watched_urls: tuple[str, ...]
+
     # Browser/DOM state
     inspect_active: bool
     inspecting_target: str | None
@@ -65,6 +69,10 @@ class StateSnapshot:
 
     # Notice state
     notices: list[dict[str, Any]]
+
+    # Daemon state (captured at snapshot time for true immutability)
+    epoch: int
+    tracked_clients: dict[str, dict[str, Any]]
 
     @classmethod
     def create_empty(cls) -> "StateSnapshot":
@@ -79,6 +87,8 @@ class StateSnapshot:
             disabled_filters=(),
             tracked_targets=(),
             connections=(),
+            watched_targets=(),
+            watched_urls=(),
             inspect_active=False,
             inspecting_target=None,
             selections={},
@@ -86,6 +96,8 @@ class StateSnapshot:
             pending_count=0,
             errors={},
             notices=[],
+            epoch=0,
+            tracked_clients={},
         )
 
 

@@ -18,6 +18,8 @@ All commands have these pre-imported (no imports needed!):
 ### Commands with `target` parameter
 | Command | Signature | Target Position |
 |---------|-----------|-----------------|
+| `request` | `request(id, target, fields, expr, output)` | REQUIRED, 2nd |
+| `entry` | `entry(id, target, fields, expr, output)` | REQUIRED, 2nd |
 | `js` | `js(code, target, ...)` | REQUIRED, 2nd |
 | `navigate` | `navigate(url, target)` | REQUIRED, 2nd |
 | `reload` | `reload(target, ...)` | REQUIRED, 1st |
@@ -29,8 +31,6 @@ All commands have these pre-imported (no imports needed!):
 ### Commands WITHOUT `target`
 | Command | Key Parameters |
 |---------|----------------|
-| `request` | `request(id, fields, expr, output)` |
-| `entry` | `entry(id, fields, expr, output)` |
 | `to_model` | `to_model(id, output, model_name, ...)` |
 | `quicktype` | `quicktype(id, output, type_name, ...)` |
 | `fetch` | `fetch(rules)` |
@@ -67,12 +67,12 @@ Get HAR request details with field selection and Python expressions.
 
 #### Examples
 ```python
-request(123)                           # Minimal (method, url, status)
-request(123, ["*"])                    # Everything
-request(123, ["request.headers.*"])    # Request headers
-request(123, ["response.content"])     # Fetch response body
-request(123, ["request.postData", "response.content"])  # Both bodies
-request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")  # Parse JSON
+request(123, "9222:abc123")                           # Minimal (method, url, status)
+request(123, "9222:abc123", ["*"])                    # Everything
+request(123, "9222:abc123", ["request.headers.*"])    # Request headers
+request(123, "9222:abc123", ["response.content"])     # Fetch response body
+request(123, "9222:abc123", ["request.postData", "response.content"])  # Both bodies
+request(123, "9222:abc123", ["response.content"], expr="json.loads(data['response']['content']['text'])")  # Parse JSON
 ```
 
 #### Tips
@@ -102,7 +102,7 @@ to_model(5, "models/clean.py", "Clean", expr="{k: v for k, v in json.loads(body)
 ```
 
 #### Tips
-- **Preview body:** `request(5, ["response.content"])` - check structure before generating (5 = row ID)
+- **Preview body:** `request(5, "9222:abc123", ["response.content"])` - check structure before generating (5 = row ID)
 - **Find requests:** `network(url="*api*")` - locate API calls
 - **Form data:** `field="request.postData"` with `expr="dict(urllib.parse.parse_qsl(body))"`
 - **Nested extraction:** `json_path="data[0]"` for JSON with wrapper objects
@@ -131,7 +131,7 @@ quicktype(5, "types.ts", "User", options={"readonly": True})
 ```
 
 #### Tips
-- **Preview body:** `request(5, ["response.content"])` - check structure before generating (5 = row ID)
+- **Preview body:** `request(5, "9222:abc123", ["response.content"])` - check structure before generating (5 = row ID)
 - **Find requests:** `network(url="*api*")` - locate API calls
 - **Form data:** `field="request.postData"` with `expr="dict(urllib.parse.parse_qsl(body))"`
 - **Nested extraction:** `json_path="data[0]"` for JSON with wrapper objects
@@ -144,12 +144,12 @@ quicktype(5, "types.ts", "User", options={"readonly": True})
 Show network requests with full data. Use row ID from output with `request()`.
 
 #### Tips
-- **Analyze responses:** `request({id}, ["response.content"])` - fetch response body
+- **Analyze responses:** `request({id}, "{target}", ["response.content"])` - fetch response body
 - **Generate models:** `to_model({id}, "models/model.py", "Model")` - create Pydantic models from JSON
-- **Parse HTML:** `request({id}, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').find('title').text")`
-- **Extract JSON:** `request({id}, ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
+- **Parse HTML:** `request({id}, "{target}", ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').find('title').text")`
+- **Extract JSON:** `request({id}, "{target}", ["response.content"], expr="json.loads(data['response']['content']['text'])['data']")`
 - **Find patterns:** `network(url="*api*")` - filter by URL pattern
-- **WebSocket frames:** `request({id}, ["websocket.frames"])` - fetch sent/received frame payloads
+- **WebSocket frames:** `request({id}, "{target}", ["websocket.frames"])` - fetch sent/received frame payloads
 - **Auto-capture:** Response bodies captured by default on connect
 
 ### console
@@ -159,7 +159,7 @@ Show console messages. Use `target` to filter by specific Chrome tab.
 - **View messages:** `console()` or `console("9222:abc123")` - show console output
 - **Check network:** `network()` - may show failed requests causing errors
 - **Debug with js:** `js("console.log('debug:', myVar)", "9222:abc123")` - add console output
-- **Drill down:** `entry({id})` - view full console entry details with stack trace
+- **Drill down:** `entry({id}, "{target}")` - view full console entry details with stack trace
 
 ### entry
 Get console entry details with field selection and Python expressions.
@@ -168,19 +168,19 @@ Uses row ID from `console()` output with flexible field patterns.
 
 #### Examples
 ```python
-entry(5)                    # Minimal (level, message, source)
-entry(5, ["*"])             # Full CDP event
-entry(5, ["stackTrace"])    # Stack trace only
-entry(5, ["args.*"])        # All arguments
-entry(5, expr="len(data['args'])")  # Count arguments
-entry(5, ["*"], output="error.json")  # Export to file
+entry(5, "9222:abc123")                    # Minimal (level, message, source)
+entry(5, "9222:abc123", ["*"])             # Full CDP event
+entry(5, "9222:abc123", ["stackTrace"])    # Stack trace only
+entry(5, "9222:abc123", ["args.*"])        # All arguments
+entry(5, "9222:abc123", expr="len(data['args'])")  # Count arguments
+entry(5, "9222:abc123", ["*"], output="error.json")  # Export to file
 ```
 
 #### Tips
 - **Field patterns:** `["stackTrace"]`, `["args.*"]`, `["args.0"]`
 - **Expression:** `expr` has access to selected data as `data` variable
 - **Stack traces:** Automatically formatted as `at funcName (file:line:col)`
-- **Debug errors:** `console()` then `entry(5)` for full details (5 = row ID from console output)
+- **Debug errors:** `console()` then `entry(5, "9222:abc123")` for full details (5 = row ID, target from Target column)
 - **Extract args:** `expr="data['args'][0]['value']"` - get first argument value
 
 ### js
@@ -262,7 +262,7 @@ fetch({"target": "9222:abc123"})            # Clear rules for target
 
 #### Tips
 - **Auto-capture:** Response bodies captured by default on connect
-- **View bodies:** `request(5, ["response.content"])` - inspect captured responses (5 = row ID)
+- **View bodies:** `request(5, "9222:abc123", ["response.content"])` - inspect captured responses (5 = row ID)
 - **Block requests:** `fetch({"block": ["*pattern*"], "target": "9222:abc123"})` - fail matching URLs
 - **Mock APIs:** `fetch({"mock": {"*api*": '{"test":1}'}, "target": "9222:abc123"})` - return fake responses
 - **Custom status:** `fetch({"mock": {"*api*": {"body": "...", "status": 404}}, "target": "9222:abc123"})`

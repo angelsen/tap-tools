@@ -190,6 +190,24 @@ body {
   background: var(--color-bg-hover);
 }
 
+.filter-input {
+  flex: 1;
+  min-width: 60px;
+  max-width: 140px;
+  height: var(--btn-sm-height);
+  padding-inline: var(--space-xs);
+  font-size: var(--text-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+}
+
+.filter-input:focus {
+  border-color: var(--color-primary);
+}
+
 .inspect-btn {
   min-width: 52px;
   padding: var(--space-xxs) var(--space-xs);
@@ -224,11 +242,6 @@ body {
   position: relative;
 }
 
-#interceptToggle {
-  min-width: 6em;
-}
-
-#interceptToggle.active,
 #captureToggle.active {
   background: var(--color-success-bg);
   border-color: var(--color-success-bg);
@@ -328,6 +341,18 @@ body {
   flex-shrink: 0;
 }
 
+.section--scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.section--scroll > .data-table {
+  flex: 1;
+  min-height: 0;
+}
+
 .section + .section {
   margin-block-start: var(--space-lg);
 }
@@ -360,13 +385,6 @@ select {
   font-size: var(--text-base);
   background: var(--color-button-bg);
   color: var(--color-text);
-}
-
-#pageList {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  min-block-size: var(--height-panel-md);
-  max-block-size: var(--height-panel-lg);
 }
 
 button {
@@ -454,54 +472,6 @@ input[type="checkbox"] {
   margin-inline-end: var(--space-sm);
 }
 
-/* Targets */
-
-.targets-section {
-  flex-shrink: 0;
-}
-
-.targets-list {
-  margin-block: var(--space-xs);
-}
-
-.targets-list label {
-  display: flex;
-  align-items: center;
-  padding-block: var(--space-xs);
-  padding-inline-start: var(--space-md);
-  font-size: var(--text-base);
-  cursor: pointer;
-  gap: var(--space-sm);
-}
-
-.targets-list input[type="checkbox"] {
-  margin: 0;
-}
-
-.target-label {
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-.connection-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
-.connection-indicator.connected {
-  background: var(--color-success);
-}
-
-.hairline-separator {
-  border: none;
-  border-top: var(--border-width) solid var(--color-border-subtle);
-  margin: var(--space-sm) 0;
-}
-
 /* Filters */
 
 .filter-accordion {
@@ -527,22 +497,6 @@ input[type="checkbox"] {
   gap: var(--space-xs);
   margin-inline-start: auto;
   margin-inline-end: var(--space-sm);
-}
-
-.filter-accordion label {
-  display: block;
-  padding-block: var(--space-xs);
-  padding-inline-start: var(--space-md);
-  font-size: var(--text-base);
-  cursor: pointer;
-}
-
-.filter-accordion input[type="checkbox"] {
-  margin-inline-end: var(--space-sm);
-}
-
-.filter-list {
-  margin-block: var(--space-xs);
 }
 
 /* Selection */
@@ -625,81 +579,6 @@ button.active-selection:hover:not(:disabled) {
   font-size: var(--text-xs);
 }
 
-/* Network */
-
-.network-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-#networkTable {
-  flex: 1;
-  min-height: 0;
-}
-
-.network-table {
-  flex: 1;
-  margin-block: var(--space-sm);
-  font-size: var(--text-sm);
-}
-
-.network-row {
-  display: flex;
-  padding: var(--space-xs) var(--space-sm);
-  border-block-end: 1px solid var(--color-border-subtle);
-  cursor: pointer;
-  transition: background 0.1s ease;
-}
-
-.network-row:hover {
-  background: var(--color-bg-hover);
-}
-
-.network-row.error {
-  background: var(--color-error-surface);
-}
-
-.network-row.error:hover {
-  background: var(--color-error-surface);
-  filter: brightness(0.95);
-}
-
-.network-method {
-  inline-size: var(--col-method);
-  font-weight: bold;
-  color: var(--color-text-muted);
-}
-
-.network-status {
-  inline-size: var(--col-status);
-  text-align: center;
-}
-
-.network-status.ok {
-  color: var(--color-success);
-}
-
-.network-status.error {
-  color: var(--color-error);
-}
-
-.network-status.paused {
-  color: var(--color-warning);
-}
-
-.network-row.paused {
-  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-}
-
-.network-url {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Request Details */
 
 .request-details {
@@ -716,20 +595,6 @@ button.active-selection:hover:not(:disabled) {
 
 .request-details.hidden {
   display: none;
-}
-
-/* Console Section - reuses network-section layout */
-
-.console-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-#consoleTable {
-  flex: 1;
-  min-height: 0;
 }
 
 /* Console Details - reuses request-details pattern */
@@ -914,33 +779,42 @@ button.active-selection:hover:not(:disabled) {
 /* DataTable - CSS Grid layout for consistent column alignment */
 
 .data-table {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-md);
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--color-bg);
 }
 
-.data-table-header,
-.data-table-body,
+.data-table-header {
+  display: grid;
+  flex-shrink: 0;
+}
+
+.data-table-body {
+  display: grid;
+  align-content: start;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .data-table-row {
   display: contents;
 }
 
-/* Sticky header cells - simpler than body cells */
 .data-table-header .data-table-cell {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   background: var(--color-bg-subtle);
   border-bottom: var(--border-width) solid var(--color-border);
   font-weight: 500;
   font-size: var(--text-sm);
   color: var(--color-text-subtle);
   min-height: auto;
-  display: block;
-  align-self: start;
+}
+
+.data-table-header .data-table-cell--empty {
+  background: var(--color-bg-subtle);
+  border-bottom-color: var(--color-border);
 }
 
 /* Row hover/selection */
@@ -959,17 +833,24 @@ button.active-selection:hover:not(:disabled) {
 
 /* Row state backgrounds */
 .data-table-row--tracked .data-table-cell,
-.data-table-row--connected .data-table-cell,
 .data-table-row--active .data-table-cell,
 .data-table-row--enabled .data-table-cell {
   background: color-mix(in srgb, var(--color-success) 12%, transparent);
 }
 
 .data-table-body .data-table-row--tracked:hover .data-table-cell,
-.data-table-body .data-table-row--connected:hover .data-table-cell,
 .data-table-body .data-table-row--active:hover .data-table-cell,
 .data-table-body .data-table-row--enabled:hover .data-table-cell {
   background: color-mix(in srgb, var(--color-success) 18%, transparent);
+}
+
+/* Popup/auto-attached rows (blue tint) */
+.data-table-row--connected .data-table-cell {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.data-table-body .data-table-row--connected:hover .data-table-cell {
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 /* Row borders */

@@ -4,8 +4,11 @@ PUBLIC API:
   - WebTapService: Orchestrator for all domain services
 """
 
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from webtap.cdp import CDPSession
 from webtap.filters import FilterManager
 from webtap.notices import NoticeManager
 from webtap.services.connection import ActiveConnection, ConnectionManager
@@ -17,13 +20,38 @@ from webtap.services.state_snapshot import StateSnapshot
 from webtap.services.watcher import ChromeWatcher
 
 
-_REQUIRED_DOMAINS = [
-    "Page",
-    "Network",
-    "Runtime",
-    "Log",
-    "DOMStorage",
-]
+_DOMAINS_BY_TYPE = {
+    "page": ["Page", "Network", "Runtime", "Log", "DOMStorage"],
+    "service_worker": ["Network", "Runtime", "Log"],
+    "background_page": ["Network", "Runtime", "Log", "DOMStorage"],
+    "worker": ["Network", "Runtime"],
+}
+
+# Connectable target types (exclude iframes, other, etc.)
+_CONNECTABLE_TYPES = {"page", "service_worker", "background_page", "worker"}
+
+# Target types watched by URL (target_id changes on extension reload)
+_URL_WATCHED_TYPES = {"service_worker", "background_page"}
+
+# Network.enable buffer sizes
+_NETWORK_BUFFER_SIZE = 50_000_000  # 50MB total buffer
+_NETWORK_RESOURCE_SIZE = 10_000_000  # 10MB per resource
+_MAX_DETACHED_URLS = 50  # Max URL mappings for old target ID resolution
+_DOMAIN_ENABLE_TIMEOUT = 10  # Healthy targets respond in <1s
+
+
+def _is_url_watched(target_info: dict) -> bool:
+    """Targets watched by URL (stable) rather than target_id.
+
+    - service_worker, background_page: target_id changes on extension reload
+    - Extension pages (popup, sidepanel): destroyed/recreated with new IDs
+    - Regular pages, workers: watched by target_id (tab identity stable)
+    """
+    target_type = target_info.get("type", "")
+    if target_type in _URL_WATCHED_TYPES:
+        return True
+    url = target_info.get("url", "")
+    return url.startswith("chrome-extension://") and target_type in {"page", "other"}
 
 
 class WebTapService:
@@ -54,6 +82,9 @@ class WebTapService:
 
         self.state = state
         self._state_lock = threading.RLock()
+
+        # Browser sessions (one per Chrome port)
+        self._browsers: dict[int, "Any"] = {}  # port -> BrowserSession (avoid import cycle)
 
         # Connection lifecycle manager
         self.conn_mgr = ConnectionManager()
@@ -86,12 +117,44 @@ class WebTapService:
         # Prevents duplicate broadcasts during rapid CDP events
         self._broadcast_pending = threading.Event()
 
+        # Background session setup (domain enables)
+        self._setup_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="session-setup")
+
         # Cache for selections deepcopy optimization
         self._cached_selections: dict | None = None
         self._cached_selections_keys: frozenset | None = None
 
+        # URL map for disconnected URL-watched targets (target_id -> url)
+        # Enables get_connection() to resolve old target IDs to new connections
+        self._detached_urls: dict[str, str] = {}  # target_id -> url
+
+        # Stashed CDPSessions for disconnected URL-watched targets (url -> CDPSession)
+        # DuckDB stays alive for read-only queries; callbacks/fetch/broadcast cleared
+        self._stashed_dbs: dict[str, CDPSession] = {}  # url -> CDPSession (DB only)
+
+        # Self-target detection (learned from extension RPC header)
+        self._own_extension_id: str | None = None
+        self._has_silent_sessions = False
+
         # Updated atomically on state change, read without locks
         self._state_snapshot: StateSnapshot = StateSnapshot.create_empty()
+
+    def _get_or_create_browser(self, port: int) -> "Any":
+        """Get existing or create new BrowserSession for port.
+
+        Args:
+            port: Chrome debug port
+
+        Returns:
+            BrowserSession instance for this port
+        """
+        from webtap.cdp import BrowserSession
+
+        if port not in self._browsers:
+            browser = BrowserSession(port=port)
+            browser.connect()
+            self._browsers[port] = browser
+        return self._browsers[port]
 
     @property
     def connections(self) -> dict[str, ActiveConnection]:
@@ -127,10 +190,27 @@ class WebTapService:
             targets: Explicit target list, or None to use tracked/all
 
         Returns:
-            List of CDPSession instances
+            List of active CDPSession instances
         """
         target_list = targets if targets is not None else self.get_tracked_or_all()
         return [self.connections[t].cdp for t in target_list if t in self.connections]
+
+    def get_query_cdps(self, targets: list[str] | None = None) -> list["Any"]:
+        """Get CDPSessions for queries, including stashed DBs from disconnected targets.
+
+        Unlike get_cdps() which returns only active sessions (for js, navigate, etc.),
+        this includes stashed CDPSessions whose DuckDB is still alive for read-only queries.
+
+        Args:
+            targets: Explicit target list, or None to include tracked/all + stashed
+
+        Returns:
+            List of CDPSession instances (active + stashed when targets is None)
+        """
+        active = self.get_cdps(targets)
+        if targets is not None:
+            return active
+        return active + list(self._stashed_dbs.values())
 
     def set_tracked_targets(self, targets: list[str] | None) -> list[str]:
         """Set tracked targets. None or [] clears (meaning all).
@@ -144,6 +224,388 @@ class WebTapService:
         self.tracked_targets = list(targets) if targets else []
         self._trigger_broadcast()
         return self.tracked_targets
+
+    def watch_targets(self, targets: list[str]) -> dict:
+        """Watch one or more targets. Replaces connect_to_page()."""
+        from webtap.targets import make_target, parse_target
+
+        results = []
+        for target in targets:
+            port, short_id = parse_target(target)
+            browser = self._get_or_create_browser(port)
+
+            # Register lifecycle callbacks if not set
+            if not browser._on_target_created:
+                browser.set_target_lifecycle_callbacks(
+                    on_created=self._handle_target_created,
+                    on_info_changed=self._handle_target_info_changed,
+                    on_sw_crashed=self._handle_sw_crashed,
+                    on_sw_reloaded=self._handle_sw_reloaded,
+                )
+
+            # Resolve full target info
+            all_targets = browser.list_all_targets()
+            resolved = None
+            for t in all_targets:
+                if make_target(port, t["targetId"]) == target:
+                    resolved = t
+                    break
+            if not resolved:
+                results.append({"target": target, "error": "not found"})
+                continue
+            if resolved.get("type") == "worker" and not resolved.get("url"):
+                results.append({"target": target, "error": "worker has no URL (zombie target)"})
+                continue
+
+            # Add to appropriate watched set + expand URL-watched URLs
+            if _is_url_watched(resolved):
+                url = resolved.get("url", "")
+                browser.watch_url(url, resolved)
+                # Blanket: also watch all other current targets with same URL
+                for t in all_targets:
+                    other_id = make_target(port, t["targetId"])
+                    if t.get("url") == url and other_id != target and other_id not in self.connections:
+                        try:
+                            sid = browser.attach(t["targetId"])
+                            cdp = self._register_session(browser, sid, t, other_id, port)
+                            self._finish_setup(other_id, cdp, t)
+                            results.append({"target": other_id, "watched": True, "state": "attached"})
+                        except Exception:
+                            pass
+            else:
+                browser.watch_target(target, resolved)
+
+            # If target is currently running, attach now
+            if target not in self.connections:
+                try:
+                    session_id = browser.attach(resolved["targetId"])
+                    cdp = self._register_session(browser, session_id, resolved, target, port)
+                    self._finish_setup(target, cdp, resolved)
+                    results.append({"target": target, "watched": True, "state": "attached"})
+                except Exception as e:
+                    results.append({"target": target, "watched": True, "attached": False, "error": str(e)})
+            else:
+                results.append({"target": target, "watched": True, "attached": True, "already_attached": True})
+
+        self._trigger_broadcast()
+        return {"watched": results}
+
+    def unwatch_targets(self, targets: list[str] | None = None) -> dict:
+        """Stop watching targets. Replaces disconnect_target()/disconnect()."""
+        from webtap.targets import parse_target
+
+        if targets is None:
+            # Unwatch all -- collect connected targets + clear watches atomically
+            targets = []
+            for browser in self._browsers.values():
+                cleared_ids, cleared_urls = browser.clear_all_watches()
+                targets.extend(cleared_ids)
+                # Find connected targets for cleared URLs
+                for url in cleared_urls:
+                    for tid, conn in self.connections.items():
+                        if conn.cdp.target_info.get("url") == url:
+                            targets.append(tid)
+                    # Clear URL mappings for cleared URLs
+                    self._detached_urls = {tid: u for tid, u in self._detached_urls.items() if u != url}
+                    # Clean up stashed DB for this URL
+                    stashed = self._stashed_dbs.pop(url, None)
+                    if stashed:
+                        stashed.cleanup()
+
+        results = []
+        for target in targets:
+            port, _ = parse_target(target)
+            browser = self._browsers.get(port)
+            if browser:
+                browser.unwatch_target(target)
+                # Also remove from URL watch if this target's URL is watched
+                if target in self.connections:
+                    url = self.connections[target].cdp.target_info.get("url", "")
+                    browser.unwatch_url(url)
+                    # Clear URL mappings for this URL
+                    self._detached_urls = {tid: u for tid, u in self._detached_urls.items() if u != url}
+                    # Clean up stashed DB for this URL
+                    stashed = self._stashed_dbs.pop(url, None)
+                    if stashed:
+                        stashed.cleanup()
+
+            # If attached, detach
+            if target in self.connections:
+                conn = self.connections[target]
+                self.fetch.cleanup_target(target, conn.cdp)
+                self.conn_mgr.disconnect(target)
+                self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
+
+            results.append({"target": target, "unwatched": True})
+
+        self._trigger_broadcast()
+        return {"unwatched": results}
+
+    def _register_session(self, browser, session_id: str, target_info: dict, target_id: str, port: int) -> CDPSession:
+        """Register CDPSession and connection entry. Returns CDPSession."""
+        from webtap.services.connection import TargetState
+
+        cdp = CDPSession(browser, session_id, target_info, port)
+        browser.register_session(session_id, cdp)
+        cdp.target = target_id
+
+        page_info = {
+            "title": target_info.get("title", "Untitled"),
+            "url": target_info.get("url", ""),
+            "type": target_info.get("type", "page"),
+        }
+
+        self.conn_mgr.connect(target_id, cdp, page_info, initial_state=TargetState.CONNECTING)
+        cdp.set_disconnect_callback(lambda code, reason: self._handle_disconnect(target_id, code, reason))
+
+        # Skip broadcast callback on self-targets to prevent feedback loop
+        target_url = target_info.get("url", "")
+        is_self_target = self._own_extension_id and target_url.startswith(
+            f"chrome-extension://{self._own_extension_id}/"
+        )
+        if is_self_target:
+            if not self._has_silent_sessions:
+                self._start_periodic_broadcast()
+        else:
+            cdp.set_broadcast_callback(self._trigger_broadcast)
+
+        return cdp
+
+    def _finish_setup(self, target_id: str, cdp: CDPSession, target_info: dict) -> None:
+        """Enable CDP domains and transition to ATTACHED. Runs in background thread."""
+        from webtap.services.connection import TargetState
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            target_type = target_info.get("type", "page")
+            domains_to_enable = _DOMAINS_BY_TYPE.get(target_type, _DOMAINS_BY_TYPE["page"])
+
+            failures = {}
+            with ThreadPoolExecutor(max_workers=len(domains_to_enable)) as executor:
+                futures = {}
+                for domain in domains_to_enable:
+                    if domain == "Network":
+                        future = executor.submit(
+                            cdp.execute,
+                            "Network.enable",
+                            {
+                                "maxTotalBufferSize": _NETWORK_BUFFER_SIZE,
+                                "maxResourceBufferSize": _NETWORK_RESOURCE_SIZE,
+                            },
+                            _DOMAIN_ENABLE_TIMEOUT,
+                        )
+                    else:
+                        future = executor.submit(cdp.execute, f"{domain}.enable", None, _DOMAIN_ENABLE_TIMEOUT)
+                    futures[future] = domain
+
+                for future in as_completed(futures):
+                    domain = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        failures[domain] = str(e)
+
+            if failures:
+                logger.warning(f"Failed to enable domains on {target_id}: {failures}")
+
+            self.fetch.enable_on_target(target_id, cdp)
+            self._register_body_capture_callback(cdp)
+            self.filters.load()
+
+        except Exception as e:
+            logger.error(f"Setup failed for {target_id}: {e}")
+
+        finally:
+            self.conn_mgr.set_state(target_id, TargetState.ATTACHED)
+            self._trigger_broadcast()
+
+    def _handle_disconnect(self, target_id: str, code: int, reason: str) -> None:
+        """Handle target disconnect. Preserve CDPSession for URL-watched targets."""
+        from webtap.targets import parse_target
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Target disconnected: {target_id} (code={code}, reason={reason})")
+
+        port, _ = parse_target(target_id)
+        browser = self._browsers.get(port)
+
+        # Check if this was a URL-watched (ephemeral) target
+        conn = self.connections.get(target_id)
+        if conn and browser:
+            url = conn.cdp.target_info.get("url", "")
+            if browser.is_watched("", url):
+                # Record URL mapping for target resolution
+                self._detached_urls[target_id] = url
+                # Evict oldest entries if over limit
+                while len(self._detached_urls) > _MAX_DETACHED_URLS:
+                    oldest_key = next(iter(self._detached_urls))
+                    del self._detached_urls[oldest_key]
+
+                # Clean up live state but keep DuckDB alive for queries
+                self.fetch.cleanup_target(target_id, conn.cdp)
+                conn.cdp._event_callbacks.clear()
+                conn.cdp._broadcast_callback = None
+
+                # Stash DB (clean up old stash for same URL first)
+                old_stash = self._stashed_dbs.get(url)
+                if old_stash:
+                    old_stash.cleanup()
+                self._stashed_dbs[url] = conn.cdp
+
+                self.conn_mgr.remove(target_id)
+                self.conn_mgr.remove_from_tracked(target_id, self.tracked_targets)
+                self._update_silent_sessions()
+                self._trigger_broadcast()
+                return
+
+        # Normal disconnect cleanup
+        if conn:
+            self.fetch.cleanup_target(target_id, conn.cdp)
+        self.conn_mgr.remove(target_id)
+        self.conn_mgr.remove_from_tracked(target_id, self.tracked_targets)
+        self._update_silent_sessions()
+        self._trigger_broadcast()
+
+    def _handle_target_created(self, target_info: dict, target_id: str) -> None:
+        """Called by BrowserSession when a watched or opener-matched target appears.
+
+        Runs on WS thread — must not call execute(). Submits attach+setup to executor.
+        """
+        self._setup_executor.submit(self._attach_watched_target, target_info, target_id)
+
+    def _attach_watched_target(self, target_info: dict, target_id: str) -> None:
+        """Attach to a watched or opener-matched target. Runs in executor thread."""
+        from webtap.targets import parse_target
+
+        port, _ = parse_target(target_id)
+        browser = self._browsers.get(port)
+        if not browser or target_id in self.connections:
+            return
+
+        try:
+            chrome_target_id = target_info.get("targetId", "")
+            session_id = browser.attach(chrome_target_id)
+            cdp = self._register_session(browser, session_id, target_info, target_id, port)
+            self._finish_setup(target_id, cdp, target_info)
+            # Mark as auto-attached if not explicitly watched (opener-matched popup)
+            # Also add to watched set so grandchildren resolve via opener matching
+            conn = self.connections.get(target_id)
+            if conn and not browser.is_watched(target_id, target_info.get("url", "")):
+                conn.auto_attached = True
+                browser.watch_target(target_id, target_info)
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to re-attach watched target {target_id}: {e}")
+
+    def _handle_target_info_changed(self, target_info: dict) -> None:
+        """Update connection metadata when target navigates or changes title."""
+        from webtap.targets import make_target
+
+        for browser in self._browsers.values():
+            target_id = make_target(browser.port, target_info.get("targetId", ""))
+            conn = self.connections.get(target_id)
+            if conn:
+                conn.page_info["title"] = target_info.get("title", conn.page_info.get("title", ""))
+                conn.page_info["url"] = target_info.get("url", conn.page_info.get("url", ""))
+                self._trigger_broadcast()
+                return
+
+    def _handle_sw_crashed(self, session_id: str) -> None:
+        """SW idle stop. Session stays, renderer disconnected. Mark suspended."""
+        from webtap.services.connection import TargetState
+
+        for browser in self._browsers.values():
+            cdp = browser.get_session(session_id)
+            if cdp:
+                if cdp.target and cdp.target in self.connections:
+                    self.conn_mgr.set_state(cdp.target, TargetState.SUSPENDED)
+                    self._trigger_broadcast()
+                return
+
+    def _handle_sw_reloaded(self, session_id: str) -> None:
+        """SW restart after idle. Re-enable domains on existing session."""
+        from webtap.services.connection import TargetState
+
+        for browser in self._browsers.values():
+            cdp = browser.get_session(session_id)
+            if cdp:
+                if cdp.target and cdp.target in self.connections:
+                    # Re-enable domains -- renderer state was lost
+                    target_type = cdp.target_info.get("type", "page")
+                    domains = _DOMAINS_BY_TYPE.get(target_type, ["Network", "Runtime"])
+                    for domain in domains:
+                        try:
+                            cdp.execute(f"{domain}.enable")
+                        except Exception:
+                            pass
+                    # Re-enable fetch interception if it was active
+                    self.fetch.enable_on_target(cdp.target, cdp)
+                    self._register_body_capture_callback(cdp)
+                    self.conn_mgr.set_state(cdp.target, TargetState.ATTACHED)
+                    self._trigger_broadcast()
+                return
+
+    def list_targets(self, chrome_port: int | None = None) -> dict:
+        """List all targets with watched/attached state. Replaces list_pages()."""
+        import httpx
+        from webtap.targets import make_target
+
+        all_targets = []
+        ports = [chrome_port] if chrome_port else list(self.state.registered_ports)
+
+        for port in ports:
+            browser = self._browsers.get(port)
+            if browser:
+                targets = browser.list_all_targets()
+            else:
+                try:
+                    resp = httpx.get(f"http://localhost:{port}/json", timeout=2.0)
+                    raw = resp.json()
+                    targets = []
+                    for t in raw:
+                        t["targetId"] = t.pop("id", "")
+                        targets.append(t)
+                except Exception:
+                    continue
+
+            # Build opener lookup (CDP targetId -> our target format)
+            opener_map = {}
+            for t in targets:
+                if t.get("type") in _CONNECTABLE_TYPES:
+                    opener_map[t.get("targetId", "")] = make_target(port, t["targetId"])
+
+            for t in targets:
+                if t.get("type") not in _CONNECTABLE_TYPES:
+                    continue
+                if t.get("type") == "worker" and not t.get("url"):
+                    continue
+                url = t.get("url", "")
+                if url.startswith("chrome://"):
+                    continue
+                target_id = make_target(port, t["targetId"])
+                watched = browser is not None and browser.is_watched(target_id, url)
+                attached = target_id in self.connections
+                state = self.connections[target_id].state.value if attached else ""
+                opener = t.get("openerId", "")
+                parent = opener_map.get(opener, "") if opener else ""
+                auto_attached = attached and self.connections[target_id].auto_attached
+                all_targets.append(
+                    {
+                        "target": target_id,
+                        "type": t.get("type", "page"),
+                        "title": t.get("title", "Untitled"),
+                        "url": url,
+                        "chrome_port": port,
+                        "watched": watched,
+                        "attached": attached,
+                        "auto_attached": auto_attached,
+                        "state": state,
+                        "parent": parent,
+                    }
+                )
+
+        return {"targets": all_targets}
 
     def _create_snapshot(self) -> StateSnapshot:
         """Create immutable state snapshot from current state.
@@ -181,11 +643,23 @@ class WebTapService:
                 "target": conn.target,
                 "title": conn.page_info.get("title", ""),
                 "url": conn.page_info.get("url", ""),
+                "type": conn.page_info.get("type", "page"),
                 "state": conn.state.value,
                 "devtools_url": conn.page_info.get("devtoolsFrontendUrl", ""),
+                "auto_attached": conn.auto_attached,
             }
             for conn in self.connections.values()
         )
+
+        # Watch state -- aggregate from all browser sessions (thread-safe snapshots)
+        all_watched_targets: list[str] = []
+        all_watched_urls: list[str] = []
+        for browser in self._browsers.values():
+            targets_snap, urls_snap = browser.get_watched_snapshot()
+            all_watched_targets.extend(targets_snap)
+            all_watched_urls.extend(urls_snap)
+        watched_targets = tuple(all_watched_targets)
+        watched_urls = tuple(all_watched_urls)
 
         # Browser/DOM state (get_state() is already thread-safe internally)
         browser_state = self.dom.get_state()
@@ -217,6 +691,8 @@ class WebTapService:
             disabled_filters=disabled_filters,
             tracked_targets=tracked_targets,
             connections=connections,
+            watched_targets=watched_targets,
+            watched_urls=watched_urls,
             inspect_active=browser_state["inspect_active"],
             inspecting_target=browser_state.get("inspecting"),
             selections=selections,  # Deep copy ensures nested dicts are immutable
@@ -224,6 +700,8 @@ class WebTapService:
             pending_count=browser_state["pending_count"],
             errors=errors_dict,
             notices=self.notices.get_all(),
+            epoch=self.conn_mgr.epoch,
+            tracked_clients=self.rpc.get_tracked_clients() if self.rpc else {},
         )
 
     def _trigger_broadcast(self) -> None:
@@ -241,8 +719,6 @@ class WebTapService:
         Uses atomic check-and-set to prevent race where multiple threads
         queue multiple signals before any sets the flag.
         """
-        import logging
-
         logger = logging.getLogger(__name__)
 
         # Early exit if no queue (API not started yet)
@@ -279,6 +755,23 @@ class WebTapService:
             # Clear flag if queue failed so next trigger can try
             self._broadcast_pending.clear()
             logger.warning(f"Failed to queue broadcast: {e}")
+
+    def _update_silent_sessions(self) -> None:
+        """Update silent session flag after connection changes."""
+        self._has_silent_sessions = any(conn.cdp._broadcast_callback is None for conn in self.connections.values())
+
+    def _start_periodic_broadcast(self) -> None:
+        """Start 1s periodic broadcast for silent (self-target) sessions."""
+        import threading
+
+        self._has_silent_sessions = True
+
+        def _periodic():
+            while self._has_silent_sessions:
+                self._trigger_broadcast()
+                threading.Event().wait(1.0)
+
+        threading.Thread(target=_periodic, daemon=True, name="periodic-broadcast").start()
 
     def get_state_snapshot(self) -> StateSnapshot:
         """Get current immutable state snapshot (thread-safe, no locks).
@@ -397,13 +890,11 @@ class WebTapService:
         if port not in self.state.registered_ports:
             return {"port": port, "removed": False}
 
-        # Disconnect targets on this port
-        disconnected = []
-        for target_id in list(self.connections.keys()):
-            target_port, _ = parse_target(target_id)
-            if target_port == port:
-                self.disconnect_target(target_id)
-                disconnected.append(target_id)
+        # Unwatch targets on this port
+        targets_on_port = [tid for tid in list(self.connections.keys()) if parse_target(tid)[0] == port]
+        if targets_on_port:
+            self.unwatch_targets(targets_on_port)
+        disconnected = targets_on_port
 
         # Remove port (inside lock)
         with self._state_lock:
@@ -413,27 +904,25 @@ class WebTapService:
         return {"port": port, "removed": True, "disconnected": disconnected}
 
     def list_ports(self) -> dict:
-        """List registered ports with page/connection counts.
+        """List registered ports with target/watched counts.
 
         Returns:
-            {"ports": [{"port": N, "page_count": N, "connection_count": N, "status": str}]}
+            {"ports": [{"port": N, "target_count": N, "watched_count": N, "status": str}]}
         """
-        # Get all pages via existing method
-        pages_result = self.list_pages()
-        all_pages = pages_result.get("pages", [])
+        targets_result = self.list_targets()
+        all_targets = targets_result.get("targets", [])
 
-        # Aggregate by port
-        port_stats: dict[int, dict] = {p: {"page_count": 0, "connection_count": 0} for p in self.state.registered_ports}
+        port_stats: dict[int, dict] = {p: {"target_count": 0, "watched_count": 0} for p in self.state.registered_ports}
 
-        for page in all_pages:
-            port = page.get("chrome_port")
+        for t in all_targets:
+            port = t.get("chrome_port")
             if port in port_stats:
-                port_stats[port]["page_count"] += 1
-                if page.get("connected"):
-                    port_stats[port]["connection_count"] += 1
+                port_stats[port]["target_count"] += 1
+                if t.get("watched"):
+                    port_stats[port]["watched_count"] += 1
 
         ports = [
-            {"port": port, **stats, "status": "active" if stats["page_count"] > 0 else "reachable"}
+            {"port": port, **stats, "status": "active" if stats["target_count"] > 0 else "reachable"}
             for port, stats in port_stats.items()
         ]
         return {"ports": ports}
@@ -468,213 +957,69 @@ class WebTapService:
         self._trigger_broadcast()
 
     def get_connection(self, target: str) -> ActiveConnection | None:
-        """Get active connection by target ID.
+        """Get active connection by target ID, with URL fallback.
+
+        If exact target ID is not found, checks if the target was previously
+        connected and a single live connection shares the same URL. This handles
+        URL-watched targets (extension pages, service workers) that get new IDs
+        on close/reopen.
 
         Args:
             target: Target ID in format "{port}:{short-id}"
 
         Returns:
-            ActiveConnection if exists, None otherwise
+            ActiveConnection if found (exact or unambiguous URL match), None otherwise
         """
-        return self.connections.get(target)
+        conn = self.connections.get(target)
+        if conn:
+            return conn
 
-    def resolve_cdp(
-        self,
-        row_id: int,
-        table: str,
-        id_column: str = "id",
-        target: str | None = None,
-    ) -> Any | None:
-        """Find CDPSession by target or by searching for row.
+        # Fallback: check if old target had a URL, find single live match
+        old_url = self._detached_urls.get(target)
+        if not old_url:
+            return None
 
-        Args:
-            row_id: Row ID to search for
-            table: Table to search in (e.g., "har_summary", "events")
-            id_column: Column to match (default "id", use "rowid" for events)
-            target: Specific target to use. If provided, skips search.
+        matches = [c for c in self.connections.values() if c.cdp.target_info.get("url") == old_url]
+        if len(matches) == 1:
+            return matches[0]
 
-        Returns:
-            CDPSession if found, None otherwise
-        """
-        if target:
-            conn = self.connections.get(target)
-            return conn.cdp if conn else None
-
-        for conn in self.connections.values():
-            if conn.cdp.query(f"SELECT 1 FROM {table} WHERE {id_column} = ? LIMIT 1", [row_id]):
-                return conn.cdp
         return None
 
-    def connect_to_page(
-        self,
-        page_index: int | None = None,
-        page_id: str | None = None,
-        chrome_port: int | None = None,
-        target: str | None = None,
-    ) -> dict[str, Any]:
-        """Connect to Chrome page and enable required domains.
+    def resolve_cdp(self, target: str) -> tuple[Any | None, dict]:
+        """Resolve target ID to CDPSession for drill-down queries.
 
-        Each connection creates a NEW CDPSession. Supports multiple simultaneous connections.
+        Resolution order:
+        1. Active connection by exact target ID
+        2. Stashed DB via URL mapping (old target → URL → stashed CDPSession)
+        3. Active connection via URL fallback (old target → URL → live connection)
 
         Args:
-            page_index: Index of page to connect to (for REPL)
-            page_id: ID of page to connect to (for extension)
-            chrome_port: Chrome debug port to connect to (default: 9222)
-            target: Target ID to connect to (overrides other params if provided)
+            target: Target ID (required — row IDs are per-DB and can collide)
 
         Returns:
-            Connection info dict with 'title', 'url', 'target'
-
-        Raises:
-            Exception: On connection or domain enable failure
+            Tuple of (CDPSession or None, resolution_info dict).
+            resolution_info has "via" key: "active", "stashed", or "url_fallback".
         """
-        from webtap.cdp import CDPSession
-        from webtap.targets import make_target, resolve_target, parse_target
+        # 1. Active connection
+        conn = self.connections.get(target)
+        if conn:
+            return conn.cdp, {"via": "active"}
 
-        # Resolve target from different input methods
-        target_page = None
-        if target:
-            # Target provided directly - parse it
-            port, short_id = parse_target(target)
+        # 2-3. Old target ID → resolve via URL
+        url = self._detached_urls.get(target)
+        if not url:
+            return None, {}
 
-            # Check if already connected
-            if target in self.connections:
-                existing = self.connections[target]
-                return {
-                    "title": existing.page_info.get("title", "Untitled"),
-                    "url": existing.page_info.get("url", ""),
-                    "target": existing.target,
-                    "already_connected": True,
-                }
+        # Prefer stashed DB (has the historical data for this target)
+        if url in self._stashed_dbs:
+            return self._stashed_dbs[url], {"via": "stashed", "url": url}
 
-            # Get pages and resolve to full page
-            pages_data = self.list_pages(chrome_port=port)
-            target_page = resolve_target(target, pages_data["pages"])
-            if not target_page:
-                raise ValueError(f"Target '{target}' not found")
-            page_id = target_page["id"]
-            chrome_port = port
-        else:
-            # Use port-based resolution
-            chrome_port = chrome_port or 9222
+        # Fall back to live connection with same URL
+        for c in self.connections.values():
+            if c.cdp.target_info.get("url") == url:
+                return c.cdp, {"via": "url_fallback", "url": url, "resolved_target": c.target}
 
-        # Create NEW CDPSession for this page
-        cdp = CDPSession(port=chrome_port)
-
-        # Connect to the page (pass target_page to avoid duplicate list_pages call)
-        cdp.connect(page_index=page_index, page_id=page_id, page_info=target_page)
-
-        # Enable required domains in parallel
-        # Network gets special handling to configure buffer size for body retention
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        # Buffer sizes for Network.enable (experimental CDP feature)
-        # Increases body retention from default (~100KB) to prevent early eviction
-        NETWORK_BUFFER_SIZE = 50_000_000  # 50MB total buffer
-        NETWORK_RESOURCE_SIZE = 10_000_000  # 10MB per resource
-
-        failures = {}
-        with ThreadPoolExecutor(max_workers=len(_REQUIRED_DOMAINS)) as executor:
-            futures = {}
-            for domain in _REQUIRED_DOMAINS:
-                if domain == "Network":
-                    # Enable Network with larger buffer to retain response bodies longer
-                    future = executor.submit(
-                        cdp.execute,
-                        "Network.enable",
-                        {
-                            "maxTotalBufferSize": NETWORK_BUFFER_SIZE,
-                            "maxResourceBufferSize": NETWORK_RESOURCE_SIZE,
-                        },
-                    )
-                else:
-                    future = executor.submit(cdp.execute, f"{domain}.enable")
-                futures[future] = domain
-            for future in as_completed(futures):
-                domain = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    failures[domain] = str(e)
-
-        if failures:
-            cdp.disconnect()
-            raise RuntimeError(f"Failed to enable domains: {failures}")
-
-        # Get page info and create target ID
-        page_info = cdp.page_info or {}
-        full_page_id = page_info.get("id", "")
-        target_id = make_target(chrome_port, full_page_id)
-
-        # Set target on CDPSession for event tagging
-        cdp.target = target_id
-
-        # Register connection with ConnectionManager
-        self.conn_mgr.connect(target_id, cdp, page_info)
-
-        # Register callbacks for this session
-        cdp.set_disconnect_callback(lambda code, reason: self._handle_unexpected_disconnect(target_id, code, reason))
-        cdp.set_broadcast_callback(self._trigger_broadcast)
-
-        # Enable fetch capture on this connection (if globally enabled)
-        self.fetch.enable_on_target(target_id, cdp)
-
-        # Register body capture callback to capture bodies before page navigation
-        self._register_body_capture_callback(cdp)
-
-        self.filters.load()
-        self._trigger_broadcast()
-
-        return {
-            "title": page_info.get("title", "Untitled"),
-            "url": page_info.get("url", ""),
-            "target": target_id,
-        }
-
-    def disconnect_target(self, target: str) -> None:
-        """Disconnect specific target.
-
-        Args:
-            target: Target ID to disconnect
-        """
-        # Get CDP before disconnect (for cleanup)
-        conn = self.conn_mgr.get(target)
-        cdp = conn.cdp if conn else None
-
-        # Clean up fetch state BEFORE disconnect
-        self.fetch.cleanup_target(target, cdp)
-
-        # Delegate to ConnectionManager (handles state, CDP cleanup, locking)
-        disconnected = self.conn_mgr.disconnect(target)
-        if not disconnected:
-            return
-
-        # Remove from tracked targets if present
-        self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
-
-        self._trigger_broadcast()
-
-    def disconnect(self) -> None:
-        """Disconnect all targets and clean up all state.
-
-        Pure domain logic - performs full cleanup.
-        State machine transitions are handled by RPC handlers.
-        """
-        # Disconnect all connections (fetch cleanup happens per-target via disconnect_target)
-        targets_to_disconnect = list(self.connections.keys())
-        for target in targets_to_disconnect:
-            self.disconnect_target(target)
-
-        # Clean up DOM service
-        self.dom.clear_selections()
-        self.dom.cleanup()
-
-        # Clear error state on disconnect
-        if self.state.error_state:
-            self.clear_error()
-
-        self.enabled_domains.clear()
-        self._trigger_broadcast()
+        return None, {}
 
     def enable_domains(self, domains: list[str]) -> dict[str, str]:
         """Enable CDP domains on all connected targets.
@@ -699,54 +1044,6 @@ class WebTapService:
         self._trigger_broadcast()
         return {"cleared": True, "events": 0}
 
-    def list_pages(self, chrome_port: int | None = None) -> dict[str, Any]:
-        """List available Chrome pages with target IDs.
-
-        Args:
-            chrome_port: Specific port to query. If None, queries registered ports.
-
-        Returns:
-            Dict with 'pages' list. Each page includes 'target', 'connected' fields.
-        """
-        import httpx
-        from webtap.targets import make_target
-
-        all_pages = []
-
-        # Query specific port or all registered ports
-        if chrome_port:
-            ports_to_query = [chrome_port]
-        else:
-            ports_to_query = list(self.state.registered_ports)
-
-        for port in ports_to_query:
-            try:
-                # Direct HTTP request to /json endpoint
-                resp = httpx.get(f"http://localhost:{port}/json", timeout=2.0)
-                pages = resp.json()
-
-                # Filter and add metadata to each page
-                for page in pages:
-                    if page.get("type") != "page":
-                        continue
-
-                    page_id = page.get("id", "")
-                    target_id = make_target(port, page_id)
-
-                    page["target"] = target_id
-                    page["chrome_port"] = port
-                    page["connected"] = target_id in self.connections
-                    all_pages.append(page)
-
-            except Exception as e:
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to list pages from port {port}: {e}")
-                # Continue with other ports
-
-        return {"pages": all_pages}
-
     def execute_on_target(self, target: str, callback: "Any") -> "Any":
         """Execute callback on an existing target connection.
 
@@ -765,67 +1062,6 @@ class WebTapService:
             raise ValueError(f"Target '{target}' not connected")
         return callback(conn.cdp)
 
-    def _handle_unexpected_disconnect(self, target: str, code: int, reason: str) -> None:
-        """Handle unexpected WebSocket disconnect for a specific target.
-
-        Called from background thread by CDPSession._on_close.
-        Performs service-level cleanup and notifies SSE clients.
-        Events are preserved for debugging.
-
-        Args:
-            target: Target ID that disconnected
-            code: WebSocket close code (e.g., 1006 = abnormal closure)
-            reason: Human-readable close reason
-        """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        # Map WebSocket close codes to user-friendly messages
-        reason_map = {
-            1000: "Page closed normally",
-            1001: "Browser tab closed",
-            1006: "Connection lost (tab crashed or browser closed)",
-            1011: "Chrome internal error",
-        }
-
-        # Handle None code (abnormal closure with no code)
-        if code is None:
-            user_reason = "Connection lost (page closed or crashed)"
-        else:
-            user_reason = reason_map.get(code, f"Connection closed unexpectedly (code {code})")
-
-        logger.warning(f"Unexpected disconnect on {target}: {user_reason}")
-
-        try:
-            # Thread-safe cleanup via ConnectionManager
-            # Note: Don't call conn_mgr.disconnect() as CDP is already closed
-            with self.conn_mgr._global_lock:
-                conn = self.conn_mgr.connections.pop(target, None)
-                self.conn_mgr._locks.pop(target, None)
-                if conn:
-                    self.conn_mgr._epoch += 1
-
-            if not conn:
-                return  # Already cleaned up
-
-            # Clean up fetch state (CDP already dead, pass None)
-            self.fetch.cleanup_target(target, cdp=None)
-
-            # Remove from tracked targets if present
-            self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
-
-            # Set error state outside lock (set_error acquires its own lock)
-            self.set_error(user_reason, target=target)
-
-            # Notify SSE clients
-            self._trigger_broadcast()
-
-            logger.info(f"Unexpected disconnect cleanup completed for {target}")
-
-        except Exception as e:
-            logger.error(f"Error during unexpected disconnect cleanup for {target}: {e}")
-
     def _register_body_capture_callback(self, cdp) -> None:
         """Register callback to capture response bodies on loadingFinished.
 
@@ -842,9 +1078,6 @@ class WebTapService:
         Args:
             cdp: CDPSession to register callback on
         """
-        from concurrent.futures import ThreadPoolExecutor
-        import logging
-
         logger = logging.getLogger(__name__)
 
         # Resource types worth capturing (API responses, HTML)

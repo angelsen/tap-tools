@@ -97,18 +97,6 @@ class NoticeManager:
         with self._lock:
             self._notices = {k: v for k, v in self._notices.items() if v.clear_on != event}
 
-    def decrement_remaining(self) -> None:
-        """Decrement remaining counters and clear at zero."""
-        with self._lock:
-            to_remove = []
-            for key, notice in self._notices.items():
-                if notice.remaining is not None:
-                    notice.remaining -= 1
-                    if notice.remaining <= 0:
-                        to_remove.append(key)
-            for key in to_remove:
-                del self._notices[key]
-
     def get_all(self) -> List[Dict]:
         """Get all notices as dicts for state snapshot.
 

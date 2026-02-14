@@ -13,12 +13,14 @@ from webtap.commands._tips import get_tips
 _REPL_TRUNCATE = {
     "ReqID": {"max": 12, "mode": "end"},
     "URL": {"max": 60, "mode": "middle"},
+    "Target": {"max": 14, "mode": "end"},
 }
 
 # Truncation values for MCP mode (generous for LLM context)
 _MCP_TRUNCATE = {
     "ReqID": {"max": 50, "mode": "end"},
     "URL": {"max": 200, "mode": "middle"},
+    "Target": {"max": 30, "mode": "end"},
 }
 
 
@@ -93,7 +95,7 @@ def network(
         if r.get("protocol") == "websocket":
             sent = r.get("frames_sent") or 0
             recv = r.get("frames_received") or 0
-            size_display = f"{sent}s/{recv}r" if (sent or recv) else "-"
+            size_display = f"{sent}s/{recv}r" if (sent or recv) else "--"
         else:
             # REPL: human-friendly format, MCP: raw bytes for LLM
             size_display = format_size(r["size"]) if is_repl else (r["size"] or 0)
@@ -104,6 +106,7 @@ def network(
 
         row = {
             "ID": str(r["id"]),
+            "Target": r.get("target", ""),
             "ReqID": r["request_id"],
             "Method": r["method"],
             "Status": str(r["status"]) if r["status"] else "-",
@@ -130,7 +133,8 @@ def network(
 
     if rows:
         example_id = rows[0]["ID"]
-        context_tips = get_tips("network", context={"id": example_id})
+        example_target = rows[0]["Target"]
+        context_tips = get_tips("network", context={"id": example_id, "target": example_target})
         if context_tips:
             combined_tips.extend(context_tips)
 
@@ -138,7 +142,7 @@ def network(
     truncate = _REPL_TRUNCATE if is_repl else _MCP_TRUNCATE
 
     # Build headers dynamically
-    headers = ["ID", "ReqID", "Method", "Status", "URL", "Type", "Size", "Body", "State"]
+    headers = ["ID", "Target", "ReqID", "Method", "Status", "URL", "Type", "Size", "Body", "State"]
     if has_pause:
         headers.append("Pause")
 

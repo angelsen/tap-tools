@@ -11,13 +11,13 @@ import * as theme from "./controllers/theme.js";
 import * as tabs from "./controllers/tabs.js";
 import * as header from "./controllers/header.js";
 import * as notices from "./controllers/notices.js";
-import * as pages from "./controllers/pages.js";
 import * as targets from "./controllers/targets.js";
+import * as watching from "./controllers/watching.js";
 import * as network from "./controllers/network.js";
 import * as console_ from "./controllers/console.js";
 import * as filters from "./controllers/filters.js";
 import * as selections from "./controllers/selections.js";
-import * as intercept from "./controllers/intercept.js";
+import * as capture from "./controllers/capture.js";
 
 console.log("[WebTap] Side panel loaded");
 
@@ -84,19 +84,18 @@ function setupEventHandlers() {
     header.updateConnection(state);
     header.updateError(state.errors);
     header.updateEventCount(state.events.total);
-    intercept.update(state);
-    targets.update(state);
+    capture.update(state);
+    watching.update(state);
     selections.update(state.browser);
     filters.update(state.filters);
-    pages.updateButton();
     notices.render(state.notices, state.clients);
 
     // RPC calls - collect and fire in parallel (no await, fire-and-forget)
     const rpcCalls = [];
 
-    // Pages list reload on connection changes
+    // Targets list reload on watch/connection changes
     if (becameAvailable || state.targets_hash !== previousState?.targets_hash) {
-      rpcCalls.push(pages.load());
+      rpcCalls.push(targets.load());
     }
 
     // Network/Console RPC only when tab active AND event count changed (expensive - fetches from DuckDB)
@@ -118,7 +117,7 @@ function setupEventHandlers() {
   client.on("error", () => {
     webtapAvailable = false;
     header.updateStatus("Server offline", "error");
-    pages.clear();
+    targets.clear();
 
     setTimeout(() => {
       header.updateStatus("Reconnecting...", "error");
@@ -131,11 +130,24 @@ function setupEventHandlers() {
 function setupUIBindings() {
   bindings = Bind.connect(client);
 
-  // Button Wiring
-  const reloadPagesBtn = document.getElementById("reloadPages");
-  reloadPagesBtn.textContent = icons.refresh;
-  reloadPagesBtn.onclick = async () => {
-    await withButtonLock("reloadPages", pages.load);
+  // Target list buttons
+  const reloadTargetsBtn = document.getElementById("reloadTargets");
+  reloadTargetsBtn.textContent = icons.refresh;
+  reloadTargetsBtn.onclick = async () => {
+    await withButtonLock("reloadTargets", targets.load);
+  };
+
+  document.getElementById("watchAll").onclick = async () => {
+    await withButtonLock("watchAll", targets.watchAll);
+  };
+
+  document.getElementById("unwatchAll").onclick = async () => {
+    await withButtonLock("unwatchAll", watching.unwatchAll);
+  };
+
+  // Filter input
+  document.getElementById("targetFilter").oninput = (e) => {
+    targets.setFilter(e.target.value);
   };
 
   bindAction("clear", "clear", { events: true });
@@ -156,12 +168,12 @@ function setupUIBindings() {
 
   // Chrome Tab Listeners (only attach once to prevent accumulation)
   if (!chromeListenersAttached) {
-    chrome.tabs.onActivated.addListener(() => pages.load());
-    chrome.tabs.onRemoved.addListener(() => pages.load());
-    chrome.tabs.onCreated.addListener(() => pages.load());
-    chrome.tabs.onMoved.addListener(() => pages.load());
+    chrome.tabs.onActivated.addListener(() => targets.load());
+    chrome.tabs.onRemoved.addListener(() => targets.load());
+    chrome.tabs.onCreated.addListener(() => targets.load());
+    chrome.tabs.onMoved.addListener(() => targets.load());
     chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-      if (changeInfo.status === "complete") pages.load();
+      if (changeInfo.status === "complete") targets.load();
     });
     chromeListenersAttached = true;
   }
@@ -189,13 +201,13 @@ async function discoverAndConnect() {
     client = discovered;
 
     // Initialize controllers with client
-    pages.init(client, DataTable, null, callbacks);
-    targets.init(client, DataTable, null, callbacks);
-    network.init(client, DataTable, null, callbacks);
-    console_.init(client, DataTable, null, callbacks);
+    targets.init(client, DataTable, callbacks);
+    watching.init(client, DataTable, callbacks);
+    network.init(client, DataTable, callbacks);
+    console_.init(client, DataTable, callbacks);
     filters.init(client, DataTable, callbacks);
     selections.init(client, DataTable, callbacks);
-    intercept.init(client, callbacks);
+    capture.init(client, callbacks);
 
     setupEventHandlers();
     setupUIBindings();

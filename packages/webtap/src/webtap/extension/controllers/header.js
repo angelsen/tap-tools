@@ -23,7 +23,7 @@ export function showError(message) {
 export function updateConnection(state) {
   if (state.connected) {
     updateStatus(`Connected (${state.events.total})`, "connected");
-  } else if (!state.connected) {
+  } else {
     updateStatus("Disconnected", "disconnected");
   }
 }

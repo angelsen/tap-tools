@@ -19,7 +19,7 @@ let DataTable = null;
 let detailPanel = null;
 let onError = null;
 
-export function init(c, DT, fmt, callbacks = {}) {
+export function init(c, DT, callbacks = {}) {
   client = c;
   DataTable = DT;
   onError = callbacks.onError || console.error;
@@ -40,7 +40,7 @@ export function init(c, DT, fmt, callbacks = {}) {
 
   detailPanel = createDetailPanel({
     elementId: "consoleDetails",
-    fetchData: (id, row) => client.call("entry", { id, fields: ["*"] }),
+    fetchData: (id, row) => client.call("entry", { id, target: row.target, fields: ["*"] }),
     renderHeader: (data) => `${data.entry.type || "log"} - ${data.entry.source || "console"}`,
     renderContent: renderConsoleDetails,
   });

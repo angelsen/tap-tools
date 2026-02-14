@@ -47,7 +47,7 @@ class DataTable {
     // Track cells needing dynamic truncation: Map<cell, {col, item}>
     this._dynamicCells = new Map();
     this._resizeObserver = null;
-    this._charWidth = null; // Cached character width
+    this._measure = null; // Reusable text measurement element
 
     // Auto-scroll: track if user scrolled away from bottom
     this._userScrolledAway = false;
@@ -95,29 +95,29 @@ class DataTable {
     });
   }
 
-  _measureCharWidth() {
-    if (this._charWidth) return this._charWidth;
-
-    // Create a measuring element
-    const measure = document.createElement("span");
-    measure.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:inherit;";
-    measure.textContent = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    this.container.appendChild(measure);
-    this._charWidth = measure.offsetWidth / measure.textContent.length;
-    measure.remove();
-
-    return this._charWidth;
-  }
-
   _applyDynamicTruncation(cell, col, item, width) {
     const value = item[col.key];
-    if (typeof value !== "string") return;
+    if (typeof value !== "string" || !value) return;
 
-    const charWidth = this._measureCharWidth();
-    const padding = 16; // Account for cell padding
+    // Measure the actual text to get its real pixel width
+    if (!this._measure) {
+      this._measure = document.createElement("span");
+      this._measure.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:inherit;";
+      this.container.appendChild(this._measure);
+    }
+    this._measure.textContent = value;
+    const textWidth = this._measure.offsetWidth;
+
+    const padding = parseFloat(getComputedStyle(cell).paddingLeft) + parseFloat(getComputedStyle(cell).paddingRight);
     const availableWidth = width - padding;
-    const maxChars = Math.max(10, Math.floor(availableWidth / charWidth));
 
+    if (textWidth <= availableWidth) {
+      cell.textContent = value;
+      return;
+    }
+
+    // Derive maxChars from the ratio of available space to actual text width
+    const maxChars = Math.max(10, Math.floor(value.length * (availableWidth / textWidth)));
     cell.textContent = truncateMiddle(value, maxChars);
   }
 
@@ -125,20 +125,21 @@ class DataTable {
     this.container.innerHTML = "";
     this.container.className = "data-table" + (this.compact ? " data-table--compact" : "");
 
-    // Build grid-template-columns from column definitions
-    this.container.style.gridTemplateColumns = this._buildGridColumns();
+    const gridCols = this._buildGridColumns();
 
-    // Header (if columns have headers)
+    // Header (if columns have headers) — fixed, not scrollable
     if (this.columns.some(c => c.header)) {
       this._header = document.createElement("div");
       this._header.className = "data-table-header";
+      this._header.style.gridTemplateColumns = gridCols;
       this._header.appendChild(this._createHeaderRow());
       this.container.appendChild(this._header);
     }
 
-    // Body
+    // Body — scrollable
     this._body = document.createElement("div");
     this._body.className = "data-table-body";
+    this._body.style.gridTemplateColumns = gridCols;
     this.container.appendChild(this._body);
   }
 
@@ -179,7 +180,11 @@ class DataTable {
       const cell = document.createElement("div");
       cell.className = "data-table-cell";
       if (col.center) cell.classList.add("data-table-cell--center");
-      cell.textContent = col.header || "";
+      if (col.header) {
+        cell.textContent = col.header;
+      } else {
+        cell.classList.add("data-table-cell--empty");
+      }
       row.appendChild(cell);
     }
     return row;
@@ -363,6 +368,12 @@ class DataTable {
       cell.textContent = value ?? "";
       if (col.truncate) cell.title = value ?? "";
     }
+
+    // titleKey: use a different item field for the tooltip
+    if (col.titleKey) {
+      const titleValue = item[col.titleKey];
+      if (titleValue) cell.title = titleValue;
+    }
   }
 
   _updateRow(row, item, key) {
@@ -486,6 +497,10 @@ class DataTable {
     }
     this._dynamicCells.clear();
     this._dataMap.clear();
+    if (this._measure) {
+      this._measure.remove();
+      this._measure = null;
+    }
     // Clean up overlay (attached to parent)
     if (this._overlay) {
       this._overlay.remove();

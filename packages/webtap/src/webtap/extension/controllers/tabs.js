@@ -3,7 +3,7 @@
  * Manages tab switching with network fetch callback
  */
 
-let activeTab = localStorage.getItem("webtap-tab") || "pages";
+let activeTab = localStorage.getItem("webtap-tab") || "targets";
 let onNetworkTabActive = null;
 let onConsoleTabActive = null;
 

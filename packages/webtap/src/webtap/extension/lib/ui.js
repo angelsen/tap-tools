@@ -14,6 +14,9 @@ export const icons = {
   loading: "◌",
   refresh: "↻",
   arrow: "→",
+  attached: "\u25CF", // ●
+  suspended: "\u25CE", // ◎
+  detached: "\u25CB", // ○
 };
 
 export function truncateMiddle(str, maxLen) {

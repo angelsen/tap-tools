@@ -12,11 +12,13 @@ from webtap.commands._tips import get_tips
 # Truncation values for REPL mode (compact display)
 _REPL_TRUNCATE = {
     "Message": {"max": 80, "mode": "end"},
+    "Target": {"max": 14, "mode": "end"},
 }
 
 # Truncation values for MCP mode (generous for LLM context)
 _MCP_TRUNCATE = {
     "Message": {"max": 300, "mode": "end"},
+    "Target": {"max": 30, "mode": "end"},
 }
 
 
@@ -60,6 +62,7 @@ def console(
     rows = [
         {
             "ID": str(m.get("id", i)),
+            "Target": m.get("target", ""),
             "Level": m.get("level", "unknown"),
             "Source": m.get("source", ""),
             "Message": m.get("message", ""),
@@ -79,15 +82,17 @@ def console(
     if rows:
         # Focus on error/warning messages for debugging
         error_rows = [r for r in rows if r.get("Level", "").upper() in ["ERROR", "WARN", "WARNING"]]
-        example_id = error_rows[0]["ID"] if error_rows else rows[0]["ID"]
-        tips = get_tips("console", context={"id": example_id})
+        example_row = error_rows[0] if error_rows else rows[0]
+        example_id = example_row["ID"]
+        example_target = example_row["Target"]
+        tips = get_tips("console", context={"id": example_id, "target": example_target})
 
     # Use mode-specific truncation
     truncate = _REPL_TRUNCATE if is_repl else _MCP_TRUNCATE
 
     return table_response(
         title="Console Messages",
-        headers=["ID", "Level", "Source", "Message", "Time"],
+        headers=["ID", "Target", "Level", "Source", "Message", "Time"],
         rows=rows,
         summary=f"{len(rows)} messages",
         warnings=warnings,

@@ -1,134 +1,99 @@
 /**
  * Targets Controller
- * Handles the Connected Targets section with tracking and inspection.
+ * Discovery list with filter. Double-click to watch/unwatch.
+ * State shown via colored indicators (no checkboxes).
  */
 
-import { TablePreset, RowClass, actionButton } from "../lib/table/index.js";
-import { withTableLoading } from "../lib/utils.js";
+import { TablePreset, RowClass, Width } from "../lib/table/index.js";
+import { shortType, stateIcon, stateIndicator } from "../lib/target-utils.js";
 
 let client = null;
-let targetsTable = null;
-let DataTable = null;
+let table = null;
+let allTargetData = [];
+let filterText = "";
 let onError = null;
 
-export function init(c, DT, fmt, callbacks = {}) {
+export function init(c, DT, callbacks = {}) {
   client = c;
-  DataTable = DT;
   onError = callbacks.onError || console.error;
 
-  targetsTable = new DataTable("#targetsList", {
+  table = new DT("#targetList", {
     ...TablePreset.compactList,
     columns: [
-      { key: "target", monospace: true },
-      { key: "display", truncateMiddle: true },
-      {
-        key: "devtools",
-        width: "auto",
-        formatter: actionButton({
-          label: "DevTools",
-          className: "inspect-btn",
-          disabled: (row) => !row.devtools_url,
-          onClick: (row) => openDevTools(row),
-        }),
-      },
-      {
-        key: "inspect",
-        width: "auto",
-        formatter: actionButton({
-          label: (row) => (row.inspecting ? "Stop" : "Inspect"),
-          className: (row) => (row.inspecting ? "inspect-btn inspecting" : "inspect-btn"),
-          onClick: (row) => (row.inspecting ? stopInspect() : startInspect(row.target)),
-        }),
-      },
+      { key: "type", header: "Type", width: Width.AUTO, monospace: true, titleKey: "parent" },
+      { key: "display", header: "Name", truncateMiddle: true, titleKey: "url" },
+      { key: "state", header: "", width: Width.AUTO, formatter: stateIndicator },
     ],
     getKey: (row) => row.target,
-    getRowClass: (row) => (row.active ? RowClass.ACTIVE : ""),
-    onRowDoubleClick: (row) => toggleFilter(row, !row.active),
+    getRowClass: (row) => (row.attached ? RowClass.ACTIVE : ""),
+    onRowDoubleClick: (row) => toggleWatch(row),
     emptyText: "No targets",
   });
 }
 
-function openDevTools(row) {
-  if (!row.devtools_url) return;
-  let url = row.devtools_url;
-  if (url.startsWith("/")) {
-    url = `devtools://devtools${url}`;
-  } else if (url.includes("chrome-devtools-frontend.appspot.com")) {
-    url = url.replace(
-      /https:\/\/chrome-devtools-frontend\.appspot\.com\/serve_rev\/@[^/]+/,
-      "devtools://devtools/bundled"
-    );
-  }
-  chrome.tabs.create({ url });
-}
-
-async function startInspect(target) {
+export async function load() {
   try {
-    await client.call("browser.startInspect", { target });
+    const result = await client.call("targets");
+    allTargetData = (result.targets || []).map((t) => ({
+      target: t.target,
+      type: shortType(t.type),
+      display: t.title || t.url || t.target,
+      url: t.url || "",
+      parent: t.parent || "",
+      watched: t.watched,
+      attached: t.attached,
+      state: stateIcon(t.state),
+    }));
+    applyFilter();
   } catch (err) {
-    onError(err);
+    console.error("[WebTap] Failed to load targets:", err);
+    if (table) table.update([]);
   }
 }
 
-async function stopInspect() {
-  try {
-    await client.call("browser.stopInspect");
-  } catch (err) {
-    onError(err);
-  }
+function getVisible() {
+  if (!filterText) return allTargetData;
+  return allTargetData.filter(
+    (t) =>
+      t.display.toLowerCase().includes(filterText) ||
+      t.url.toLowerCase().includes(filterText) ||
+      t.type.toLowerCase().includes(filterText)
+  );
 }
 
-export function update(state) {
-  const targetsSection = document.getElementById("targetsSection");
-  const targetsCount = document.getElementById("targetsCount");
-  const connections = state.connections || [];
-
-  if (connections.length === 0) {
-    targetsSection.classList.add("hidden");
-    return;
-  }
-
-  targetsSection.classList.remove("hidden");
-  targetsCount.textContent = connections.length;
-
-  const trackedTargets = new Set(state.tracked_targets || []);
-  const inspectingTarget = state.browser?.inspect_active ? state.browser?.inspecting : null;
-
-  const data = connections.map((conn) => ({
-    target: conn.target,
-    display: conn.title || conn.url || "Untitled",
-    active: trackedTargets.size === 0 || trackedTargets.has(conn.target),
-    inspecting: conn.target === inspectingTarget,
-    devtools_url: conn.devtools_url,
-  }));
-
-  if (targetsTable) targetsTable.update(data);
+function applyFilter() {
+  if (table) table.update(getVisible());
 }
 
-async function toggleFilter(row, checked) {
-  await withTableLoading(targetsTable, "Updating...", async () => {
-    const connections = client.state.connections || [];
-    const connectedTargets = new Set(connections.map((c) => c.target));
-    const trackedTargets = new Set(client.state.tracked_targets || []);
+export function setFilter(text) {
+  filterText = text.toLowerCase();
+  applyFilter();
+}
 
-    if (trackedTargets.size === 0) {
-      // Starting from "all active" state - unchecking one means all others become tracked
-      if (!checked) {
-        const others = [...connectedTargets].filter((t) => t !== row.target);
-        await client.call("targets.set", { targets: others });
-      }
-    } else {
-      if (checked) {
-        trackedTargets.add(row.target);
-      } else {
-        trackedTargets.delete(row.target);
-      }
-
-      if (trackedTargets.size === 0 || trackedTargets.size === connectedTargets.size) {
-        await client.call("targets.clear");
-      } else {
-        await client.call("targets.set", { targets: Array.from(trackedTargets) });
-      }
+export async function watchAll() {
+  const unwatched = getVisible().filter((t) => !t.watched).map((t) => t.target);
+  if (unwatched.length) {
+    try {
+      await client.call("watch", { targets: unwatched });
+    } catch (err) {
+      onError(err);
     }
-  }).catch(onError);
+  }
+}
+
+async function toggleWatch(row) {
+  try {
+    if (row.watched) {
+      await client.call("unwatch", { targets: [row.target] });
+    } else {
+      await client.call("watch", { targets: [row.target] });
+    }
+  } catch (err) {
+    onError(err);
+  }
+}
+
+export function clear() {
+  allTargetData = [];
+  if (table) table.update([]);
 }

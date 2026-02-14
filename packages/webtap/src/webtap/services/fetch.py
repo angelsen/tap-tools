@@ -262,7 +262,7 @@ class FetchService:
     def enable_on_target(self, target: str, cdp: Any) -> None:
         """Enable fetch capture on a newly connected target.
 
-        Called from connect_to_page(). Only enables if capture_enabled.
+        Called from _setup_session(). Only enables if capture_enabled.
 
         Args:
             target: Target ID for this connection
@@ -285,7 +285,7 @@ class FetchService:
     def cleanup_target(self, target: str, cdp: Any | None = None) -> None:
         """Clean up fetch state for a disconnected target.
 
-        Called from disconnect_target() and _handle_unexpected_disconnect().
+        Called from unwatch_targets() and _handle_disconnect().
 
         Args:
             target: Target ID to clean up

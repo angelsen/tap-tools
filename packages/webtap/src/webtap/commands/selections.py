@@ -5,7 +5,7 @@ Commands: selections
 
 from webtap.app import app
 from webtap.commands._utils import evaluate_expression, format_expression_result
-from webtap.commands._builders import error_response, rpc_call
+from webtap.commands._builders import error_response, expression_result_response, rpc_call
 from webtap.commands._tips import get_tips
 
 
@@ -47,11 +47,9 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
             ],
         )
 
-    # Include target info for multi-target awareness
     data = {
         "prompt": browser.get("prompt", ""),
         "selections": browser.get("selections", {}),
-        "target": browser.get("inspecting"),
     }
 
     # No expression - RESOURCE MODE: Return formatted view
@@ -64,15 +62,7 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
         result, output = evaluate_expression(expr, namespace)
         formatted_result = format_expression_result(result, output)
 
-        # Build markdown response
-        return {
-            "elements": [
-                {"type": "heading", "content": "Expression Result", "level": 2},
-                {"type": "code_block", "content": expr, "language": "python"},
-                {"type": "text", "content": "**Result:**"},
-                {"type": "code_block", "content": formatted_result, "language": ""},
-            ]
-        }
+        return expression_result_response(expr, formatted_result)
     except Exception as e:
         # Provide helpful suggestions
         suggestions = [
@@ -98,11 +88,6 @@ def _format_browser_data(data: dict) -> dict:
     """Format browser data as markdown for resource view."""
     elements = []
 
-    # Show target info
-    target = data.get("target")
-    if target:
-        elements.append({"type": "text", "content": f"**Target:** `{target}`"})
-
     # Show prompt
     elements.append({"type": "heading", "content": "Browser Prompt", "level": 2})
     elements.append({"type": "text", "content": data.get("prompt", "")})
@@ -125,6 +110,8 @@ def _format_browser_data(data: dict) -> dict:
                 preview_parts.append(f"#{preview['id']}")
             if preview.get("classes"):
                 preview_parts.append(f".{preview['classes'][0]}")
+            if sel.get("target"):
+                preview_parts.append(f"(`{sel['target']}`)")
 
             elements.append({"type": "text", "content": " ".join(preview_parts)})
 

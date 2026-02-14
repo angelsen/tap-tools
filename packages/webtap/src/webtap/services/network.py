@@ -4,6 +4,7 @@ PUBLIC API:
   - NetworkService: Network event queries using HAR views
 """
 
+import base64
 import json
 import logging
 from typing import Any
@@ -86,8 +87,8 @@ class NetworkService:
         if targets is None and target is not None:
             targets = [target] if isinstance(target, str) else target
 
-        # Get CDPSessions for specified or tracked/all targets
-        cdps = self.service.get_cdps(targets)
+        # Get CDPSessions for specified or tracked/all targets (includes stashed DBs)
+        cdps = self.service.get_query_cdps(targets)
         if not cdps:
             return []
 
@@ -176,15 +177,15 @@ class NetworkService:
 
         return [dict(zip(columns, row)) for row in all_rows]
 
-    def get_request_details(self, row_id: int, target: str | None = None) -> dict | None:
+    def get_request_details(self, row_id: int, target: str) -> tuple[dict | None, dict]:
         """Get HAR entry with proper nested structure.
 
         Args:
             row_id: Row ID from har_summary.
-            target: Target ID - required to find the correct CDPSession
+            target: Target ID (required — row IDs are per-DB)
 
         Returns:
-            HAR-structured dict or None if not found.
+            Tuple of (HAR-structured dict or None, resolution_info dict).
 
         Structure matches HAR spec:
             {
@@ -198,11 +199,11 @@ class NetworkService:
             }
         """
         if not self.service:
-            return None
+            return None, {}
 
-        cdp = self.service.resolve_cdp(row_id, "har_summary", target=target)
+        cdp, resolution = self.service.resolve_cdp(target)
         if not cdp:
-            return None
+            return None, resolution
 
         sql = """
         SELECT
@@ -234,7 +235,7 @@ class NetworkService:
 
         rows = cdp.query(sql, [row_id])
         if not rows:
-            return None
+            return None, resolution
 
         row = rows[0]
         columns = [
@@ -314,7 +315,7 @@ class NetworkService:
                 "totalBytes": flat["ws_total_bytes"],
             }
 
-        return har
+        return har, resolution
 
     def fetch_body(self, request_id: str, target: str | None = None) -> dict | None:
         """Fetch response body for a request.
@@ -410,12 +411,12 @@ class NetworkService:
                 pass
         return None
 
-    def get_request_id(self, row_id: int, target: str | None = None) -> str | None:
+    def get_request_id(self, row_id: int, target: str) -> str | None:
         """Get CDP request_id for a row ID.
 
         Args:
             row_id: Row ID from har_summary.
-            target: Target ID. If None, searches all connections.
+            target: Target ID (required — row IDs are per-DB).
 
         Returns:
             CDP request ID or None.
@@ -423,7 +424,7 @@ class NetworkService:
         if not self.service:
             return None
 
-        cdp = self.service.resolve_cdp(row_id, "har_summary", target=target)
+        cdp, _ = self.service.resolve_cdp(target)
         if not cdp:
             return None
         result = cdp.query("SELECT request_id FROM har_summary WHERE id = ?", [row_id])
@@ -650,8 +651,17 @@ class NetworkService:
 
         content = har_entry.get("response", {}).get("content", {}).copy()
         if body_result and "error" not in body_result:
-            content["text"] = body_result.get("body")
-            content["encoding"] = "base64" if body_result.get("base64Encoded") else None
+            body = body_result.get("body", "")
+            if body_result.get("base64Encoded"):
+                try:
+                    body = base64.b64decode(body).decode("utf-8")
+                    content["encoding"] = None
+                except (UnicodeDecodeError, Exception):
+                    # Binary content (images, PDFs) - keep as base64
+                    content["encoding"] = "base64"
+            else:
+                content["encoding"] = None
+            content["text"] = body
         elif body_result and "error" in body_result:
             content["text"] = None
             content["error"] = body_result["error"]

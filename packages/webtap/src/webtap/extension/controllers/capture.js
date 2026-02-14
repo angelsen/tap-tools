@@ -1,6 +1,6 @@
 /**
  * Capture Controller
- * Handles body capture toggle and state updates.
+ * Body capture toggle and state display.
  */
 
 let client = null;
@@ -16,7 +16,7 @@ export function init(c, callbacks = {}) {
 
   toggle.onclick = async () => {
     if (!client || !client.state.connected) {
-      onError("Connect to a page first");
+      onError("Watch a target first");
       return;
     }
 

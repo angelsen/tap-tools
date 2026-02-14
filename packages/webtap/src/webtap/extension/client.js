@@ -192,8 +192,12 @@ class WebTapClient {
       method,
       params,
       id,
-      epoch: this.state.epoch
     };
+
+    // Only send epoch after syncing with server (skip 0 to avoid STALE_EPOCH on reconnect)
+    if (this.state.epoch > 0) {
+      request.epoch = this.state.epoch;
+    }
 
     if (this.debug) {
       console.log(`[WebTap RPC →] ${id}: ${method}`, params);
@@ -209,7 +213,8 @@ class WebTapClient {
           "Content-Type": "application/json",
           "x-webtap-client-type": "extension",
           "x-webtap-version": chrome.runtime.getManifest().version,
-          "x-webtap-context": "sidepanel"
+          "x-webtap-context": "sidepanel",
+          "x-webtap-extension-id": chrome.runtime.id,
         },
         body: JSON.stringify(request),
         signal: controller.signal

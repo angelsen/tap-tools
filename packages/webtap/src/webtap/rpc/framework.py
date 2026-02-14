@@ -110,6 +110,11 @@ class RPCFramework:
         if not (version and client_type and context):
             return  # Not a tracked client (e.g., extension, old client)
 
+        # Learn our own extension ID from the first extension client
+        extension_id = headers.get("x-webtap-extension-id")
+        if extension_id and not self.service._own_extension_id:
+            self.service._own_extension_id = extension_id
+
         # Generate client ID from type + context
         client_id = hashlib.md5(f"{client_type}:{context}".encode()).hexdigest()[:16]
 
@@ -216,9 +221,10 @@ class RPCFramework:
             # Get current epoch from service
             current_epoch = self.service.conn_mgr.epoch
 
-            # Validate epoch (if provided)
+            # Validate epoch for state-mutating handlers (broadcasts=True)
+            # Read-only handlers (broadcasts=False) skip — their results are valid regardless
             request_epoch = request.get("epoch")
-            if request_epoch is not None and request_epoch != current_epoch:
+            if meta.broadcasts and request_epoch is not None and request_epoch != current_epoch:
                 return self._error_response(
                     request_id,
                     ErrorCode.STALE_EPOCH,

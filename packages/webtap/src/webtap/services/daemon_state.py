@@ -32,7 +32,7 @@ class DaemonState:
     def cleanup(self):
         """Clean up resources on shutdown."""
         if self.service:
-            self.service.disconnect()
+            self.service.unwatch_targets()
 
 
 __all__ = ["DaemonState"]

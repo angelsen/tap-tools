@@ -10,8 +10,8 @@ Per-target state is managed by ConnectionManager via ctx.service.conn_mgr.
 from webtap.rpc.errors import ErrorCode, RPCError
 from webtap.rpc.framework import RPCContext, RPCFramework
 
-_CONNECTED_STATES = ["connected", "inspecting"]
-_CONNECTED_ONLY = ["connected"]
+_ATTACHED_STATES = ["attached", "inspecting"]
+_ATTACHED_ONLY = ["attached"]
 
 __all__ = ["register_handlers"]
 
@@ -63,41 +63,41 @@ def register_handlers(rpc: RPCFramework) -> None:
     Args:
         rpc: RPCFramework instance to register handlers with
     """
-    rpc.method("connect")(_connect)
-    rpc.method("disconnect", requires_state=_CONNECTED_STATES)(_disconnect)
-    rpc.method("pages", broadcasts=False)(_pages)
+    rpc.method("watch")(_watch)
+    rpc.method("unwatch")(_unwatch)
+    rpc.method("targets", broadcasts=False)(_targets)
     rpc.method("status", broadcasts=False)(_status)
-    rpc.method("clear", requires_state=_CONNECTED_STATES)(_clear)
+    rpc.method("clear", requires_state=_ATTACHED_STATES)(_clear)
 
-    rpc.method("browser.startInspect", requires_state=_CONNECTED_ONLY)(_browser_start_inspect)
-    rpc.method("browser.stopInspect", requires_state=_CONNECTED_STATES)(_browser_stop_inspect)
-    rpc.method("browser.clear", requires_state=_CONNECTED_STATES)(_browser_clear)
+    rpc.method("browser.startInspect", requires_state=_ATTACHED_ONLY)(_browser_start_inspect)
+    rpc.method("browser.stopInspect", requires_state=_ATTACHED_STATES)(_browser_stop_inspect)
+    rpc.method("browser.clear", requires_state=_ATTACHED_STATES)(_browser_clear)
 
     rpc.method("fetch")(_fetch)
 
-    rpc.method("network", requires_state=_CONNECTED_STATES, broadcasts=False)(_network)
-    rpc.method("request", requires_state=_CONNECTED_STATES, broadcasts=False)(_request)
-    rpc.method("console", requires_state=_CONNECTED_STATES, broadcasts=False)(_console)
-    rpc.method("entry", requires_state=_CONNECTED_STATES, broadcasts=False)(_entry)
+    rpc.method("network", broadcasts=False)(_network)
+    rpc.method("request", broadcasts=False)(_request)
+    rpc.method("console", broadcasts=False)(_console)
+    rpc.method("entry", broadcasts=False)(_entry)
 
     rpc.method("filters.status", broadcasts=False)(_filters_status)
     rpc.method("filters.add", broadcasts=False)(_filters_add)
     rpc.method("filters.remove", broadcasts=False)(_filters_remove)
-    rpc.method("filters.enable", requires_state=_CONNECTED_STATES)(_filters_enable)
-    rpc.method("filters.disable", requires_state=_CONNECTED_STATES)(_filters_disable)
-    rpc.method("filters.enableAll", requires_state=_CONNECTED_STATES)(_filters_enable_all)
-    rpc.method("filters.disableAll", requires_state=_CONNECTED_STATES)(_filters_disable_all)
+    rpc.method("filters.enable", requires_state=_ATTACHED_STATES)(_filters_enable)
+    rpc.method("filters.disable", requires_state=_ATTACHED_STATES)(_filters_disable)
+    rpc.method("filters.enableAll", requires_state=_ATTACHED_STATES)(_filters_enable_all)
+    rpc.method("filters.disableAll", requires_state=_ATTACHED_STATES)(_filters_disable_all)
 
-    rpc.method("navigate", requires_state=_CONNECTED_STATES)(_navigate)
-    rpc.method("reload", requires_state=_CONNECTED_STATES)(_reload)
-    rpc.method("back", requires_state=_CONNECTED_STATES)(_back)
-    rpc.method("forward", requires_state=_CONNECTED_STATES)(_forward)
-    rpc.method("history", requires_state=_CONNECTED_STATES, broadcasts=False)(_history)
-    rpc.method("page", requires_state=_CONNECTED_STATES, broadcasts=False)(_page)
+    rpc.method("navigate", requires_state=_ATTACHED_STATES)(_navigate)
+    rpc.method("reload", requires_state=_ATTACHED_STATES)(_reload)
+    rpc.method("back", requires_state=_ATTACHED_STATES)(_back)
+    rpc.method("forward", requires_state=_ATTACHED_STATES)(_forward)
+    rpc.method("history", requires_state=_ATTACHED_STATES, broadcasts=False)(_history)
+    rpc.method("page", requires_state=_ATTACHED_STATES, broadcasts=False)(_page)
 
     rpc.method("js")(_js)
 
-    rpc.method("cdp", requires_state=_CONNECTED_STATES)(_cdp)
+    rpc.method("cdp", requires_state=_ATTACHED_STATES)(_cdp)
     rpc.method("errors.dismiss")(_errors_dismiss)
 
     rpc.method("targets.set")(_targets_set)
@@ -109,37 +109,19 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("ports.list", broadcasts=False)(_ports_list)
 
 
-def _connect(ctx: RPCContext, target: str) -> dict:
-    """Connect to a Chrome page by target ID."""
-    try:
-        result = ctx.service.connect_to_page(target=target)
-        return {"connected": True, **result}
-    except Exception as e:
-        raise RPCError(ErrorCode.NOT_CONNECTED, str(e))
+def _watch(ctx: RPCContext, targets: list[str]) -> dict:
+    """Watch one or more targets."""
+    return ctx.service.watch_targets(targets)
 
 
-def _disconnect(ctx: RPCContext, target: str | None = None) -> dict:
-    """Disconnect from target(s)."""
-    try:
-        if target:
-            ctx.service.disconnect_target(target)
-            disconnected = [target]
-        else:
-            disconnected = list(ctx.service.connections.keys())
-            ctx.service.disconnect()
-
-        return {"disconnected": disconnected}
-
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
+def _unwatch(ctx: RPCContext, targets: list[str] | None = None) -> dict:
+    """Stop watching targets. None = unwatch all."""
+    return ctx.service.unwatch_targets(targets)
 
 
-def _pages(ctx: RPCContext) -> dict:
-    """Get available Chrome pages from all tracked ports."""
-    try:
-        return ctx.service.list_pages()
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"Failed to list pages: {e}")
+def _targets(ctx: RPCContext) -> dict:
+    """List all discoverable targets with watch/attach state."""
+    return ctx.service.list_targets()
 
 
 def _status(ctx: RPCContext) -> dict:
@@ -260,14 +242,17 @@ def _network(
     return {"targets": _get_connected_targets(ctx), "requests": requests}
 
 
-def _request(ctx: RPCContext, id: int, target: str | None = None, fields: list[str] | None = None) -> dict:
-    """Get request details with field selection."""
-    entry = ctx.service.network.get_request_details(id, target=target)
+def _request(ctx: RPCContext, id: int, target: str, fields: list[str] | None = None) -> dict:
+    """Get request details with field selection. Target required (row IDs are per-DB)."""
+    entry, resolution = ctx.service.network.get_request_details(id, target=target)
     if not entry:
         raise RPCError(ErrorCode.INVALID_PARAMS, f"Request {id} not found")
 
     selected = ctx.service.network.select_fields(entry, fields)
-    return {"entry": selected}
+    result: dict = {"entry": selected}
+    if resolution.get("via") and resolution["via"] != "active":
+        result["resolution"] = resolution
+    return result
 
 
 def _console(ctx: RPCContext, limit: int = 50, level: str | None = None, target: str | list[str] | None = None) -> dict:
@@ -291,14 +276,17 @@ def _console(ctx: RPCContext, limit: int = 50, level: str | None = None, target:
     return {"targets": _get_connected_targets(ctx), "messages": messages}
 
 
-def _entry(ctx: RPCContext, id: int, fields: list[str] | None = None) -> dict:
-    """Get console entry details with field selection."""
-    entry_data = ctx.service.console.get_entry_details(id)
+def _entry(ctx: RPCContext, id: int, target: str, fields: list[str] | None = None) -> dict:
+    """Get console entry details with field selection. Target required (row IDs are per-DB)."""
+    entry_data, resolution = ctx.service.console.get_entry_details(id, target=target)
     if not entry_data:
         raise RPCError(ErrorCode.INVALID_PARAMS, f"Console entry {id} not found")
 
     selected = ctx.service.console.select_fields(entry_data, fields)
-    return {"entry": selected}
+    result: dict = {"entry": selected}
+    if resolution.get("via") and resolution["via"] != "active":
+        result["resolution"] = resolution
+    return result
 
 
 def _filters_status(ctx: RPCContext) -> dict:
@@ -352,14 +340,9 @@ def _filters_disable_all(ctx: RPCContext) -> dict:
 
 def _cdp(ctx: RPCContext, command: str, params: dict | None = None, target: str | None = None) -> dict:
     """Execute arbitrary CDP command."""
-    try:
-        cdp_session = _resolve_cdp_session(ctx, target)
-        result = cdp_session.execute(command, params or {})
-        return {"result": result}
-    except RPCError:
-        raise
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
+    cdp_session = _resolve_cdp_session(ctx, target)
+    result = cdp_session.execute(command, params or {})
+    return {"result": result}
 
 
 def _errors_dismiss(ctx: RPCContext) -> dict:
@@ -380,8 +363,6 @@ def _navigate(ctx: RPCContext, url: str, target: str) -> dict:
         }
     except ValueError as e:
         raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"Navigation failed: {e}")
 
 
 def _reload(ctx: RPCContext, target: str, ignore_cache: bool = False) -> dict:
@@ -391,8 +372,6 @@ def _reload(ctx: RPCContext, target: str, ignore_cache: bool = False) -> dict:
         return {"reloaded": True, "ignore_cache": ignore_cache}
     except ValueError as e:
         raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"Reload failed: {e}")
 
 
 def _back(ctx: RPCContext, target: str) -> dict:
@@ -401,8 +380,6 @@ def _back(ctx: RPCContext, target: str) -> dict:
         return ctx.service.execute_on_target(target, lambda cdp: _navigate_history_impl(cdp, -1))
     except ValueError as e:
         raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"Back navigation failed: {e}")
 
 
 def _forward(ctx: RPCContext, target: str) -> dict:
@@ -411,8 +388,6 @@ def _forward(ctx: RPCContext, target: str) -> dict:
         return ctx.service.execute_on_target(target, lambda cdp: _navigate_history_impl(cdp, +1))
     except ValueError as e:
         raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"Forward navigation failed: {e}")
 
 
 def _navigate_history_impl(cdp, direction: int) -> dict:
@@ -441,62 +416,50 @@ def _navigate_history_impl(cdp, direction: int) -> dict:
 
 def _history(ctx: RPCContext, target: str | None = None) -> dict:
     """Get navigation history."""
-    try:
-        cdp_session = _resolve_cdp_session(ctx, target)
-        result = cdp_session.execute("Page.getNavigationHistory", {})
-        entries = result.get("entries", [])
-        current = result.get("currentIndex", 0)
+    cdp_session = _resolve_cdp_session(ctx, target)
+    result = cdp_session.execute("Page.getNavigationHistory", {})
+    entries = result.get("entries", [])
+    current = result.get("currentIndex", 0)
 
-        return {
-            "entries": [
-                {
-                    "id": e.get("id"),
-                    "url": e.get("url", ""),
-                    "title": e.get("title", ""),
-                    "type": e.get("transitionType", ""),
-                    "current": i == current,
-                }
-                for i, e in enumerate(entries)
-            ],
-            "current_index": current,
-        }
-    except RPCError:
-        raise
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"History failed: {e}")
+    return {
+        "entries": [
+            {
+                "id": e.get("id"),
+                "url": e.get("url", ""),
+                "title": e.get("title", ""),
+                "type": e.get("transitionType", ""),
+                "current": i == current,
+            }
+            for i, e in enumerate(entries)
+        ],
+        "current_index": current,
+    }
 
 
 def _page(ctx: RPCContext, target: str | None = None) -> dict:
     """Get current page info with title from DOM."""
+    cdp_session = _resolve_cdp_session(ctx, target)
+    result = cdp_session.execute("Page.getNavigationHistory", {})
+    entries = result.get("entries", [])
+    current_index = result.get("currentIndex", 0)
+
+    if not entries or current_index >= len(entries):
+        return {"url": "", "title": "", "id": None, "type": ""}
+
+    current = entries[current_index]
+
     try:
-        cdp_session = _resolve_cdp_session(ctx, target)
-        result = cdp_session.execute("Page.getNavigationHistory", {})
-        entries = result.get("entries", [])
-        current_index = result.get("currentIndex", 0)
+        title_result = cdp_session.execute("Runtime.evaluate", {"expression": "document.title", "returnByValue": True})
+        title = title_result.get("result", {}).get("value", current.get("title", ""))
+    except Exception:
+        title = current.get("title", "")
 
-        if not entries or current_index >= len(entries):
-            return {"url": "", "title": "", "id": None, "type": ""}
-
-        current = entries[current_index]
-
-        try:
-            title_result = cdp_session.execute(
-                "Runtime.evaluate", {"expression": "document.title", "returnByValue": True}
-            )
-            title = title_result.get("result", {}).get("value", current.get("title", ""))
-        except Exception:
-            title = current.get("title", "")
-
-        return {
-            "url": current.get("url", ""),
-            "title": title or "Untitled",
-            "id": current.get("id"),
-            "type": current.get("transitionType", ""),
-        }
-    except RPCError:
-        raise
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, f"Page info failed: {e}")
+    return {
+        "url": current.get("url", ""),
+        "title": title or "Untitled",
+        "id": current.get("id"),
+        "type": current.get("transitionType", ""),
+    }
 
 
 def _js(
@@ -515,10 +478,6 @@ def _js(
         )
     except ValueError as e:
         raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
-    except RPCError:
-        raise
-    except Exception as e:
-        raise RPCError(ErrorCode.INTERNAL_ERROR, str(e))
 
 
 def _execute_js(ctx, cdp, code, selection, persist, await_promise, return_value) -> dict:

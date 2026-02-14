@@ -60,12 +60,12 @@ OPTIONS:
 Use 'webtap <command> --help' for command-specific help.
 
 REPL COMMANDS:
-  connect(), pages(), network(), request(), js(), fetch(), ...
+  watch(), targets(), network(), request(), js(), fetch(), ...
   Type 'help()' in REPL for full command list.
 
 EXAMPLES:
   webtap run-browser        Launch browser for debugging
-  webtap                    Start REPL, then: connect(0)
+  webtap                    Start REPL, then: watch(["9222:ABC123"])
   webtap status             Check daemon and connection state
 """
 

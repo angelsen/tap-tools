@@ -18,8 +18,9 @@ class TargetState(str, Enum):
     """Per-target connection state."""
 
     CONNECTING = "connecting"
-    CONNECTED = "connected"
+    ATTACHED = "attached"
     DISCONNECTING = "disconnecting"
+    SUSPENDED = "suspended"
 
 
 @dataclass
@@ -39,8 +40,9 @@ class ActiveConnection:
     cdp: CDPSession
     page_info: dict
     connected_at: float
-    state: TargetState = TargetState.CONNECTED
+    state: TargetState = TargetState.ATTACHED
     inspecting: bool = False
+    auto_attached: bool = False
 
 
 __all__ = ["ConnectionManager", "ActiveConnection", "TargetState"]
@@ -88,6 +90,7 @@ class ConnectionManager:
         target: str,
         cdp: CDPSession,
         page_info: dict,
+        initial_state: TargetState = TargetState.ATTACHED,
     ) -> ActiveConnection:
         """Thread-safe connection registration.
 
@@ -97,6 +100,7 @@ class ConnectionManager:
             target: Target ID in format "{port}:{short-id}"
             cdp: CDPSession instance for this connection
             page_info: Page metadata from Chrome
+            initial_state: Initial connection state (default ATTACHED)
 
         Returns:
             ActiveConnection for the target
@@ -111,7 +115,7 @@ class ConnectionManager:
                 cdp=cdp,
                 page_info=page_info,
                 connected_at=time.time(),
-                state=TargetState.CONNECTED,
+                state=initial_state,
             )
             with self._global_lock:
                 self.connections[target] = conn
@@ -145,6 +149,43 @@ class ConnectionManager:
             self._epoch += 1
         return True
 
+    def remove(self, target: str) -> ActiveConnection | None:
+        """Remove connection entry without CDP cleanup.
+
+        Use when the CDP session is already disconnected (callback-driven)
+        or when the CDPSession must stay alive (detached for URL-watch).
+
+        Args:
+            target: Target ID to remove
+
+        Returns:
+            The removed ActiveConnection, or None if not found
+        """
+        with self._global_lock:
+            conn = self.connections.pop(target, None)
+            self._locks.pop(target, None)
+            if conn:
+                self._epoch += 1
+        return conn
+
+    def set_state(self, target: str, state: TargetState) -> bool:
+        """Set connection state and increment epoch.
+
+        Args:
+            target: Target ID
+            state: New state
+
+        Returns:
+            True if state was set, False if target not found
+        """
+        conn = self.connections.get(target)
+        if not conn:
+            return False
+        conn.state = state
+        with self._global_lock:
+            self._epoch += 1
+        return True
+
     def get(self, target: str) -> ActiveConnection | None:
         """Get connection by target ID.
 
@@ -175,7 +216,7 @@ class ConnectionManager:
             True if state was set, False if target not found or not connected
         """
         conn = self.connections.get(target)
-        if conn and conn.state == TargetState.CONNECTED:
+        if conn and conn.state == TargetState.ATTACHED:
             conn.inspecting = inspecting
             with self._global_lock:
                 self._epoch += 1

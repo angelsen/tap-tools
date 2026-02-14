@@ -86,7 +86,7 @@ class DOMService:
             return {"error": "No service"}
 
         conn = self.service.connections.get(target)
-        if not conn or not conn.cdp.ws_app:
+        if not conn or not conn.cdp.is_connected:
             return {"error": f"Target {target} not connected"}
 
         # Disable on previous target if different
@@ -97,6 +97,7 @@ class DOMService:
         if self._inspect_target == target:
             cdp = conn.cdp
             cdp.unregister_event_callback("Overlay.inspectNodeRequested", self.handle_inspect_node_requested)
+            cdp.unregister_event_callback("Overlay.inspectModeCanceled", self._handle_inspect_canceled)
             cdp.unregister_event_callback("Page.frameNavigated", self.handle_frame_navigated)
 
         cdp = conn.cdp
@@ -133,6 +134,7 @@ class DOMService:
 
             # Register event callbacks for this target
             cdp.register_event_callback("Overlay.inspectNodeRequested", self.handle_inspect_node_requested)
+            cdp.register_event_callback("Overlay.inspectModeCanceled", self._handle_inspect_canceled)
             cdp.register_event_callback("Page.frameNavigated", self.handle_frame_navigated)
 
             self._inspect_target = target
@@ -172,7 +174,7 @@ class DOMService:
             return {"error": "No service"}
 
         conn = self.service.connections.get(target)
-        if not conn or not conn.cdp.ws_app:
+        if not conn or not conn.cdp.is_connected:
             return {"success": True, "inspect_active": False}  # Already disconnected
 
         try:
@@ -250,6 +252,33 @@ class DOMService:
         self.clear_selections()
         self._trigger_broadcast()
 
+    def _handle_inspect_canceled(self, event: dict) -> None:
+        """Handle Overlay.inspectModeCanceled (user pressed ESC during inspect).
+
+        Called from WebSocket thread — MUST NOT make blocking CDP calls directly!
+        The event is a request to cancel; we must still call Overlay.setInspectMode("none")
+        to actually disable the overlay. Offload the CDP call to background thread.
+
+        Args:
+            event: CDP event (no params for this event)
+        """
+        target = self._inspect_target
+        if not target:
+            return  # Already canceled
+
+        logger.info("Inspect mode canceled by user (ESC)")
+        self._inspect_target = None
+
+        # Update connection state so extension knows inspect is off immediately
+        if self.service:
+            self.service.conn_mgr.set_inspecting(target, False)
+
+        self._trigger_broadcast()
+
+        # Disable overlay in background thread (can't block WS thread with CDP call)
+        if not self._shutdown:
+            self._executor.submit(self._disable_inspect_on_target, target)
+
     def _process_node_selection(self, backend_node_id: int, expected_generation: int) -> None:
         """Process node selection in background thread.
 
@@ -278,6 +307,7 @@ class DOMService:
                 selection_id = str(self._next_id)
                 self._next_id += 1
 
+                data["target"] = self._inspect_target
                 self.service.set_browser_selection(selection_id, data)
 
             logger.info(f"Element selected: {selection_id} - {data.get('preview', {}).get('tag', 'unknown')}")

@@ -39,6 +39,7 @@ Available builders:
   - warning_response() - Warnings with suggestions
   - code_result_response() - Code execution with result display
   - code_response() - Simple code block display
+  - expression_result_response() - Python expression evaluation display
 
 Format helpers (for REPL display):
   - format_size() - Convert bytes to human-readable (e.g., "1.5M")
@@ -58,10 +59,10 @@ def format_size(size_bytes: int | None) -> str:
         size_bytes: Size in bytes, or None/0
 
     Returns:
-        Human-readable string like "1.5M", "234K", "56B", or "-" for None/0
+        Human-readable string like "1.5M", "234K", "56B", or "--" for None/0
     """
     if not size_bytes:
-        return "-"
+        return "--"
 
     if size_bytes >= 1_000_000:
         return f"{size_bytes / 1_000_000:.1f}M"
@@ -314,3 +315,20 @@ def code_response(
     elements.append({"type": "code_block", "content": content, "language": language})
 
     return {"elements": elements}
+
+
+def expression_result_response(expr: str, formatted: str) -> dict:
+    """Build expression evaluation result display.
+
+    Args:
+        expr: Python expression that was evaluated
+        formatted: Formatted result string
+    """
+    return {
+        "elements": [
+            {"type": "heading", "content": "Expression Result", "level": 2},
+            {"type": "code_block", "content": expr, "language": "python"},
+            {"type": "text", "content": "**Result:**"},
+            {"type": "code_block", "content": formatted, "language": ""},
+        ]
+    }

@@ -24,9 +24,9 @@ class RPCClient:
 
     All daemon communication goes through `call()`:
 
-        client.call("connect", page=0)
+        client.call("watch", targets=["9222:ABC123"])
         client.call("network", limit=50, type="xhr")
-        client.call("status")
+        client.call("targets")
 
     The client tracks epoch for stale request detection.
     """
@@ -45,6 +45,7 @@ class RPCClient:
         self._client_type = client_type
         self._max_retries = max_retries
         self._client = httpx.Client(timeout=timeout)
+        self._daemon_checked = False
 
     def _get_client_headers(self) -> dict[str, str]:
         """Build client tracking headers for RPC requests.
@@ -92,8 +93,10 @@ class RPCClient:
         """
         from webtap.daemon import ensure_daemon
 
-        # Ensure daemon is running (cheap health check if already up)
-        ensure_daemon()
+        # Check daemon once per client lifetime (re-checked on connection failure)
+        if not self._daemon_checked:
+            ensure_daemon()
+            self._daemon_checked = True
 
         request: dict[str, Any] = {
             "jsonrpc": "2.0",
@@ -121,12 +124,17 @@ class RPCClient:
                 # Check for RPC error
                 if "error" in data:
                     err = data["error"]
+                    # Auto-retry STALE_EPOCH (epoch already updated from response)
+                    if err.get("code") == "STALE_EPOCH" and attempt < self._max_retries:
+                        request["epoch"] = self.epoch
+                        continue
                     raise RPCError(err.get("code", "UNKNOWN"), err.get("message", "Unknown error"), err.get("data"))
 
                 return data.get("result", {})
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_error = e
+                self._daemon_checked = False  # Force re-check next call
                 if attempt < self._max_retries:
                     backoff = 2**attempt  # 1s, 2s, 4s
                     logger.debug(f"Daemon connection failed, retrying in {backoff}s...")

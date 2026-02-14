@@ -7,7 +7,7 @@ import json
 
 from webtap.app import app
 from webtap.client import RPCError
-from webtap.commands._builders import error_response, success_response
+from webtap.commands._builders import error_response, expression_result_response, success_response
 from webtap.commands._code_generation import ensure_output_directory
 from webtap.commands._tips import get_mcp_description
 from webtap.commands._utils import evaluate_expression, format_expression_result
@@ -23,6 +23,7 @@ _mcp_desc = get_mcp_description("entry")
 def entry(
     state,
     id: int,
+    target: str,
     fields: list = None,  # pyright: ignore[reportArgumentType]
     expr: str = None,  # pyright: ignore[reportArgumentType]
     output: str = None,  # pyright: ignore[reportArgumentType]
@@ -38,17 +39,17 @@ def entry(
     - **Utils:** datetime, collections, itertools, pprint, ast
 
     Examples:
-      entry(5)                    # Minimal (level, message, source)
-      entry(5, ["*"])             # Full CDP event
-      entry(5, ["stackTrace"])    # Stack trace only
-      entry(5, ["args.*"])        # All arguments
-      entry(5, expr="len(data['args'])")  # Count arguments
-      entry(5, ["*"], output="error.json")  # Export to file
+      entry(5, "9222:abc123")                    # Minimal (level, message, source)
+      entry(5, "9222:abc123", ["*"])             # Full CDP event
+      entry(5, "9222:abc123", ["stackTrace"])    # Stack trace only
+      entry(5, "9222:abc123", ["args.*"])        # All arguments
+      entry(5, "9222:abc123", expr="len(data['args'])")  # Count arguments
+      entry(5, "9222:abc123", ["*"], output="error.json")  # Export to file
     """
     # Get console entry from daemon via RPC
     # Field selection happens server-side
     try:
-        result = state.client.call("entry", id=id, fields=fields)
+        result = state.client.call("entry", id=id, target=target, fields=fields)
         selected = result.get("entry")
     except RPCError as e:
         return error_response(e.message)
@@ -78,14 +79,7 @@ def entry(
                     },
                 )
 
-            return {
-                "elements": [
-                    {"type": "heading", "content": "Expression Result", "level": 2},
-                    {"type": "code_block", "content": expr, "language": "python"},
-                    {"type": "text", "content": "**Result:**"},
-                    {"type": "code_block", "content": formatted, "language": ""},
-                ]
-            }
+            return expression_result_response(expr, formatted)
         except Exception as e:
             return error_response(
                 f"{type(e).__name__}: {e}",

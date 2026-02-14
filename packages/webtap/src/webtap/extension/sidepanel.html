@@ -51,11 +51,11 @@
     <nav class="tab-bar" role="tablist">
       <button
         class="tab-button active"
-        data-tab="pages"
+        data-tab="targets"
         role="tab"
         aria-selected="true"
       >
-        Pages
+        Targets
       </button>
       <button
         class="tab-button"
@@ -75,29 +75,32 @@
       </button>
     </nav>
 
-    <!-- Tab 1: Pages, Targets & Selection -->
-    <main class="tab-content active" data-tab="pages" role="tabpanel">
-      <section class="section">
+    <!-- Tab 1: Targets & Selection -->
+    <main class="tab-content active" data-tab="targets" role="tabpanel">
+      <!-- Target discovery -->
+      <section class="section section--scroll">
         <div class="section-header flex-row">
-          <span class="section-title">Available Pages</span>
+          <span class="section-title">Targets</span>
+          <input id="targetFilter" type="text" placeholder="Filter..." class="filter-input" />
+          <button id="watchAll" class="btn-sm">Watch All</button>
           <button
-            id="reloadPages"
+            id="reloadTargets"
             class="icon-btn"
-            title="Reload pages"
-            aria-label="Reload pages"
+            title="Reload targets"
+            aria-label="Reload targets"
           ></button>
         </div>
-
-        <div id="pageList" class="list-box"></div>
+        <div id="targetList" class="list-box"></div>
       </section>
 
-      <!-- Targets Section (shown when connected) -->
-      <section id="targetsSection" class="section hidden">
+      <!-- Watched targets (hidden when nothing watched) -->
+      <section id="watchingSection" class="section hidden">
         <div class="section-header flex-row">
-          <span class="section-title">Connected Targets</span>
-          <span id="targetsCount" class="section-meta">0</span>
+          <span class="section-title">Watching</span>
+          <span id="watchingCount" class="section-meta">0</span>
+          <button id="unwatchAll" class="btn-sm">Unwatch All</button>
         </div>
-        <div id="targetsList"></div>
+        <div id="watchingList"></div>
       </section>
 
       <div class="divider"></div>
@@ -158,7 +161,7 @@
 
       <div class="divider"></div>
 
-      <section class="network-section">
+      <section class="network-section section--scroll">
         <div class="section-header flex-row">
           <span class="section-title">Network Requests</span>
           <span id="networkCount" class="section-meta">0 requests</span>
@@ -172,7 +175,7 @@
 
     <!-- Tab 3: Console -->
     <main class="tab-content" data-tab="console" role="tabpanel">
-      <section class="console-section">
+      <section class="console-section section--scroll">
         <div class="section-header flex-row">
           <span class="section-title">Console Messages</span>
           <span id="consoleCount" class="section-meta">0 messages</span>

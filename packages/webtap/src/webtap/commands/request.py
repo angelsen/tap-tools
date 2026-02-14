@@ -7,7 +7,7 @@ import json
 
 from webtap.app import app
 from webtap.client import RPCError
-from webtap.commands._builders import error_response, success_response
+from webtap.commands._builders import error_response, expression_result_response, success_response
 from webtap.commands._code_generation import ensure_output_directory
 from webtap.commands._tips import get_mcp_description
 from webtap.commands._utils import evaluate_expression, format_expression_result
@@ -23,6 +23,7 @@ _mcp_desc = get_mcp_description("request")
 def request(
     state,
     id: int,
+    target: str,
     fields: list = None,  # pyright: ignore[reportArgumentType]
     expr: str = None,  # pyright: ignore[reportArgumentType]
     output: str = None,  # pyright: ignore[reportArgumentType]
@@ -38,18 +39,17 @@ def request(
     - **Utils:** datetime, collections, itertools, pprint, ast
 
     Examples:
-      request(123)                           # Minimal (method, url, status)
-      request(123, ["*"])                    # Everything
-      request(123, ["request.headers.*"])    # Request headers
-      request(123, ["response.content"])     # Fetch response body
-      request(123, ["request.postData", "response.content"])  # Both bodies
-      request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")  # Parse JSON
-      request(123, ["*"], output="session.json")  # Export to file
+      request(123, "9222:abc123")                           # Minimal (method, url, status)
+      request(123, "9222:abc123", ["*"])                    # Everything
+      request(123, "9222:abc123", ["request.headers.*"])    # Request headers
+      request(123, "9222:abc123", ["response.content"])     # Fetch response body
+      request(123, "9222:abc123", ["request.postData", "response.content"])  # Both bodies
+      request(123, "9222:abc123", ["response.content"], expr="json.loads(data['response']['content']['text'])")  # Parse JSON
     """
     # Get pre-selected HAR entry from daemon via RPC
     # Field selection (including body fetch) happens server-side
     try:
-        result = state.client.call("request", id=id, fields=fields)
+        result = state.client.call("request", id=id, target=target, fields=fields)
         selected = result.get("entry")
     except RPCError as e:
         return error_response(e.message)
@@ -79,14 +79,7 @@ def request(
                     },
                 )
 
-            return {
-                "elements": [
-                    {"type": "heading", "content": "Expression Result", "level": 2},
-                    {"type": "code_block", "content": expr, "language": "python"},
-                    {"type": "text", "content": "**Result:**"},
-                    {"type": "code_block", "content": formatted, "language": ""},
-                ]
-            }
+            return expression_result_response(expr, formatted)
         except Exception as e:
             return error_response(
                 f"{type(e).__name__}: {e}",

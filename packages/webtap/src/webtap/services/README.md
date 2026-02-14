@@ -19,9 +19,9 @@ Main orchestrator that manages all domain-specific services and CDP connection.
 - `event_count` - Total CDP events stored
 
 **Key Methods:**
-- `connect_to_page()` - Connect and enable CDP domains
-- `disconnect()` - Clean disconnection
-- `get_status()` - Comprehensive status with metrics from all services
+- `watch_targets()` - Watch targets and enable CDP domains
+- `unwatch_targets()` - Unwatch and disconnect targets
+- `list_targets()` - List all targets with watched/attached state
 
 ### FetchService (`fetch.py`)
 Manages HTTP request/response interception with declarative rules.

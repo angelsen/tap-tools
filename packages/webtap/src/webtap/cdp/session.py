@@ -1,7 +1,7 @@
 """CDP Session with native event storage.
 
 PUBLIC API:
-  - CDPSession: WebSocket-based CDP client with DuckDB event storage
+  - CDPSession: Session-multiplexed CDP client with DuckDB event storage
 """
 
 import json
@@ -9,13 +9,14 @@ import logging
 import queue
 import threading
 from concurrent.futures import Future, TimeoutError
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import duckdb
-import httpx
-import websocket
 
 from webtap.cdp.har import _create_har_views
+
+if TYPE_CHECKING:
+    from webtap.cdp.browser import BrowserSession
 
 __all__ = ["CDPSession"]
 
@@ -28,42 +29,38 @@ PRUNE_CHECK_INTERVAL = 1_000  # Check count every N events
 
 
 class CDPSession:
-    """WebSocket-based CDP client with native event storage.
+    """Session-multiplexed CDP client with native event storage.
 
-    Stores CDP events as-is in DuckDB for minimal overhead and maximum flexibility.
-    Provides field discovery and query capabilities for dynamic data exploration.
+    Routes commands through BrowserSession WebSocket. Stores CDP events
+    as-is in DuckDB for minimal overhead and maximum flexibility.
 
     Attributes:
         port: Chrome debugging port.
         timeout: Default timeout for execute() calls.
         db: DuckDB connection for event storage.
+        target: Target ID for this session.
+        target_info: Full targetInfo from Target.getTargets().
     """
 
-    def __init__(self, port: int = 9222, timeout: float = 30):
-        """Initialize CDP session with WebSocket and DuckDB storage.
+    def __init__(self, browser: "BrowserSession", session_id: str, target_info: dict, port: int, timeout: float = 30):
+        """Initialize CDP session bound to BrowserSession.
 
         Args:
-            port: Chrome debugging port. Defaults to 9222.
+            browser: BrowserSession to route commands through.
+            session_id: Session ID from Target.attachToTarget.
+            target_info: Full targetInfo dictionary from Target.getTargets().
+            port: Chrome debugging port.
             timeout: Default timeout for execute() calls. Defaults to 30.
         """
+        self._browser = browser
+        self._session_id = session_id
+        self.target_info = target_info
+        self.chrome_target_id = target_info.get("id") or target_info.get("targetId", "")
         self.port = port
         self.timeout = timeout
 
-        # WebSocketApp instance
-        self.ws_app: websocket.WebSocketApp | None = None
-        self.ws_thread: threading.Thread | None = None
-
-        # Connection state
-        self.connected = threading.Event()
-        self.page_info: dict | None = None
-
-        # Target tracking for multi-target support
+        # Target tracking (set by service after registration)
         self.target: str | None = None
-
-        # CDP request/response tracking
-        self._next_id = 1
-        self._pending: dict[int, Future] = {}
-        self._lock = threading.Lock()
 
         # DuckDB storage - store events AS-IS
         # DuckDB connections are NOT thread-safe - use dedicated DB thread
@@ -223,118 +220,13 @@ class CDPSession:
             if result_queue_id and result_queue_id in self._db_result_queues:
                 del self._db_result_queues[result_queue_id]
 
-    def list_pages(self) -> list[dict]:
-        """List available Chrome pages via HTTP API.
-
-        Returns:
-            List of page dictionaries with webSocketDebuggerUrl.
-        """
-        try:
-            resp = httpx.get(f"http://localhost:{self.port}/json", timeout=2)
-            resp.raise_for_status()
-            pages = resp.json()
-            return [p for p in pages if p.get("type") == "page" and "webSocketDebuggerUrl" in p]
-        except Exception as e:
-            logger.error(f"Failed to list pages: {e}")
-            return []
-
-    def connect(
-        self,
-        page_index: int | None = None,
-        page_id: str | None = None,
-        page_info: dict | None = None,
-    ) -> None:
-        """Connect to Chrome page via WebSocket.
-
-        Establishes WebSocket connection and starts event collection.
-        Does not auto-enable CDP domains - use execute() for that.
-
-        Args:
-            page_index: Index of page to connect to. Defaults to 0.
-            page_id: Stable page ID across tab reordering.
-            page_info: Pre-resolved page dict with webSocketDebuggerUrl (avoids HTTP call).
-
-        Raises:
-            RuntimeError: If already connected or no pages available.
-            ValueError: If page_id not found.
-            IndexError: If page_index out of range.
-            TimeoutError: If connection fails within 5 seconds.
-        """
-        if self.ws_app:
-            raise RuntimeError("Already connected")
-
-        # Use provided page_info directly if available (avoids duplicate list_pages call)
-        if page_info and "webSocketDebuggerUrl" in page_info:
-            page = page_info
-        else:
-            pages = self.list_pages()
-            if not pages:
-                raise RuntimeError("No pages available")
-
-            # Find the page by ID or index
-            if page_id:
-                page = next((p for p in pages if p.get("id") == page_id), None)
-                if not page:
-                    raise ValueError(f"Page with ID {page_id} not found")
-            elif page_index is not None:
-                if page_index >= len(pages):
-                    raise IndexError(f"Page {page_index} out of range")
-                page = pages[page_index]
-            else:
-                # Default to first page
-                page = pages[0]
-
-        ws_url = page["webSocketDebuggerUrl"]
-        self.page_info = page
-
-        # Create WebSocketApp with callbacks
-        self.ws_app = websocket.WebSocketApp(
-            ws_url, on_open=self._on_open, on_message=self._on_message, on_error=self._on_error, on_close=self._on_close
-        )
-
-        # Let WebSocketApp handle everything in a thread
-        self.ws_thread = threading.Thread(
-            target=self.ws_app.run_forever,
-            kwargs={
-                "ping_interval": 120,  # Ping every 2 min
-                "ping_timeout": 60,  # Wait 60s for pong (handles heavy page loads)
-                # No auto-reconnect - make disconnects explicit
-                "skip_utf8_validation": True,  # Faster
-                "suppress_origin": True,  # Required for Android Chrome (rejects localhost origin)
-            },
-        )
-        self.ws_thread.daemon = True
-        self.ws_thread.start()
-
-        # Wait for connection
-        if not self.connected.wait(timeout=5):
-            self.disconnect()
-            raise TimeoutError("Failed to connect to Chrome")
-
     def disconnect(self) -> None:
-        """Disconnect WebSocket while preserving events and DB thread.
+        """Detach from browser session.
 
-        Events and DB thread persist across connection cycles.
-        Use cleanup() on app exit to shutdown DB thread.
+        Preserves events and DB thread. Use cleanup() on app exit to shutdown DB thread.
         """
-        # Atomically clear ws_app to signal manual disconnect
-        # This prevents _on_close from triggering service callback
-        with self._lock:
-            ws_app = self.ws_app
-            self.ws_app = None
-
-        if ws_app:
-            ws_app.close()
-
-        if self.ws_thread and self.ws_thread.is_alive():
-            self.ws_thread.join(timeout=2)
-            self.ws_thread = None
-
-        # Keep DB thread running - events preserved for reconnection
-        # DB cleanup happens in cleanup() on app exit only
-
-        self.connected.clear()
-        self.page_info = None
+        self._browser.detach(self._session_id)
+        self._browser.unregister_session(self._session_id)
         self.target = None
 
     def decrement_paused_count(self) -> None:
@@ -343,15 +235,11 @@ class CDPSession:
             self._paused_count -= 1
 
     def cleanup(self) -> None:
-        """Shutdown DB thread and disconnect (call on app exit only).
+        """Shutdown DB thread (call on app exit only).
 
         This is the only place where DB thread should be stopped.
         Events are lost when DB thread stops (in-memory database).
         """
-        # Disconnect WebSocket if connected
-        if self.ws_app:
-            self.disconnect()
-
         # Shutdown database thread
         self._db_running = False
         self._db_work_queue.put(None)  # Signal shutdown
@@ -359,7 +247,7 @@ class CDPSession:
             self._db_thread.join(timeout=2)
 
     def send(self, method: str, params: dict | None = None) -> Future:
-        """Send CDP command asynchronously.
+        """Send CDP command asynchronously via BrowserSession.
 
         Args:
             method: CDP method like "Page.navigate" or "Network.enable".
@@ -369,29 +257,12 @@ class CDPSession:
             Future containing CDP response 'result' field.
 
         Raises:
-            RuntimeError: If not connected to Chrome.
+            RuntimeError: If not connected to browser.
         """
-        if not self.ws_app:
-            raise RuntimeError("Not connected")
-
-        with self._lock:
-            msg_id = self._next_id
-            self._next_id += 1
-
-            future = Future()
-            self._pending[msg_id] = future
-
-        # Send CDP command
-        message = {"id": msg_id, "method": method}
-        if params:
-            message["params"] = params
-
-        self.ws_app.send(json.dumps(message))
-
-        return future
+        return self._browser.send(method, params, self._session_id)
 
     def execute(self, method: str, params: dict | None = None, timeout: float | None = None) -> Any:
-        """Send CDP command synchronously.
+        """Send CDP command synchronously via BrowserSession.
 
         Args:
             method: CDP method like "Page.navigate" or "Network.enable".
@@ -410,107 +281,51 @@ class CDPSession:
         try:
             return future.result(timeout=timeout or self.timeout)
         except TimeoutError:
-            # Clean up the pending future
-            with self._lock:
-                for msg_id, f in list(self._pending.items()):
-                    if f is future:
-                        self._pending.pop(msg_id, None)
-                        break
             raise TimeoutError(f"Command {method} timed out")
 
-    def _on_open(self, ws):
-        """WebSocket connection established."""
-        logger.info("WebSocket connected")
-        self.connected.set()
+    def _handle_event(self, data: dict) -> None:
+        """Handle CDP event routed from BrowserSession.
 
-    def _on_message(self, ws, message):
-        """Handle CDP messages - store events as-is, resolve command futures."""
+        Extracted from old _on_message event path:
+        - Store in DuckDB with indexed fields
+        - Track Fetch.requestPaused count
+        - Prune old events periodically
+        - Dispatch event callbacks
+        - Trigger SSE broadcast for state-affecting events
+
+        Args:
+            data: CDP event dictionary with 'method' and 'params'.
+        """
         try:
-            data = json.loads(message)
+            method = data.get("method", "")
+            request_id = self._extract_request_id(data)
 
-            # Command response - resolve future
-            if "id" in data:
-                msg_id = data["id"]
-                with self._lock:
-                    future = self._pending.pop(msg_id, None)
+            # Store AS-IS in DuckDB with indexed fields for fast lookups
+            self._db_execute(
+                "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
+                [json.dumps(data), method, self.target, request_id],
+                wait_result=False,
+            )
+            self._event_count += 1
 
-                if future:
-                    if "error" in data:
-                        future.set_exception(RuntimeError(data["error"]))
-                    else:
-                        future.set_result(data.get("result", {}))
+            # Track paused request count for fast access
+            if method == "Fetch.requestPaused":
+                self._paused_count += 1
 
-            # CDP event - store AS-IS in DuckDB with request_id for fast lookups
-            elif "method" in data:
-                method = data.get("method", "")
-                request_id = self._extract_request_id(data)
-                self._db_execute(
-                    "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
-                    [json.dumps(data), method, self.target, request_id],
-                    wait_result=False,
-                )
-                self._event_count += 1
+            # Prune old events periodically to prevent unbounded growth
+            if self._event_count % PRUNE_CHECK_INTERVAL == 0:
+                self._maybe_prune_events()
 
-                # Track paused request count for fast access
-                if method == "Fetch.requestPaused":
-                    self._paused_count += 1
+            # Call registered event callbacks
+            self._dispatch_event_callbacks(data)
 
-                # Prune old events periodically to prevent unbounded growth
-                if self._event_count % PRUNE_CHECK_INTERVAL == 0:
-                    self._maybe_prune_events()
-
-                # Call registered event callbacks
-                self._dispatch_event_callbacks(data)
-
-                # Trigger SSE broadcast only for state-affecting events
-                # Skip noisy events that don't affect displayed state
-                if self._is_state_affecting_event(method):
-                    self._trigger_state_broadcast()
+            # Trigger SSE broadcast only for state-affecting events
+            # Skip noisy events that don't affect displayed state
+            if self._is_state_affecting_event(method):
+                self._trigger_state_broadcast()
 
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
-
-    def _on_error(self, ws, error):
-        """Handle WebSocket errors."""
-        logger.error(f"WebSocket error: {error}")
-
-    def _on_close(self, ws, code, reason):
-        """Handle WebSocket closure and cleanup."""
-        logger.info(f"WebSocket closed: code={code} reason={reason}")
-
-        # Mark as disconnected
-        was_connected = self.connected.is_set()
-        self.connected.clear()
-
-        # Fail pending commands and check if this is unexpected disconnect
-        is_unexpected = False
-        with self._lock:
-            # Capture and clear ws_app FIRST to prevent new sends from adding futures
-            ws_app_was_set = self.ws_app is not None
-            self.ws_app = None
-
-            # Now safe to clear pending - no new futures can be added
-            for future in self._pending.values():
-                future.set_exception(RuntimeError(f"Connection closed: {reason or 'Unknown'}"))
-            self._pending.clear()
-
-            # Unexpected disconnect: was connected and ws_app was set (not manual disconnect)
-            is_unexpected = was_connected and ws_app_was_set
-            self.page_info = None
-            self.target = None
-
-        # Trigger service-level cleanup if this was unexpected
-        if is_unexpected and self._disconnect_callback:
-            try:
-                # Call in background to avoid blocking WebSocket thread
-                threading.Thread(
-                    target=self._disconnect_callback, args=(code, reason), daemon=True, name="cdp-disconnect-handler"
-                ).start()
-            except Exception as e:
-                logger.error(f"Error calling disconnect callback: {e}")
-
-        # Trigger SSE broadcast immediately
-        self._trigger_state_broadcast()
+            logger.error(f"Error handling event: {e}")
 
     def _maybe_prune_events(self) -> None:
         """Prune oldest events if count exceeds MAX_EVENTS.
@@ -672,12 +487,12 @@ class CDPSession:
 
     @property
     def is_connected(self) -> bool:
-        """Check if WebSocket connection is active.
+        """Check if session is still attached and browser WS is alive.
 
         Returns:
-            True if connected to Chrome page.
+            True if session is attached and browser is connected.
         """
-        return self.connected.is_set()
+        return self._browser.get_session(self._session_id) is not None and self._browser.is_connected
 
     def set_disconnect_callback(self, callback) -> None:
         """Register callback for unexpected disconnect events.

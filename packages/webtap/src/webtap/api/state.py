@@ -20,8 +20,8 @@ def _stable_hash(data: str) -> str:
 def get_full_state() -> Dict[str, Any]:
     """Get complete WebTap state for SSE broadcasting.
 
-    Thread-safe, zero-lock reads from immutable snapshot.
-    No blocking I/O - returns cached snapshot immediately.
+    All fields read from immutable StateSnapshot — no live mutable reads.
+    Thread-safe without locks.
 
     Returns:
         Dictionary with connection state, events, fetch status, filters,
@@ -43,12 +43,9 @@ def get_full_state() -> Dict[str, Any]:
 
     snapshot = app_module.app_state.service.get_state_snapshot()
 
-    # Get connection state from snapshot and epoch from ConnectionManager
     connection_state = "connected" if snapshot.connected else "disconnected"
-    epoch = app_module.app_state.service.conn_mgr.epoch
-
-    # Get tracked clients from RPC framework
-    clients = app_module.app_state.service.rpc.get_tracked_clients() if app_module.app_state.service.rpc else {}
+    epoch = snapshot.epoch
+    clients = snapshot.tracked_clients
 
     from webtap import __version__
 
@@ -59,7 +56,10 @@ def get_full_state() -> Dict[str, Any]:
     filters_hash = _stable_hash(f"{sorted(snapshot.enabled_filters)}")
     fetch_hash = _stable_hash(f"{snapshot.fetch_enabled}:{snapshot.fetch_rules}:{snapshot.capture_count}")
     errors_hash = _stable_hash(str(sorted(snapshot.errors.items())))
-    targets_hash = _stable_hash(f"{sorted(snapshot.tracked_targets)}:{len(snapshot.connections)}")
+    targets_hash = _stable_hash(
+        f"{sorted(snapshot.tracked_targets)}:{len(snapshot.connections)}"
+        f":{sorted(snapshot.watched_targets)}:{sorted(snapshot.watched_urls)}"
+    )
 
     # Convert snapshot to frontend format
     return {
@@ -78,6 +78,8 @@ def get_full_state() -> Dict[str, Any]:
         # Multi-target state (connections now include state field)
         "tracked_targets": list(snapshot.tracked_targets),
         "connections": list(snapshot.connections),
+        "watched_targets": list(snapshot.watched_targets),
+        "watched_urls": list(snapshot.watched_urls),
         "browser": {
             "inspect_active": snapshot.inspect_active,
             "inspecting": snapshot.inspecting_target,

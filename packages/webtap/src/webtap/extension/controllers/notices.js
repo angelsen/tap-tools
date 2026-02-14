@@ -13,7 +13,7 @@ const TYPE_CLASSES = {
 
 export function render(notices, clients) {
   const container = document.getElementById("noticesBanner");
-  container.innerHTML = "";
+  container.replaceChildren();
 
   const allNotices = [...(notices || [])];
 

@@ -183,8 +183,10 @@ def ensure_daemon() -> None:
     """
     from webtap import __version__
 
-    if daemon_running():
-        daemon_ver = get_daemon_version()
+    port = _discover_daemon_port()
+    if port is not None:
+        health = _check_health(port)
+        daemon_ver = health.get("version") if health else None
 
         if daemon_ver and _version_lt(daemon_ver, __version__):
             logger.info(f"Restarting daemon: {daemon_ver} → {__version__}")

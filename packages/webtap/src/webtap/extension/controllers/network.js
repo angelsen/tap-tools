@@ -17,7 +17,7 @@ let DataTable = null;
 let detailPanel = null;
 let onError = null;
 
-export function init(c, DT, fmt, callbacks = {}) {
+export function init(c, DT, callbacks = {}) {
   client = c;
   DataTable = DT;
   onError = callbacks.onError || console.error;

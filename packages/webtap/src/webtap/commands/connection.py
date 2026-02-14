@@ -3,33 +3,35 @@
 from replkit2.types import ExecutionContext
 
 from webtap.app import app
-from webtap.client import RPCError
 from webtap.commands._builders import info_response, table_response, error_response, rpc_call
 from webtap.commands._tips import get_mcp_description, get_tips
 
 _clear_desc = get_mcp_description("clear")
 
-# Truncation values for pages() REPL mode (compact display)
-_PAGES_REPL_TRUNCATE = {
-    "Title": {"max": 25, "mode": "end"},
-    "URL": {"max": 35, "mode": "middle"},
-    # Target is already short (e.g., "9222:f8134d")
-}
-
-# Truncation values for pages() MCP mode (generous for LLM context)
-_PAGES_MCP_TRUNCATE = {
-    "Title": {"max": 100, "mode": "end"},
-    "URL": {"max": 200, "mode": "middle"},
-}
-
-# Truncation values for targets() - same pattern
+# Truncation values for targets() REPL mode (compact display)
 _TARGETS_REPL_TRUNCATE = {
     "Title": {"max": 25, "mode": "end"},
     "URL": {"max": 35, "mode": "middle"},
 }
+
+# Truncation values for targets() MCP mode (generous for LLM context)
 _TARGETS_MCP_TRUNCATE = {
     "Title": {"max": 100, "mode": "end"},
     "URL": {"max": 200, "mode": "middle"},
+}
+
+# Shared label mappings for target type and state display
+_TYPE_LABELS = {
+    "page": "page",
+    "service_worker": "sw",
+    "background_page": "bg",
+    "worker": "worker",
+}
+
+_STATE_LABELS = {
+    "attached": "attached",
+    "connecting": "connecting",
+    "suspended": "suspended",
 }
 
 
@@ -37,39 +39,53 @@ _TARGETS_MCP_TRUNCATE = {
     display="markdown",
     fastmcp={"enabled": False},
 )
-def connect(
+def watch(
     state,
-    target: str = "",
+    targets: list = None,  # pyright: ignore[reportArgumentType]
 ) -> dict:
-    """Connect to Chrome page by target ID.
+    """Watch one or more Chrome targets.
 
     Args:
-        target: Target ID in format "port:short_id" (e.g., "9222:f8134d", "9224:24")
+        targets: List of target IDs (e.g., ["9222:f8134d"])
 
     Examples:
-        connect("9222:f8")     # Connect by target (prefix match)
-        connect("9224:24")     # Connect to Android Chrome
+        watch(["9222:f8"])              # Watch single target
+        watch(["9222:f8", "9222:ab"])   # Watch multiple targets
 
     Returns:
-        Connection status in markdown
+        Watch results in markdown
     """
-    if not target:
+    if not targets:
         return error_response(
-            "No target specified",
+            "No targets specified",
             suggestions=[
-                "pages()             # List available targets",
-                "connect('9222:f8')  # Connect by target ID",
+                "targets()                    # List available targets",
+                "watch(['9222:f8'])           # Watch by target ID",
             ],
         )
 
-    result, error = rpc_call(state, "connect", target=target)
+    result, error = rpc_call(state, "watch", targets=targets)
     if error:
         return error
 
-    # Success - return formatted info with full URL
+    watched = result.get("watched", [])
+    summary_parts = []
+    for w in watched:
+        target_id = w.get("target", "")
+        if w.get("error"):
+            summary_parts.append(f"{target_id}: {w['error']}")
+        elif w.get("already_attached"):
+            summary_parts.append(f"{target_id}: already attached")
+        elif w.get("state") == "connecting":
+            summary_parts.append(f"{target_id}: connecting")
+        elif w.get("state") == "attached" or w.get("attached"):
+            summary_parts.append(f"{target_id}: attached")
+        else:
+            summary_parts.append(f"{target_id}: watched (not yet attached)")
+
     return info_response(
-        title="Connection Established",
-        fields={"Page": result.get("title", "Unknown"), "URL": result.get("url", "")},
+        title="Watch",
+        fields={"Targets": "\n".join(summary_parts) if summary_parts else "None"},
     )
 
 
@@ -77,31 +93,29 @@ def connect(
     display="markdown",
     fastmcp={"enabled": False},
 )
-def disconnect(state, target: str = "") -> dict:
-    """Disconnect from Chrome.
+def unwatch(state, targets: list = None) -> dict:  # pyright: ignore[reportArgumentType]
+    """Stop watching targets.
 
     Args:
-        target: Target ID to disconnect. If empty, disconnects all targets.
+        targets: List of target IDs. None = unwatch all.
 
     Examples:
-        disconnect()           # Disconnect all targets
-        disconnect("9222:f8")  # Disconnect specific target
+        unwatch()                       # Unwatch all
+        unwatch(["9222:f8"])            # Unwatch specific target
     """
-    try:
-        if target:
-            state.client.call("disconnect", target=target)
-        else:
-            state.client.call("disconnect")
-    except RPCError as e:
-        # INVALID_STATE means not connected
-        if e.code == "INVALID_STATE":
-            return info_response(title="Disconnect Status", fields={"Status": "Not connected"})
-        return error_response(e.message)
-    except Exception as e:
-        return error_response(str(e))
+    if targets:
+        result_data, error = rpc_call(state, "unwatch", targets=targets)
+    else:
+        result_data, error = rpc_call(state, "unwatch")
+    if error:
+        return error
 
-    status = f"Disconnected from {target}" if target else "Disconnected from all targets"
-    return info_response(title="Disconnect Status", fields={"Status": status})
+    unwatched = result_data.get("unwatched", [])
+    count = len(unwatched)
+    return info_response(
+        title="Unwatch",
+        fields={"Status": f"Unwatched {count} target{'s' if count != 1 else ''}"},
+    )
 
 
 @app.command(
@@ -142,63 +156,6 @@ def clear(state, events: bool = True, console: bool = False) -> dict:
     display="markdown",
     fastmcp={"enabled": False},
 )
-def pages(
-    state,
-    _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
-) -> dict:
-    """List available Chrome pages from all registered ports.
-
-    Returns:
-        Table of available pages with target IDs
-    """
-    result, error = rpc_call(state, "pages")
-    if error:
-        return error
-    pages_list = result.get("pages", [])
-
-    # Format rows with Target first
-    rows = [
-        {
-            "Target": p.get("target", ""),
-            "Title": p.get("title", "Untitled"),
-            "URL": p.get("url", ""),
-            "Connected": "Yes" if p.get("connected") else "No",
-        }
-        for p in pages_list
-    ]
-
-    # Get contextual tips with target example
-    tips = None
-    if rows:
-        connected_row = next((r for r in rows if r["Connected"] == "Yes"), rows[0])
-        example_target = connected_row["Target"]
-        tips = get_tips("pages", context={"target": example_target})
-
-    # Build contextual warnings
-    warnings = []
-    if any(r["Connected"] == "Yes" for r in rows):
-        warnings.append("Already connected - call connect('...') to switch")
-
-    # Use mode-specific truncation
-    is_repl = _ctx and _ctx.is_repl()
-    truncate = _PAGES_REPL_TRUNCATE if is_repl else _PAGES_MCP_TRUNCATE
-
-    # Build markdown response
-    return table_response(
-        title="Chrome Pages",
-        headers=["Target", "Title", "URL", "Connected"],
-        rows=rows,
-        summary=f"{len(pages_list)} page{'s' if len(pages_list) != 1 else ''} available",
-        warnings=warnings if warnings else None,
-        tips=tips,
-        truncate=truncate,
-    )
-
-
-@app.command(
-    display="markdown",
-    fastmcp={"enabled": False},
-)
 def status(state) -> dict:
     """Get connection status.
 
@@ -211,7 +168,7 @@ def status(state) -> dict:
 
     # Check if connected
     if not status_data.get("connected"):
-        return error_response("Not connected to any page. Use connect() first.")
+        return error_response("Not connected to any page. Use watch() first.")
 
     # Build formatted response with full URL
     page = status_data.get("page", {})
@@ -228,56 +185,112 @@ def status(state) -> dict:
 
 @app.command(
     display="markdown",
-    fastmcp={"type": "resource", "mime_type": "text/markdown"},
+    fastmcp={"type": "tool", "mime_type": "text/markdown"},
 )
 def targets(
     state,
     _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
 ) -> dict:
-    """Show connected targets and their tracking status.
+    """List all discoverable Chrome targets with watch/attach state.
 
     Returns:
-        Table of connected targets with "Tracked" column
+        Table of all targets with Type, Title, URL, Watched, State
     """
-    result, error = rpc_call(state, "status")
+    result, error = rpc_call(state, "targets")
     if error:
         return error
+    targets_list = result.get("targets", [])
 
-    connections = result.get("connections", [])
-    tracked = set(result.get("active_targets") or [])
+    has_parents = any(t.get("parent") for t in targets_list)
 
-    if not connections:
-        return info_response(title="No Targets", fields={"Status": "No active connections"})
+    rows = [
+        {
+            "Target": t.get("target", ""),
+            "Type": _TYPE_LABELS.get(t.get("type", "page"), t.get("type", "page")),
+            "Title": t.get("title", "Untitled"),
+            "URL": t.get("url", ""),
+            "Watched": "yes" if t.get("watched") else "",
+            "State": _STATE_LABELS.get(t.get("state", ""), "") if t.get("watched") else "",
+            **({"Parent": t.get("parent", "")} if has_parents else {}),
+        }
+        for t in targets_list
+    ]
 
-    # Build rows with full data (truncation handled by element config)
-    rows = []
-    for conn in connections:
-        target_id = conn.get("target", "")
-        rows.append(
-            {
-                "Target": target_id,
-                "Title": conn.get("title") or "",
-                "URL": conn.get("url") or "",
-                "Tracked": "Yes" if not tracked or target_id in tracked else "No",
-            }
-        )
-
-    # Get contextual tips with target example
     tips = None
     if rows:
         example_target = rows[0]["Target"]
         tips = get_tips("targets", context={"target": example_target})
 
-    # Use mode-specific truncation
     is_repl = _ctx and _ctx.is_repl()
     truncate = _TARGETS_REPL_TRUNCATE if is_repl else _TARGETS_MCP_TRUNCATE
 
+    headers = ["Target", "Type", "Title", "URL", "Watched", "State"]
+    if has_parents:
+        headers.append("Parent")
+
     return table_response(
-        title="Connected Targets",
-        headers=["Target", "Title", "URL", "Tracked"],
+        title="Chrome Targets",
+        headers=headers,
         rows=rows,
-        summary=f"{len(connections)} target{'s' if len(connections) != 1 else ''} connected",
+        summary=f"{len(targets_list)} target{'s' if len(targets_list) != 1 else ''} available",
         tips=tips,
+        truncate=truncate,
+    )
+
+
+@app.command(
+    display="markdown",
+    fastmcp=[
+        {"type": "resource", "mime_type": "text/markdown"},
+        {"type": "tool", "mime_type": "text/markdown"},
+    ],
+)
+def watching(
+    state,
+    _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
+) -> dict:
+    """Show watched targets with state and event count.
+
+    Returns:
+        Table of watched targets with state indicators
+    """
+    result, error = rpc_call(state, "targets")
+    if error:
+        return error
+    targets_list = result.get("targets", [])
+
+    # Filter to watched + auto-attached (opener-matched popups)
+    watched = [t for t in targets_list if t.get("watched") or t.get("auto_attached")]
+
+    if not watched:
+        return info_response(title="Not Watching", fields={"Status": "No watched targets"})
+
+    has_parents = any(t.get("parent") for t in watched)
+
+    rows = [
+        {
+            "Target": t.get("target", ""),
+            "Type": _TYPE_LABELS.get(t.get("type", "page"), t.get("type", "page")),
+            "Title": t.get("title", "Untitled"),
+            "URL": t.get("url", ""),
+            "State": _STATE_LABELS.get(t.get("state", ""), t.get("state", "")),
+            **({"Parent": t.get("parent", "")} if has_parents else {}),
+        }
+        for t in watched
+    ]
+
+    is_repl = _ctx and _ctx.is_repl()
+    truncate = _TARGETS_REPL_TRUNCATE if is_repl else _TARGETS_MCP_TRUNCATE
+
+    headers = ["Target", "Type", "Title", "URL", "State"]
+    if has_parents:
+        headers.append("Parent")
+
+    return table_response(
+        title="Watching",
+        headers=headers,
+        rows=rows,
+        summary=f"{len(watched)} target{'s' if len(watched) != 1 else ''} watched",
         truncate=truncate,
     )
 
@@ -307,15 +320,15 @@ def ports(state) -> dict:
         rows.append(
             {
                 "Port": str(p.get("port")),
-                "Pages": str(p.get("page_count", 0)),
-                "Connected": str(p.get("connection_count", 0)),
+                "Targets": str(p.get("target_count", 0)),
+                "Watched": str(p.get("watched_count", 0)),
                 "Status": p.get("status", "unknown"),
             }
         )
 
     return table_response(
         title="Registered Ports",
-        headers=["Port", "Pages", "Connected", "Status"],
+        headers=["Port", "Targets", "Watched", "Status"],
         rows=rows,
         summary=f"{len(ports_list)} port{'s' if len(ports_list) != 1 else ''} registered",
     )
