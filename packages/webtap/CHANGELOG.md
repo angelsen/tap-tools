@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.15.0] - 2026-02-14
+
+### Added
 - **Browser-level WebSocket multiplexing**: New `BrowserSession` class connects once per Chrome port, multiplexes sessions via `Target.attachToTarget` with `flatten: true`
 - **Watch/unwatch model**: Declarative `watch()`/`unwatch()` replaces imperative `connect()`/`disconnect()`. Watched targets auto-reattach on navigation, reload, and service worker crashes
 - **Auto-watch propagation**: Auto-attached child tabs (opener-matched popups) are added to the watched set, enabling recursive grandchild matching at any depth
