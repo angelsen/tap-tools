@@ -1,48 +1,49 @@
 # WebTap Browser Debugging Guide
 
-WebTap is a Chrome DevTools Protocol (CDP) client for browser debugging via REPL/MCP with native event storage and daemon-based architecture.
+WebTap is a Chrome DevTools Protocol (CDP) client for browser debugging via REPL/MCP with native event storage, browser-level multiplexing, and daemon-based architecture.
 
 ## Quick Start
 
 ```python
-# Connect to Chrome (must be running with --remote-debugging-port=9222)
-pages()                              # List pages with target IDs
-connect("9222:f8134d")               # Connect by target from pages()
-network()                            # View network requests (filtered)
-network(url="*api*")                 # Filter by URL pattern
-request(123, ["response.content"])   # Get response body by row ID
-console()                            # View console messages
-disconnect()                         # Disconnect from Chrome
+# Chrome must be running with --remote-debugging-port=9222
+targets()                                    # List all Chrome targets
+watch(["9222:abc123"])                       # Watch target(s) by ID
+network()                                    # View network requests (filtered)
+network(url="*api*")                         # Filter by URL pattern
+request(123, "9222:abc123", ["response.content"])  # Get response body
+console()                                    # View console messages
+unwatch()                                    # Unwatch all targets
 ```
 
 ## Architecture
 
-WebTap uses a daemon-based architecture with JSON-RPC 2.0:
-- **Daemon** - Background process manages CDP WebSocket + DuckDB storage
+WebTap uses a daemon with browser-level WebSocket multiplexing:
+- **Daemon** - Background process manages CDP connections + DuckDB storage per target
+- **BrowserSession** - Single WebSocket per Chrome port, multiplexes sessions via `flatten: True`
+- **Watch model** - Declarative watch/unwatch; targets auto-reattach on navigation, reload, SW restart
 - **REPL/MCP** - Clients communicate via JSON-RPC 2.0 (single `/rpc` endpoint)
-- **RPCFramework** - Handles method dispatch, state validation, epoch tracking
-- **HAR Views** - Pre-aggregated network request data for fast queries
 
 ```
 REPL/MCP Client → RPCClient.call() → POST /rpc → RPCFramework → Services → DuckDB
                                                       ↓                        ↓
-                                              ConnectionMachine          WebSocket → Chrome
+                                              ConnectionManager       BrowserSession → Chrome
 ```
 
 ## Core Commands
 
-### Connection & Navigation
+### Target Discovery & Watching
 
 ```python
-pages()                      # List Chrome pages with target IDs
-connect("9222:f8")           # Connect by target from pages()
-disconnect()                 # Disconnect
-status()                     # Show daemon/connection status
+targets()                        # List all Chrome targets (pages, SWs, workers)
+watch(["9222:abc123"])           # Watch targets — auto-attaches and enables CDP
+watch(["9222:abc123", "9222:def456"])  # Watch multiple
+watching()                       # Show currently watched targets with state
+unwatch(["9222:abc123"])         # Unwatch specific target
+unwatch()                        # Unwatch all
 
-navigate("https://...")      # Go to URL
-reload(ignore_cache=True)    # Hard refresh
-back() / forward()           # Navigate history
-page()                       # Current page info
+navigate("https://...", "9222:abc123")  # Navigate target to URL
+reload("9222:abc123")                   # Reload target
+back("9222:abc123") / forward("9222:abc123")  # Navigate history
 ```
 
 ### Network Monitoring
@@ -56,38 +57,40 @@ network(resource_type="xhr")           # Filter by resource type
 network(url="*api*")                   # Filter by URL pattern
 network(status=200, url="*graphql*")   # Combine filters
 network(limit=50)                      # Show more results
+network(target="9222:abc123")          # Filter to specific target
 ```
 
 ### Request Inspection
 
 ```python
-# Get HAR request details by row ID from network() output
-request(123)                           # Minimal view (method, url, status)
-request(123, ["*"])                    # Full HAR entry
-request(123, ["request.headers.*"])    # Request headers only
-request(123, ["response.headers.*"])   # Response headers only
-request(123, ["response.content"])     # Fetch response body
-request(123, ["request.postData"])     # Request body (POST/PUT)
-request(123, ["request.postData", "response.content"])  # Both bodies
+# Get HAR request details by row ID and target from network() output
+request(123, "9222:abc123")                           # Minimal view (method, url, status)
+request(123, "9222:abc123", ["*"])                    # Full HAR entry
+request(123, "9222:abc123", ["request.headers.*"])    # Request headers only
+request(123, "9222:abc123", ["response.content"])     # Fetch response body
+request(123, "9222:abc123", ["request.postData"])     # Request body (POST/PUT)
+request(123, "9222:abc123", ["request.postData", "response.content"])  # Both bodies
 
 # With Python expression evaluation (libraries pre-imported)
-request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])")
-request(123, ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').title")
-request(123, ["response.content"], expr="jwt.decode(data['response']['content']['text'], options={'verify_signature': False})")
+request(123, "9222:abc123", ["response.content"], expr="json.loads(data['response']['content']['text'])")
+request(123, "9222:abc123", ["response.content"], expr="BeautifulSoup(data['response']['content']['text'], 'html.parser').title")
+
+# WebSocket entries: response.content automatically returns frames
+request(123, "9222:abc123", ["response.content"])     # Returns frames for WS entries
 ```
 
 ### Code Generation
 
 ```python
 # Generate Pydantic models from responses
-to_model(123, "models/user.py", "User")
-to_model(123, "models/user.py", "User", json_path="data[0]")  # Nested extraction
-to_model(123, "models/form.py", "Form", field="request.postData")  # From request body
+to_model(123, "models/user.py", "User", "9222:abc123")
+to_model(123, "models/user.py", "User", "9222:abc123", json_path="data[0]")
+to_model(123, "models/form.py", "Form", "9222:abc123", field="request.postData")
 
 # Generate TypeScript/Go/Rust/etc types
-quicktype(123, "types/user.ts", "User")
-quicktype(123, "api.go", "ApiResponse")
-quicktype(123, "schema.json", "Schema")
+quicktype(123, "types/user.ts", "User", "9222:abc123")
+quicktype(123, "api.go", "ApiResponse", "9222:abc123")
+quicktype(123, "schema.json", "Schema", "9222:abc123")
 ```
 
 ### Console & JavaScript
@@ -97,35 +100,34 @@ console()                           # View console messages
 console(level="error")              # Filter by level
 console(limit=100)                  # Show more messages
 
-# JavaScript execution (fresh scope by default)
-js("document.title")                           # Get value
-js("[...document.links].map(a => a.href)")    # Get all links
-js("fetch('/api').then(r=>r.json())", await_promise=True)  # Async
-js("document.querySelectorAll('.ad').forEach(e => e.remove())", wait_return=False)  # No return
+# Console entry details (requires target)
+entry(5, "9222:abc123")             # Minimal view
+entry(5, "9222:abc123", ["*"])      # Full CDP event
+entry(5, "9222:abc123", ["stackTrace"])  # Stack trace only
 
-# Multi-statement code (use persist=True for global scope)
-js("var data = null", persist=True)
-js("fetch('/api').then(r => r.json()).then(d => data = d)", persist=True, await_promise=True)
-js("data.users.length", persist=True)
+# JavaScript execution (fresh scope by default)
+js("document.title", "9222:abc123")
+js("[...document.links].map(a => a.href)", "9222:abc123")
+js("fetch('/api').then(r=>r.json())", "9222:abc123", await_promise=True)
+
+# Persistent scope for multi-step operations
+js("var data = null", "9222:abc123", persist=True)
+js("fetch('/api').then(r => r.json()).then(d => data = d)", "9222:abc123", persist=True, await_promise=True)
+js("data.users.length", "9222:abc123", persist=True)
 
 # With browser-selected element
-js("element.offsetWidth", selection=1)  # Use element #1 from selections()
+js("element.offsetWidth", "9222:abc123", selection=1)
 ```
 
 ### Request Interception
 
 ```python
-fetch("status")                     # Check interception status
-fetch("enable")                     # Enable request interception
-fetch("enable", {"response": True}) # Intercept responses too
-fetch("disable")                    # Disable interception
-
-requests()                          # Show paused requests
-resume(123)                         # Continue request
-resume(123, modifications={"url": "https://..."})  # Modify and continue
-resume(123, modifications={"method": "POST"})      # Change method
-fail(123)                           # Block request
-fail(123, reason="AccessDenied")    # Block with specific reason
+fetch()                                    # Show capture state + rules
+fetch({"capture": False})                  # Disable body capture globally
+fetch({"capture": True})                   # Re-enable capture
+fetch({"mock": {"*api*": '{"ok":1}'}, "target": "9222:abc123"})  # Mock for target
+fetch({"block": ["*tracking*"], "target": "9222:abc123"})        # Block for target
+fetch({"target": "9222:abc123"})           # Clear rules for target
 ```
 
 ### Filter Management
@@ -137,8 +139,6 @@ filters(add="apionly", hide={"types": ["Image", "Font", "Stylesheet"]})
 filters(enable="myfilter")                          # Enable group
 filters(disable="myfilter")                         # Disable group
 filters(remove="myfilter")                          # Delete group
-
-# Built-in groups: ads, tracking, analytics, telemetry, cdn, fonts, images
 ```
 
 ### Browser Element Selection
@@ -151,7 +151,7 @@ selections(expr="data['selections']['1']['selector']")  # CSS selector
 selections(expr="data['selections']['1']['outerHTML']") # Element HTML
 
 # Use with JavaScript
-js("element.offsetWidth", selection=1)          # Run JS on element #1
+js("element.offsetWidth", "9222:abc123", selection=1)
 ```
 
 ### Clearing Data
@@ -167,42 +167,29 @@ clear(events=True, console=True)    # Clear everything
 ### Analyze API Responses
 
 ```python
-pages()
-connect("9222:f8")                   # Connect by target
-network(url="*api*")                 # Find API calls
-# Note the ID column
-request(3264, ["response.content"])  # Get response body
-request(3264, ["response.content"], expr="json.loads(data['response']['content']['text'])")
-to_model(3264, "models/response.py", "ApiResponse")  # Generate model
+targets()
+watch(["9222:abc123"])
+network(url="*api*")
+# Note the ID and Target columns
+request(42, "9222:abc123", ["response.content"])
+request(42, "9222:abc123", ["response.content"], expr="json.loads(data['response']['content']['text'])")
+to_model(42, "models/response.py", "ApiResponse", "9222:abc123")
 ```
 
 ### Debug Failed Requests
 
 ```python
-network(status=404)                  # Find 404s
-network(status=500)                  # Find 500s
-request(123, ["*"])                  # Full details
-request(123, ["response.content"])   # Error response body
-```
-
-### Intercept and Modify Traffic
-
-```python
-fetch("enable")
-# Make request in browser - it pauses
-requests()                           # See paused requests
-request(47, ["request.*"])           # Examine request
-resume(47, modifications={"url": "https://api.example.com/v2"})  # Modify URL
-# Or block it
-fail(47)
-fetch("disable")
+network(status=404)
+network(status=500)
+request(123, "9222:abc123", ["*"])
+request(123, "9222:abc123", ["response.content"])
 ```
 
 ### Parse HTML Responses
 
 ```python
 network(resource_type="document")
-request(123, ["response.content"], expr="""
+request(123, "9222:abc123", ["response.content"], expr="""
 BeautifulSoup(data['response']['content']['text'], 'html.parser').find_all('a', href=True)
 """)
 ```
@@ -212,17 +199,14 @@ BeautifulSoup(data['response']['content']['text'], 'html.parser').find_all('a', 
 ```python
 # Libraries available: json, re, bs4/BeautifulSoup, lxml, jwt, yaml, httpx, etc.
 
-# Parse JSON
-request(123, ["response.content"], expr="json.loads(data['response']['content']['text'])['users']")
+# Parse JSON (base64 auto-decoded)
+request(123, "9222:abc123", ["response.content"], expr="json.loads(data['response']['content']['text'])['users']")
 
 # Decode JWT
-request(123, ["response.content"], expr="jwt.decode(data['response']['content']['text'], options={'verify_signature': False})")
+request(123, "9222:abc123", ["response.content"], expr="jwt.decode(data['response']['content']['text'], options={'verify_signature': False})")
 
 # Parse form data
-request(123, ["request.postData"], expr="dict(urllib.parse.parse_qsl(data['request']['postData']['text']))")
-
-# Extract with regex
-request(123, ["response.content"], expr="re.findall(r'api_key=([^&]+)', data['response']['content']['text'])")
+request(123, "9222:abc123", ["request.postData"], expr="dict(urllib.parse.parse_qsl(data['request']['postData']['text']))")
 ```
 
 ## Daemon Management
@@ -239,19 +223,12 @@ MCP mode is auto-detected when stdin is piped (no flags needed).
 
 ## Tips
 
-1. **Chrome must run with debugging port**:
-   ```bash
-   google-chrome --remote-debugging-port=9222
-   ```
-
-2. **Row IDs from network()** - Use these with `request()`, `to_model()`, `quicktype()`
-
+1. **Chrome must run with debugging port**: `google-chrome --remote-debugging-port=9222`
+2. **Row IDs + target from network()** - Use these with `request()`, `to_model()`, `quicktype()`
 3. **Field selection patterns** - `["*"]` for all, `["request.*"]` for request only, `["response.content"]` for body
-
-4. **Filters reduce noise** - Default filters remove ads, tracking, analytics
-
-5. **Expression evaluation** - Pre-imported libraries: json, re, bs4, lxml, jwt, yaml, httpx, urllib, datetime, etc.
-
-6. **Fresh JS scope** - Default prevents redeclaration errors; use `persist=True` for multi-step operations
-
-7. **MCP integration** - All commands work as MCP tools for Claude/LLMs
+4. **Base64 auto-decoded** - Response bodies are automatically decoded to UTF-8; binary content stays base64
+5. **Filters reduce noise** - Default filters remove ads, tracking, analytics
+6. **Expression evaluation** - Pre-imported: json, re, bs4, lxml, jwt, yaml, httpx, urllib, datetime
+7. **Fresh JS scope** - Default prevents redeclaration errors; use `persist=True` for multi-step
+8. **Auto-watch children** - Popups/new tabs opened by watched targets are automatically watched
+9. **MCP integration** - All commands work as MCP tools for Claude/LLMs

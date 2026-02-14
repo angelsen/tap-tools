@@ -206,6 +206,7 @@ webtap/
 │   └── errors.py       # RPCError and error codes
 ├── cdp/
 │   ├── __init__.py
+│   ├── browser.py      # BrowserSession (one WS per port, session multiplexing)
 │   ├── session.py      # CDPSession with DuckDB storage
 │   ├── har.py          # HAR view aggregation
 │   └── schema/         # CDP protocol reference
@@ -217,14 +218,17 @@ webtap/
 │   ├── network.py      # Network request handling
 │   ├── console.py      # Console message handling
 │   ├── fetch.py        # Request interception
-│   └── dom.py          # DOM inspection & selection
+│   ├── dom.py          # DOM inspection & selection
+│   ├── watcher.py      # ChromeWatcher target discovery
+│   ├── state_snapshot.py  # State snapshots for SSE broadcasts
+│   └── daemon_state.py # Daemon state persistence
 └── commands/           # Thin command wrappers
     ├── __init__.py
     ├── _builders.py    # Response builders & validators
     ├── _utils.py       # Shared utilities & expression eval
     ├── _code_generation.py  # JSON/code generation helpers
     ├── _tips.py        # Documentation parser (TIPS.md)
-    ├── connection.py   # connect, disconnect, pages, clear
+    ├── connection.py   # watch, unwatch, targets, watching, clear
     ├── navigation.py   # navigate, reload, back, forward
     ├── network.py      # network() command
     ├── console.py      # console() command

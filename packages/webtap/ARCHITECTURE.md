@@ -1,56 +1,106 @@
 # WebTap Architecture
 
-Implementation guide for WebTap's RPC-based daemon architecture.
+Implementation guide for WebTap's browser-level multiplexing and watch-based connection model.
 
 ## Core Components
 
+### BrowserSession (cdp/browser.py)
+- Single WebSocket per Chrome port connecting to `/devtools/browser/<id>`
+- Manages multiple `CDPSession` instances via `Target.attachToTarget` with `flatten: True`
+- Routes CDP events to correct session by `sessionId`
+- Handles browser-level events: `Target.targetCreated`, `Target.targetDestroyed`, `Target.targetInfoChanged`, `Target.detachedFromTarget`
+- Maintains thread-safe watched target/URL sets with dual-key lookup (target ID + URL)
+- Opener-based auto-attach: child tabs of watched targets are automatically watched
+
+### CDPSession (cdp/session.py)
+- Delegates `send()`/`execute()` to `BrowserSession` (does not own a WebSocket)
+- Stores events in DuckDB with HAR view aggregation
+- Tracks `target_info` and `chrome_target_id` for lifecycle matching
+- `is_connected` checks browser session + session registration
+
 ### RPCFramework (rpc/framework.py)
 - JSON-RPC 2.0 request/response handler
-- State validation via `requires_state` decorator
-- Epoch tracking for stale request detection
+- State validation via `requires_state` parameter
+- Epoch tracking for stale request detection (skipped for read-only handlers)
 - Thread-safe execution via `asyncio.to_thread()`
 
 ### ConnectionManager (services/connection.py)
 - Thread-safe per-target connection lifecycle management
-- States: `CONNECTING` → `CONNECTED` → `DISCONNECTING`
+- States: `CONNECTING` → `ATTACHED` → `SUSPENDED` (SW idle-stop)
 - `inspecting` is a boolean flag on connections (not a separate state)
+- `auto_attached` flag for opener-matched popup targets
 - Epoch incremented on any state change
 
 ### RPCClient (client.py)
 - Single `call(method, **params)` interface
 - Automatic epoch synchronization
-- `RPCError` exception for structured errors
+- Auto-retries `STALE_EPOCH` errors
 
-## Multi-Target Architecture
+## Watch/Unwatch Model
 
-Simultaneous connections to multiple Chrome instances:
+Declarative target management replaces imperative connect/disconnect:
 
 ```
-┌─────────────────┐     ┌─────────────────┐
-│ Chrome :9222    │     │ Chrome :9223    │
-│  ├─ page abc123 │     │  ├─ page def456 │
-│  └─ page xyz789 │     │  └─ page ghi012 │
-└────────┬────────┘     └────────┬────────┘
-         │                       │
-         └───────┬───────────────┘
-                 ▼
-         ┌───────────────┐
-         │    Daemon     │
-         │ cdp_sessions: │
-         │  9222: CDPSession
-         │  9223: CDPSession
-         └───────────────┘
+watch(["9222:abc123"])     # Start watching target (auto-attaches)
+unwatch(["9222:abc123"])   # Stop watching target
+unwatch()                  # Unwatch all
+```
+
+Watched targets auto-reattach when they:
+- Navigate to a new URL
+- Reload the page
+- Restart after service worker idle-stop
+- Appear as child tabs (opener matching)
+
+### Auto-Watch Propagation
+
+When a watched tab opens a child (popup, new tab), the child is auto-attached and added to the watched set. This propagates recursively:
+
+```
+Watched tab opens popup  →  popup auto-attached + added to watched set
+  popup opens print page →  print page auto-attached (grandchild)
+```
+
+### Stashed DuckDBs
+
+When a URL-watched target disconnects (e.g., service worker idle-stop), its DuckDB is stashed. History remains queryable via `get_query_cdps()` which returns active CDPs + stashed DBs.
+
+## Browser-Level Multiplexing
+
+Single WebSocket per Chrome port, multiple sessions:
+
+```
+┌─────────────────────────────────┐
+│ Chrome :9222                    │
+│  ├─ page abc123 (watched)       │
+│  ├─ page def456 (auto-attached) │
+│  └─ SW xyz789 (watched by URL)  │
+└────────────┬────────────────────┘
+             │ Single WebSocket to /devtools/browser/<id>
+┌────────────▼────────────────────┐
+│ BrowserSession (port 9222)      │
+│  ├─ CDPSession (abc123)         │
+│  ├─ CDPSession (def456)         │
+│  └─ CDPSession (xyz789)         │
+└────────────┬────────────────────┘
+             │
+┌────────────▼────────────────────┐
+│ WebTapService                   │
+│  ├─ ConnectionManager           │
+│  ├─ NetworkService              │
+│  ├─ ConsoleService              │
+│  ├─ FetchService                │
+│  └─ DOMService                  │
+└─────────────────────────────────┘
 ```
 
 **Target ID format:** `{port}:{6-char-short-id}` (e.g., `9222:abc123`)
-
-**Filtering:** `targets.set(["9222:abc123"])` filters events to specific targets.
 
 ## Daemon Lifecycle
 
 - **Port discovery:** Scans 37650-37659, writes to `~/.local/state/webtap/daemon.port`
 - **Version check:** Health endpoint returns version; clients auto-restart outdated daemons
-- **Port management:** `ports.add(port)` validates Chrome availability, creates CDPSession
+- **Browser registration:** `ports.add(port)` creates `BrowserSession`, discovers targets
 
 ## Request Flow
 
@@ -63,7 +113,7 @@ network(state)    →  client.call("network")  →  RPCFramework.handle()
                                                       ↓
                                              ctx.service.network.get_requests()
                                                       ↓
-                                             DuckDB query + HAR views
+                                             DuckDB query (active + stashed)
 ```
 
 ## RPC Handler Pattern
@@ -71,57 +121,31 @@ network(state)    →  client.call("network")  →  RPCFramework.handle()
 Handlers in `rpc/handlers.py` are thin wrappers:
 
 ```python
-def network(ctx: RPCContext, limit: int = 50, status: int = None) -> dict:
-    """Query network requests - delegates to NetworkService."""
-    requests = ctx.service.network.get_requests(
-        limit=limit,
-        status=status,
-    )
-    return {"requests": requests}
+def targets(ctx: RPCContext) -> dict:
+    """List all discoverable targets across all browsers."""
+    return {"targets": ctx.service.list_targets()}
 
-def connect(ctx: RPCContext, target: str) -> dict:
-    """Connect to Chrome page by target ID (e.g., "9222:f8134d")."""
-    try:
-        result = ctx.service.connect_to_page(target=target)
-        # ConnectionManager.connect() increments epoch
-        return {"connected": True, **result}
-    except Exception as e:
-        raise RPCError(ErrorCode.NOT_CONNECTED, str(e))
+def watch(ctx: RPCContext, targets: list[str]) -> dict:
+    """Watch targets by ID - auto-attaches and enables CDP domains."""
+    result = ctx.service.watch_targets(targets)
+    return result
 ```
 
 ## Handler Registration
 
 ```python
-# In rpc/handlers.py
 def register_handlers(rpc: RPCFramework) -> None:
-    rpc.method("connect")(connect)
-    rpc.method("disconnect", requires_state=["connected", "inspecting"])(disconnect)
-    rpc.method("network", requires_state=["connected", "inspecting"])(network)
-    rpc.method("js", requires_state=["connected", "inspecting"])(js)
-    # ... 22 methods total
-```
-
-## Command Layer Pattern
-
-Commands are display wrappers around RPC calls:
-
-```python
-@app.command(display="table")
-def network(state, limit: int = 50, status: int = None):
-    """View network requests."""
-    try:
-        result = state.client.call("network", limit=limit, status=status)
-        return table_response(
-            data=result["requests"],
-            headers=["ID", "Method", "Status", "URL"],
-        )
-    except RPCError as e:
-        return error_response(e.message)
+    rpc.method("targets")(targets)
+    rpc.method("watch", broadcasts=True)(watch)
+    rpc.method("unwatch", broadcasts=True)(unwatch)
+    rpc.method("network")(network)       # Read-only, skips epoch check
+    rpc.method("js", requires_state=_ATTACHED_ONLY)(js)
+    # ...
 ```
 
 ## Connection States
 
-Per-target state managed by `ConnectionManager` (not a global state machine):
+Per-target state managed by `ConnectionManager`:
 
 ```
                     ┌─────────────────┐
@@ -129,24 +153,45 @@ Per-target state managed by `ConnectionManager` (not a global state machine):
                     └────────┬────────┘
                              │ success (epoch++)
                     ┌────────▼────────┐
-                    │    CONNECTED    │ ←── inspecting: bool flag
+                    │    ATTACHED     │ ←── inspecting: bool flag
+                    └───┬─────────┬───┘
+                        │         │ SW idle-stop
+                        │    ┌────▼────────┐
+                        │    │  SUSPENDED  │ (stashed DB, auto-resume)
+                        │    └──────┬──────┘
+                        │           │
+                        │ unwatch   │ unwatch
+                    ┌───▼───────────▼─┐
+                    │  DISCONNECTING  │ (transient: CDP cleanup guard)
                     └────────┬────────┘
-                             │ disconnect (epoch++)
+                             │ (epoch++)
                     ┌────────▼────────┐
-                    │  DISCONNECTING  │
+                    │    (removed)    │
                     └─────────────────┘
 ```
 
-Each target has independent state. Multiple targets can be connected simultaneously.
+Each target has independent state. Multiple targets can be attached simultaneously.
+
+## Domain Enables by Target Type
+
+```python
+_DOMAINS_BY_TYPE = {
+    "page":             ["Page", "Network", "Runtime", "Log", "DOMStorage"],
+    "service_worker":   ["Network", "Runtime", "Log"],
+    "background_page":  ["Network", "Runtime", "Log", "DOMStorage"],
+    "worker":           ["Network", "Runtime"],
+}
+```
 
 ## Epoch Tracking
 
 Prevents stale requests after state changes:
 
 1. Client sends `epoch` with requests (after first sync)
-2. Server validates epoch matches current state
-3. Stale requests rejected with `STALE_EPOCH` error
-4. Epoch incremented on connect, disconnect, or inspection state change
+2. Server validates epoch for state-mutating handlers (`broadcasts=True`)
+3. Read-only handlers skip epoch check
+4. Stale requests rejected with `STALE_EPOCH` error; client auto-retries with updated epoch
+5. Epoch incremented on watch, unwatch, or inspection state change
 
 ## File Structure
 
@@ -154,33 +199,52 @@ Prevents stale requests after state changes:
 webtap/
 ├── targets.py       # Target ID utilities ({port}:{short-id})
 ├── notices.py       # Multi-surface warning system
+├── cdp/
+│   ├── browser.py       # BrowserSession (one WS per port, session multiplexing)
+│   ├── session.py       # CDPSession (DuckDB storage, event handling)
+│   └── har.py           # HAR view aggregation
 ├── rpc/
-│   ├── __init__.py      # Exports: RPCFramework, RPCError, ErrorCode
 │   ├── framework.py     # RPCFramework, RPCContext, HandlerMeta
-│   ├── handlers.py      # 22+ RPC method handlers
+│   ├── handlers.py      # RPC method handlers
 │   └── errors.py        # ErrorCode, RPCError
 ├── services/
-│   └── connection.py    # ConnectionManager, ActiveConnection, TargetState
+│   ├── main.py          # WebTapService orchestrator
+│   ├── connection.py    # ConnectionManager, ActiveConnection, TargetState
+│   ├── network.py       # Network event queries using HAR views
+│   ├── console.py       # Console message handling
+│   ├── fetch.py         # Request interception
+│   └── dom.py           # DOM inspection & element selection
+└── extension/
+    ├── controllers/
+    │   ├── targets.js       # Target discovery list with filter
+    │   ├── watching.js      # Watched targets with state indicators
+    │   ├── capture.js       # Capture state display
+    │   ├── network.js       # Network request table
+    │   └── console.js       # Console message table
+    └── lib/
+        ├── target-utils.js  # Shared target display helpers
+        └── ui.js            # State icons and UI utilities
 ```
 
 ## Adding New RPC Methods
 
 1. Add handler function in `handlers.py`:
 ```python
-def my_method(ctx: RPCContext, param: str) -> dict:
-    result = ctx.service.do_something(param)
+def my_method(ctx: RPCContext, target: str, param: str) -> dict:
+    cdp = ctx.service.resolve_cdp(target)
+    result = cdp.execute("SomeDomain.method", {"param": param})
     return {"data": result}
 ```
 
 2. Register in `register_handlers()`:
 ```python
-rpc.method("my_method", requires_state=["connected"])(my_method)
+rpc.method("my_method", requires_state=_ATTACHED_ONLY)(my_method)
 ```
 
-3. Add command wrapper (optional, for REPL):
+3. Add command wrapper (optional, for REPL/MCP):
 ```python
 @app.command()
-def my_command(state, param: str):
-    result = state.client.call("my_method", param=param)
+def my_command(state, target: str, param: str):
+    result = state.client.call("my_method", target=target, param=param)
     return format_response(result)
 ```

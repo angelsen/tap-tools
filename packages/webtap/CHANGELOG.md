@@ -8,12 +8,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Browser-level WebSocket multiplexing**: New `BrowserSession` class connects once per Chrome port, multiplexes sessions via `Target.attachToTarget` with `flatten: true`
+- **Watch/unwatch model**: Declarative `watch()`/`unwatch()` replaces imperative `connect()`/`disconnect()`. Watched targets auto-reattach on navigation, reload, and service worker crashes
+- **Auto-watch propagation**: Auto-attached child tabs (opener-matched popups) are added to the watched set, enabling recursive grandchild matching at any depth
+- **Stashed DuckDBs**: History remains queryable after a watched target disconnects (tab close, SW idle-stop)
+- **Target column**: `network()` and `console()` output includes Target column for multi-target workflows
+- **`watching()` command**: Shows currently watched targets with state indicators and parent info
+- **`targets()` as tool**: Discovery list of all Chrome targets with type, title, URL, and watch state
+- **Service worker lifecycle**: `SUSPENDED` state for idle-stopped SWs with automatic domain re-enable on restart
+- **Self-target detection**: Extension ID header prevents feedback loops when the extension's own targets are discovered
+- **Base64 auto-decode**: Response bodies automatically decoded from base64 to UTF-8 when possible; binary content (images, PDFs) stays base64 with encoding field as signal
+- **`prepare_generation_data()`**: Shared pipeline extracted into `_code_generation.py`, deduplicating ~70 lines from `to_model` and `quicktype`
+- **`expression_result_response()`**: DRY builder for expression results, shared by `request`, `entry`, and `selections`
+- **Extension watching UI**: New "Watching" section with state indicators, DevTools/Inspect buttons, unwatch all
+- **Extension target filter**: Text filter input for target discovery list
+- **Extension target-utils.js**: Shared target display helpers (`shortType`, `stateIcon`, `stateIndicator`)
 
 ### Changed
+- **BREAKING: `request()` signature**: Now requires `target` as 2nd positional parameter: `request(id, target, fields, expr, output)`
+- **BREAKING: `entry()` signature**: Now requires `target` as 2nd positional parameter: `entry(id, target, fields, expr, output)`
+- **BREAKING: `to_model()` signature**: Added required `target` parameter
+- **BREAKING: `quicktype()` signature**: Added required `target` parameter
+- **BREAKING: `connect()`/`disconnect()` removed**: Replaced by `watch(targets)`/`unwatch(targets)`
+- **BREAKING: `pages()` removed**: Replaced by `targets()` (shows all discoverable targets, not just pages)
+- **CDPSession**: No longer owns a WebSocket; delegates `send()`/`execute()` to `BrowserSession`
+- **ConnectionManager**: `CONNECTED` state renamed to `ATTACHED`; new `SUSPENDED` state; `auto_attached` flag on connections
+- **RPC epoch validation**: Read-only handlers (`broadcasts=False`) skip epoch check
+- **RPCClient**: Auto-retries `STALE_EPOCH` errors with updated epoch from response header
+- **Daemon health check**: Runs once per client lifetime, re-checked only on connection failure
+- **Extension UI**: "Pages" tab replaced by "Targets" with discovery list and filter; intercept.js renamed to capture.js
+- **DataTable**: Dynamic text truncation measures actual pixel width per-value; fixed header with scrollable body
+- **Domain enables**: Per-target-type (`_DOMAINS_BY_TYPE`) instead of one flat list
 
 ### Fixed
 
 ### Removed
+- **`pages()` command**: Replaced by `targets()`
+- **`connect()` command**: Replaced by `watch()`
+- **`disconnect()` command**: Replaced by `unwatch()`
+- **`pages.js` extension controller**: Replaced by `targets.js` + `watching.js`
+- **`intercept.js` extension controller**: Renamed to `capture.js`
+- **`resolve_target()`**: Resolution handled by `BrowserSession._resolve_watched_target()`
+- **`get_errors()`/`get_warnings()`**: Removed from ConsoleService (use `console(level="error")`)
+- **`decrement_remaining()`**: Removed from notices.py (unused)
+- **`createButtonLock()`**: Removed from extension utils.js (unused)
+- **Redundant exception wrapping**: Removed from 8 RPC handlers (framework handles exceptions)
 
 ## [0.14.3] - 2026-02-11
 
