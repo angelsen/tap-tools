@@ -27,6 +27,67 @@ def _get_app():
     return _app
 
 
+_WEBTAP_HOOK = {
+    "type": "command",
+    "command": "webtap controls 2>/dev/null || true",
+    "timeout": 3,
+}
+
+
+def _controls():
+    """Fetch controls state from daemon and print as plain text."""
+    from webtap.daemon import daemon_running, get_daemon_url
+
+    if not daemon_running():
+        return
+
+    try:
+        import httpx
+
+        url = get_daemon_url()
+        response = httpx.get(f"{url}/prompt", timeout=2.0)
+        if response.status_code == 200 and response.text:
+            print(response.text)
+    except Exception:
+        pass
+
+
+def _controls_setup():
+    """Add UserPromptSubmit hook for controls integration to .claude/settings.local.json."""
+    import json
+    from pathlib import Path
+
+    settings_path = Path(".claude/settings.local.json")
+
+    # Load existing settings or start fresh
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            print(f"Error: {settings_path} contains invalid JSON")
+            return
+    else:
+        settings = {}
+
+    hooks = settings.setdefault("hooks", {})
+    matchers = hooks.setdefault("UserPromptSubmit", [])
+
+    # Check if already installed
+    for matcher in matchers:
+        for hook in matcher.get("hooks", []):
+            if "webtap controls" in hook.get("command", ""):
+                print(f"Already installed in {settings_path}")
+                return
+
+    # Add the hook
+    matchers.append({"hooks": [_WEBTAP_HOOK]})
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    print(f"Added UserPromptSubmit hook to {settings_path}")
+    print("Controls state will be injected into Claude Code context on each prompt.")
+
+
 def __getattr__(name: str):
     """Lazy load app for backward compatibility."""
     if name == "app":
@@ -52,6 +113,8 @@ COMMANDS:
   cleanup                   Clean up old installations
   daemon [start|stop|status]  Manage background daemon
   status                    Show daemon and connection status
+  controls                  Output controls state for LLM context injection
+  controls-setup               Add Claude Code hooks for controls integration
 
 OPTIONS:
   --help, -h                Show this help message
@@ -113,6 +176,16 @@ def main():
                         print(f"  - {conn.get('target')}: {conn.get('title', 'Untitled')}")
             else:
                 print("Connected: no")
+        return
+
+    # Controls subcommand — output controls state for LLM context
+    if arg == "controls":
+        _controls()
+        return
+
+    # Hooks setup subcommand
+    if arg == "controls-setup":
+        _controls_setup()
         return
 
     # Daemon subcommand

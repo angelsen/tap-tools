@@ -8,6 +8,7 @@ import asyncio
 import logging
 
 import uvicorn
+from fastapi.responses import PlainTextResponse
 
 from webtap.api.app import api
 from webtap.api.sse import broadcast_processor, get_broadcast_queue, set_broadcast_ready_event, router as sse_router
@@ -18,6 +19,40 @@ from webtap.rpc.handlers import register_handlers
 __all__ = ["run_daemon_server"]
 
 logger = logging.getLogger(__name__)
+
+
+def _format_controls(target: str, title: str, controls: dict) -> str:
+    """Format a target's controls as plain text for LLM context.
+
+    Args:
+        target: Target ID (e.g., "9222:abc123")
+        title: Page title
+        controls: Output of window.controls.describeAll()
+
+    Returns:
+        Formatted text section for this target
+    """
+    lines = [f"  [{target} — {title}]"]
+    for name, desc in controls.items():
+        state = desc.get("state", "")
+        lines.append(f"    {name} — {state}")
+        for action_name, action in desc.get("actions", {}).items():
+            action_desc = action.get("description", "")
+            params = action.get("params", {})
+            param_names = list(params.get("properties", {}).keys()) if isinstance(params, dict) else []
+            args_str = ", ".join(param_names)
+            js_call = f"controls.invoke('{name}', '{action_name}'"
+            if args_str:
+                js_call += ", {" + ", ".join(f"{p}: ..." for p in param_names) + "}"
+            js_call += ")"
+            lines.append(f'      js("{js_call}", "{target}")  {action_desc}')
+        for prop_name, prop in desc.get("properties", {}).items():
+            prop_desc = prop.get("description", "")
+            value = prop.get("value")
+            val_str = f" → {value}" if value is not None else ""
+            lines.append(f"      {name}.{prop_name}{val_str}  {prop_desc}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def run_daemon_server(host: str = "127.0.0.1", port: int = 37650):
@@ -69,6 +104,52 @@ def run_daemon_server(host: str = "127.0.0.1", port: int = 37650):
         from webtap import __version__
 
         return {"status": "ok", "pid": os.getpid(), "version": __version__}
+
+    @api.get("/prompt", response_class=PlainTextResponse)
+    async def get_prompt() -> str:
+        """Aggregate window.controls from all connected targets.
+
+        Sweeps watched targets for controls registries, formats their
+        descriptions as plain text for LLM context injection.
+        """
+        if not app_module.app_state:
+            return ""
+
+        service = app_module.app_state.service
+        targets = service.get_tracked_or_all()
+        if not targets:
+            return ""
+
+        sections: list[str] = []
+        for tid in targets:
+            conn = service.connections.get(tid)
+            if not conn:
+                continue
+            try:
+                result = conn.cdp.execute(
+                    "Runtime.evaluate",
+                    {
+                        "expression": "window.controls?.describeAll()",
+                        "returnByValue": True,
+                        "awaitPromise": False,
+                    },
+                    timeout=2.0,
+                )
+                value = result.get("result", {}).get("value")
+                if not value:
+                    continue
+                title = conn.page_info.get("title", tid)
+                sections.append(_format_controls(tid, title, value))
+            except Exception:
+                continue
+
+        if not sections:
+            return ""
+
+        lines = [f"Active controls ({len(sections)} target{'s' if len(sections) != 1 else ''}):", ""]
+        lines.extend(sections)
+        lines.append("Tip: Actions emit observations to console. Use console() to verify results.")
+        return "\n".join(lines)
 
     # Include SSE endpoint
     api.include_router(sse_router)
