@@ -56,6 +56,7 @@ class StateSnapshot:
     # Watch state
     watched_targets: tuple[str, ...]
     watched_urls: tuple[str, ...]
+    watched_patterns: tuple[str, ...]
 
     # Browser/DOM state
     inspect_active: bool
@@ -89,6 +90,7 @@ class StateSnapshot:
             connections=(),
             watched_targets=(),
             watched_urls=(),
+            watched_patterns=(),
             inspect_active=False,
             inspecting_target=None,
             selections={},

@@ -52,6 +52,7 @@ class BrowserSession:
         # Dual-key watch state
         self._watched_targets: dict[str, dict] = {}  # target_id -> target_info (pages)
         self._watched_urls: dict[str, dict] = {}  # url -> target_info (ephemeral extension pages)
+        self._watched_patterns: dict[str, dict] = {}  # substring pattern -> {}
 
         # Target lifecycle callbacks (set by service)
         self._on_target_created: Any | None = None
@@ -299,20 +300,59 @@ class BrowserSession:
         with self._lock:
             return self._watched_urls.pop(url, None)
 
+    def watch_pattern(self, pattern: str) -> None:
+        """Add URL substring pattern to watched set (thread-safe).
+
+        Args:
+            pattern: Substring to match against target URLs.
+        """
+        with self._lock:
+            self._watched_patterns[pattern] = {}
+
+    def unwatch_pattern(self, pattern: str) -> str | None:
+        """Remove URL pattern from watched set (thread-safe).
+
+        Args:
+            pattern: Pattern to remove.
+
+        Returns:
+            The pattern if removed, None if not watched.
+        """
+        with self._lock:
+            if pattern in self._watched_patterns:
+                del self._watched_patterns[pattern]
+                return pattern
+            return None
+
+    def get_watched_patterns(self) -> list[str]:
+        """Get snapshot of watched URL patterns (thread-safe).
+
+        Returns:
+            List of pattern strings.
+        """
+        with self._lock:
+            return list(self._watched_patterns.keys())
+
     def is_watched(self, target_id: str, url: str = "") -> bool:
-        """Check if target or URL is watched (thread-safe).
+        """Check if target, URL, or URL pattern is watched (thread-safe).
 
         Args:
             target_id: Target ID to check.
-            url: Optional URL to also check.
+            url: Optional URL to also check against exact URLs and patterns.
 
         Returns:
-            True if target_id or url is in watched sets.
+            True if target_id, url, or any pattern matches.
         """
         with self._lock:
             if target_id in self._watched_targets:
                 return True
-            return bool(url and url in self._watched_urls)
+            if url and url in self._watched_urls:
+                return True
+            if url:
+                for pattern in self._watched_patterns:
+                    if pattern in url:
+                        return True
+            return False
 
     def get_watched_snapshot(self) -> tuple[list[str], list[str]]:
         """Get snapshot of watched target IDs and URLs (thread-safe).
@@ -325,18 +365,20 @@ class BrowserSession:
         with self._lock:
             return list(self._watched_targets.keys()), list(self._watched_urls.keys())
 
-    def clear_all_watches(self) -> tuple[list[str], list[str]]:
+    def clear_all_watches(self) -> tuple[list[str], list[str], list[str]]:
         """Clear all watches and return what was cleared (thread-safe).
 
         Returns:
-            Tuple of (cleared_target_ids, cleared_urls).
+            Tuple of (cleared_target_ids, cleared_urls, cleared_patterns).
         """
         with self._lock:
             target_ids = list(self._watched_targets.keys())
             urls = list(self._watched_urls.keys())
+            patterns = list(self._watched_patterns.keys())
             self._watched_targets.clear()
             self._watched_urls.clear()
-            return target_ids, urls
+            self._watched_patterns.clear()
+            return target_ids, urls, patterns
 
     def list_all_targets(self) -> list[dict]:
         """Get all targets via CDP Target.getTargets.
@@ -357,7 +399,7 @@ class BrowserSession:
     def _resolve_watched_target(self, target_info: dict) -> str | None:
         """Match a targetInfo to a watched target.
 
-        Resolution order: target_id → URL → opener (popup from watched tab).
+        Resolution order: target_id → URL → opener (popup from watched tab) → pattern.
         """
         from webtap.targets import make_target
 
@@ -379,6 +421,12 @@ class BrowserSession:
                 opener_target = make_target(self.port, opener_id)
                 if opener_target in self._watched_targets:
                     return target_id
+
+            # Pattern match — substring in URL
+            if url:
+                for pattern in self._watched_patterns:
+                    if pattern in url:
+                        return target_id
 
         return None
 

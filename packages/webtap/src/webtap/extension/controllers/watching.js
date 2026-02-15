@@ -57,11 +57,17 @@ export function update(state) {
 
   const watchedTargets = new Set(state.watched_targets || []);
   const watchedUrls = new Set(state.watched_urls || []);
+  const watchedPatterns = state.watched_patterns || [];
   const connections = state.connections || [];
   const inspectingTarget = state.browser?.inspect_active ? state.browser?.inspecting : null;
 
   const watched = connections.filter(
-    (c) => watchedTargets.has(c.target) || watchedUrls.has(c.url) || c.auto_attached
+    (c) =>
+      c.state !== "suspended" &&
+      (watchedTargets.has(c.target) ||
+        watchedUrls.has(c.url) ||
+        c.auto_attached ||
+        watchedPatterns.some((p) => c.url && c.url.includes(p)))
   );
 
   if (watched.length === 0) {

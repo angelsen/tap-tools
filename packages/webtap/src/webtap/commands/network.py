@@ -36,6 +36,7 @@ def network(
     resource_type: str = None,  # pyright: ignore[reportArgumentType]
     url: str = None,  # pyright: ignore[reportArgumentType]
     req_state: str = None,  # pyright: ignore[reportArgumentType]
+    search: str = None,  # pyright: ignore[reportArgumentType]
     show_all: bool = False,
     limit: int = 50,
     _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
@@ -49,6 +50,7 @@ def network(
         resource_type: Filter by resource type (e.g., "xhr", "fetch", "websocket")
         url: Filter by URL pattern (supports * wildcard)
         req_state: Filter by state (pending, loading, complete, failed, paused)
+        search: Search in request/response headers (e.g., "Bearer", "Set-Cookie")
         show_all: Bypass noise filter groups
         limit: Max results (default 50)
 
@@ -61,6 +63,7 @@ def network(
         network(req_state="paused")  # Only paused requests
         network(show_all=True)       # Show everything
         network(target="9222:abc")   # Only from specific target
+        network(search="Bearer")     # Requests with Bearer in headers
     """
     # Build params, omitting None values
     params = {"limit": limit, "show_all": show_all}
@@ -76,6 +79,8 @@ def network(
         params["url"] = url
     if req_state is not None:
         params["state"] = req_state
+    if search is not None:
+        params["search"] = search
 
     result, error = rpc_call(state, "network", **params)
     if error:

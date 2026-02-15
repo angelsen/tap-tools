@@ -59,6 +59,7 @@ def get_full_state() -> Dict[str, Any]:
     targets_hash = _stable_hash(
         f"{sorted(snapshot.tracked_targets)}:{len(snapshot.connections)}"
         f":{sorted(snapshot.watched_targets)}:{sorted(snapshot.watched_urls)}"
+        f":{sorted(snapshot.watched_patterns)}"
     )
 
     # Convert snapshot to frontend format
@@ -80,6 +81,7 @@ def get_full_state() -> Dict[str, Any]:
         "connections": list(snapshot.connections),
         "watched_targets": list(snapshot.watched_targets),
         "watched_urls": list(snapshot.watched_urls),
+        "watched_patterns": list(snapshot.watched_patterns),
         "browser": {
             "inspect_active": snapshot.inspect_active,
             "inspecting": snapshot.inspecting_target,

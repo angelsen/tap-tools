@@ -42,34 +42,46 @@ _STATE_LABELS = {
 def watch(
     state,
     targets: list = None,  # pyright: ignore[reportArgumentType]
+    urls: list = None,  # pyright: ignore[reportArgumentType]
 ) -> dict:
-    """Watch one or more Chrome targets.
+    """Watch Chrome targets by ID and/or URL pattern.
 
     Args:
         targets: List of target IDs (e.g., ["9222:f8134d"])
+        urls: List of URL substring patterns (e.g., ["nnebkiakalpfhlpcpekfpmodhkcinbhe"])
 
     Examples:
-        watch(["9222:f8"])              # Watch single target
-        watch(["9222:f8", "9222:ab"])   # Watch multiple targets
+        watch(["9222:f8"])                            # Watch single target
+        watch(urls=["nnebkiakalpfhlpcpekfpmodhkcinbhe"])  # Watch by extension ID
+        watch(["9222:f8"], urls=["example.com"])      # Both
 
     Returns:
         Watch results in markdown
     """
-    if not targets:
+    if not targets and not urls:
         return error_response(
-            "No targets specified",
+            "No targets or URL patterns specified",
             suggestions=[
-                "targets()                    # List available targets",
-                "watch(['9222:f8'])           # Watch by target ID",
+                "targets()                                    # List available targets",
+                "watch(['9222:f8'])                           # Watch by target ID",
+                "watch(urls=['nnebkiak...'])                  # Watch by URL pattern",
             ],
         )
 
-    result, error = rpc_call(state, "watch", targets=targets)
+    kwargs: dict = {}
+    if targets:
+        kwargs["targets"] = targets
+    if urls:
+        kwargs["urls"] = urls
+
+    result, error = rpc_call(state, "watch", **kwargs)
     if error:
         return error
 
-    watched = result.get("watched", [])
     summary_parts = []
+
+    # Target watch results
+    watched = result.get("watched", [])
     for w in watched:
         target_id = w.get("target", "")
         if w.get("error"):
@@ -83,6 +95,14 @@ def watch(
         else:
             summary_parts.append(f"{target_id}: watched (not yet attached)")
 
+    # Pattern watch results
+    watched_patterns = result.get("watched_patterns", [])
+    for w in watched_patterns:
+        if w.get("target"):
+            summary_parts.append(f"{w['target']}: attached (pattern: {w.get('pattern', '')})")
+        elif w.get("pattern") and w.get("watched"):
+            summary_parts.append(f"Pattern '{w['pattern']}': watching")
+
     return info_response(
         title="Watch",
         fields={"Targets": "\n".join(summary_parts) if summary_parts else "None"},
@@ -93,28 +113,37 @@ def watch(
     display="markdown",
     fastmcp={"enabled": False},
 )
-def unwatch(state, targets: list = None) -> dict:  # pyright: ignore[reportArgumentType]
-    """Stop watching targets.
+def unwatch(state, targets: list = None, urls: list = None) -> dict:  # pyright: ignore[reportArgumentType]
+    """Stop watching targets and/or URL patterns.
 
     Args:
         targets: List of target IDs. None = unwatch all.
+        urls: List of URL patterns to unwatch.
 
     Examples:
         unwatch()                       # Unwatch all
         unwatch(["9222:f8"])            # Unwatch specific target
+        unwatch(urls=["nnebkiak..."])   # Unwatch URL pattern
     """
+    kwargs: dict = {}
     if targets:
-        result_data, error = rpc_call(state, "unwatch", targets=targets)
+        kwargs["targets"] = targets
+    if urls:
+        kwargs["urls"] = urls
+
+    if kwargs:
+        result_data, error = rpc_call(state, "unwatch", **kwargs)
     else:
         result_data, error = rpc_call(state, "unwatch")
     if error:
         return error
 
     unwatched = result_data.get("unwatched", [])
-    count = len(unwatched)
+    unwatched_patterns = result_data.get("unwatched_patterns", [])
+    count = len(unwatched) + len(unwatched_patterns)
     return info_response(
         title="Unwatch",
-        fields={"Status": f"Unwatched {count} target{'s' if count != 1 else ''}"},
+        fields={"Status": f"Unwatched {count} item{'s' if count != 1 else ''}"},
     )
 
 

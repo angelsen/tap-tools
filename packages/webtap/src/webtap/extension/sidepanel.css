@@ -673,6 +673,7 @@ button.active-selection:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-sm);
 }
 
 .list-box {

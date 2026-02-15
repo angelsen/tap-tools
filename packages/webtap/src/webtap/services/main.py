@@ -132,6 +132,9 @@ class WebTapService:
         # DuckDB stays alive for read-only queries; callbacks/fetch/broadcast cleared
         self._stashed_dbs: dict[str, CDPSession] = {}  # url -> CDPSession (DB only)
 
+        # URL patterns for watch (survives browser recreation)
+        self._active_patterns: list[str] = []
+
         # Self-target detection (learned from extension RPC header)
         self._own_extension_id: str | None = None
         self._has_silent_sessions = False
@@ -154,6 +157,8 @@ class WebTapService:
             browser = BrowserSession(port=port)
             browser.connect()
             browser._on_browser_disconnect = self._handle_browser_disconnect
+            for pattern in self._active_patterns:
+                browser.watch_pattern(pattern)
             self._browsers[port] = browser
         return self._browsers[port]
 
@@ -297,9 +302,10 @@ class WebTapService:
 
         if targets is None:
             # Unwatch all -- collect connected targets + clear watches atomically
+            self._active_patterns.clear()
             targets = []
             for browser in self._browsers.values():
-                cleared_ids, cleared_urls = browser.clear_all_watches()
+                cleared_ids, cleared_urls, _cleared_patterns = browser.clear_all_watches()
                 targets.extend(cleared_ids)
                 # Find connected targets for cleared URLs
                 for url in cleared_urls:
@@ -342,6 +348,100 @@ class WebTapService:
         self._trigger_broadcast()
         return {"unwatched": results}
 
+    def watch_url_patterns(self, patterns: list[str]) -> dict:
+        """Watch URL patterns (substring match). Attach all current matches + auto-attach future.
+
+        Args:
+            patterns: List of URL substring patterns to watch.
+
+        Returns:
+            Dict with watched pattern results.
+        """
+        from webtap.targets import make_target
+
+        results = []
+
+        # Ensure browsers exist for all registered ports
+        for port in list(self.state.registered_ports):
+            self._get_or_create_browser(port)
+
+        for pattern in patterns:
+            if pattern not in self._active_patterns:
+                self._active_patterns.append(pattern)
+
+            # Register on all browsers and attach matching targets
+            for port, browser in self._browsers.items():
+                if not browser._on_target_created:
+                    browser.set_target_lifecycle_callbacks(
+                        on_created=self._handle_target_created,
+                        on_info_changed=self._handle_target_info_changed,
+                        on_sw_crashed=self._handle_sw_crashed,
+                        on_sw_reloaded=self._handle_sw_reloaded,
+                    )
+                browser.watch_pattern(pattern)
+
+                # Attach all current matching targets
+                for t in browser.list_all_targets():
+                    url = t.get("url", "")
+                    if not url or pattern not in url:
+                        continue
+                    if t.get("type") not in _CONNECTABLE_TYPES:
+                        continue
+                    if url.startswith("chrome://"):
+                        continue
+                    target_id = make_target(port, t["targetId"])
+                    if target_id in self.connections:
+                        continue
+                    try:
+                        session_id = browser.attach(t["targetId"])
+                        cdp = self._register_session(browser, session_id, t, target_id, port)
+                        self._finish_setup(target_id, cdp, t)
+                        results.append({"target": target_id, "pattern": pattern, "state": "attached"})
+                    except Exception as e:
+                        results.append({"target": target_id, "pattern": pattern, "error": str(e)})
+
+            results.append({"pattern": pattern, "watched": True})
+
+        self._trigger_broadcast()
+        return {"watched_patterns": results}
+
+    def unwatch_url_patterns(self, patterns: list[str]) -> dict:
+        """Stop watching URL patterns. Disconnect orphaned targets.
+
+        Args:
+            patterns: List of URL substring patterns to unwatch.
+
+        Returns:
+            Dict with unwatched patterns and disconnected targets.
+        """
+        results = []
+        for pattern in patterns:
+            self._active_patterns = [p for p in self._active_patterns if p != pattern]
+            for browser in self._browsers.values():
+                browser.unwatch_pattern(pattern)
+            results.append({"pattern": pattern, "unwatched": True})
+
+        # Disconnect targets no longer matched by any watch
+        from webtap.targets import parse_target
+
+        to_disconnect = []
+        for target_id, conn in list(self.connections.items()):
+            url = conn.cdp.target_info.get("url", "")
+            port, _ = parse_target(target_id)
+            browser = self._browsers.get(port)
+            if browser and not browser.is_watched(target_id, url) and not conn.auto_attached:
+                to_disconnect.append(target_id)
+
+        for target_id in to_disconnect:
+            conn = self.connections.get(target_id)
+            if conn:
+                self.fetch.cleanup_target(target_id, conn.cdp)
+                self.conn_mgr.disconnect(target_id)
+                self.conn_mgr.remove_from_tracked(target_id, self.tracked_targets)
+
+        self._trigger_broadcast()
+        return {"unwatched_patterns": results, "disconnected": to_disconnect}
+
     def _register_session(self, browser, session_id: str, target_info: dict, target_id: str, port: int) -> CDPSession:
         """Register CDPSession and connection entry. Returns CDPSession."""
         from webtap.services.connection import TargetState
@@ -364,6 +464,7 @@ class WebTapService:
         is_self_target = self._own_extension_id and target_url.startswith(
             f"chrome-extension://{self._own_extension_id}/"
         )
+        cdp._is_self_target = bool(is_self_target)  # Used by _finish_setup to skip fetch interception
         if is_self_target:
             if not self._has_silent_sessions:
                 self._start_periodic_broadcast()
@@ -410,8 +511,11 @@ class WebTapService:
             if failures:
                 logger.warning(f"Failed to enable domains on {target_id}: {failures}")
 
-            self.fetch.enable_on_target(target_id, cdp)
-            self._register_body_capture_callback(cdp)
+            # Skip fetch interception on self-targets — intercepting the SSE stream
+            # to our own daemon would block the sidepanel from receiving state updates
+            if not cdp._is_self_target:
+                self.fetch.enable_on_target(target_id, cdp)
+                self._register_body_capture_callback(cdp)
             self.filters.load()
 
         except Exception as e:
@@ -494,6 +598,7 @@ class WebTapService:
             chrome_target_id = target_info.get("targetId", "")
             session_id = browser.attach(chrome_target_id)
             cdp = self._register_session(browser, session_id, target_info, target_id, port)
+            self._trigger_broadcast()  # Broadcast CONNECTING state before slow domain enables
             self._finish_setup(target_id, cdp, target_info)
             # Mark as auto-attached if not explicitly watched (opener-matched popup)
             # Also add to watched set so grandchildren resolve via opener matching
@@ -519,7 +624,12 @@ class WebTapService:
                 return
 
     def _handle_sw_crashed(self, session_id: str) -> None:
-        """SW idle stop. Session stays, renderer disconnected. Mark suspended."""
+        """SW idle stop or extension reload. Mark suspended, then verify with Chrome.
+
+        Runs on WS thread — submits verification to executor. If Chrome no longer
+        knows the target (extension reload), removes the stale connection. If the
+        target still exists (normal idle stop), keeps it SUSPENDED for _handle_sw_reloaded.
+        """
         from webtap.services.connection import TargetState
 
         for browser in self._browsers.values():
@@ -528,7 +638,56 @@ class WebTapService:
                 if cdp.target and cdp.target in self.connections:
                     self.conn_mgr.set_state(cdp.target, TargetState.SUSPENDED)
                     self._trigger_broadcast()
+                    # Verify target still exists in Chrome (can't call CDP on WS thread)
+                    self._setup_executor.submit(
+                        self._verify_suspended_target, browser, cdp.target, cdp.chrome_target_id
+                    )
                 return
+
+    def _verify_suspended_target(self, browser: "Any", target_id: str, chrome_target_id: str) -> None:
+        """Check if a SUSPENDED target still exists in Chrome. Runs in executor.
+
+        If Chrome no longer knows the target (extension reload destroyed it),
+        remove the stale connection. Otherwise leave it SUSPENDED for _handle_sw_reloaded.
+        """
+        from webtap.services.connection import TargetState
+
+        logger = logging.getLogger(__name__)
+
+        # Target may have already been removed or reattached
+        conn = self.connections.get(target_id)
+        if not conn or conn.state != TargetState.SUSPENDED:
+            return
+
+        try:
+            live_targets = browser.list_all_targets()
+            still_alive = any(t.get("targetId") == chrome_target_id for t in live_targets)
+        except Exception:
+            return  # Can't verify — leave as SUSPENDED (safe default)
+
+        if still_alive:
+            return  # Normal SW idle — will wake via _handle_sw_reloaded
+
+        # Target gone — clean up stale connection
+        logger.info(f"SUSPENDED target {target_id} no longer in Chrome, removing")
+        url = conn.cdp.target_info.get("url", "")
+        if browser.is_watched("", url):
+            self._detached_urls[target_id] = url
+            while len(self._detached_urls) > _MAX_DETACHED_URLS:
+                oldest_key = next(iter(self._detached_urls))
+                del self._detached_urls[oldest_key]
+            conn.cdp._event_callbacks.clear()
+            conn.cdp._broadcast_callback = None
+            old_stash = self._stashed_dbs.get(url)
+            if old_stash:
+                old_stash.cleanup()
+            self._stashed_dbs[url] = conn.cdp
+
+        self.fetch.cleanup_target(target_id, conn.cdp)
+        self.conn_mgr.remove(target_id)
+        self.conn_mgr.remove_from_tracked(target_id, self.tracked_targets)
+        self._update_silent_sessions()
+        self._trigger_broadcast()
 
     def _handle_sw_reloaded(self, session_id: str) -> None:
         """SW restart after idle. Re-enable domains on existing session."""
@@ -661,12 +820,15 @@ class WebTapService:
         # Watch state -- aggregate from all browser sessions (thread-safe snapshots)
         all_watched_targets: list[str] = []
         all_watched_urls: list[str] = []
+        all_watched_patterns: list[str] = []
         for browser in self._browsers.values():
             targets_snap, urls_snap = browser.get_watched_snapshot()
             all_watched_targets.extend(targets_snap)
             all_watched_urls.extend(urls_snap)
+            all_watched_patterns.extend(browser.get_watched_patterns())
         watched_targets = tuple(all_watched_targets)
         watched_urls = tuple(all_watched_urls)
+        watched_patterns = tuple(set(all_watched_patterns))
 
         # Browser/DOM state (get_state() is already thread-safe internally)
         browser_state = self.dom.get_state()
@@ -700,6 +862,7 @@ class WebTapService:
             connections=connections,
             watched_targets=watched_targets,
             watched_urls=watched_urls,
+            watched_patterns=watched_patterns,
             inspect_active=browser_state["inspect_active"],
             inspecting_target=browser_state.get("inspecting"),
             selections=selections,  # Deep copy ensures nested dicts are immutable

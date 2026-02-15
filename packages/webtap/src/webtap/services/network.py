@@ -59,6 +59,7 @@ class NetworkService:
         type_filter: str | None = None,
         url: str | None = None,
         state: str | None = None,
+        search: str | None = None,
         apply_groups: bool = True,
         order: str = "desc",
         target: str | list[str] | None = None,
@@ -73,6 +74,7 @@ class NetworkService:
             type_filter: Filter by resource type.
             url: Filter by URL pattern (supports * wildcard).
             state: Filter by state (pending, loading, complete, failed, paused).
+            search: Search in request/response headers (case-insensitive).
             apply_groups: Apply enabled filter groups.
             order: Sort order - "desc" (newest first) or "asc" (oldest first).
             target: Legacy parameter - use targets instead
@@ -92,8 +94,9 @@ class NetworkService:
         if not cdps:
             return []
 
-        # Build SQL query
-        sql = """
+        # Build SQL query (use har_entries when searching headers, har_summary otherwise)
+        from_table = "har_entries" if search else "har_summary"
+        sql = f"""
         SELECT
             id,
             request_id,
@@ -113,7 +116,7 @@ class NetworkService:
             last_activity,
             target,
             body_status
-        FROM har_summary
+        FROM {from_table}
         """
 
         # Build filter conditions (without target filter - we handle that via get_cdps)
@@ -132,6 +135,12 @@ class NetworkService:
         state_conditions = []
         if state:
             state_conditions.append(f"state = '{state}'")
+        if search:
+            escaped = search.replace("'", "''")
+            state_conditions.append(
+                f"(CAST(request_headers AS VARCHAR) ILIKE '%{escaped}%'"
+                f" OR CAST(response_headers AS VARCHAR) ILIKE '%{escaped}%')"
+            )
 
         # Combine conditions
         all_conditions = []

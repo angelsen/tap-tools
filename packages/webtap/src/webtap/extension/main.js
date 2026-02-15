@@ -13,6 +13,7 @@ import * as header from "./controllers/header.js";
 import * as notices from "./controllers/notices.js";
 import * as targets from "./controllers/targets.js";
 import * as watching from "./controllers/watching.js";
+import * as patterns from "./controllers/patterns.js";
 import * as network from "./controllers/network.js";
 import * as console_ from "./controllers/console.js";
 import * as filters from "./controllers/filters.js";
@@ -85,6 +86,7 @@ function setupEventHandlers() {
     header.updateError(state.errors);
     header.updateEventCount(state.events.total);
     capture.update(state);
+    patterns.update(state);
     watching.update(state);
     selections.update(state.browser);
     filters.update(state.filters);
@@ -145,6 +147,22 @@ function setupUIBindings() {
     await withButtonLock("unwatchAll", watching.unwatchAll);
   };
 
+  // URL pattern watch
+  const watchPatternAction = async () => {
+    const input = document.getElementById("patternInput");
+    const pattern = input.value.trim();
+    if (pattern) {
+      await withButtonLock("watchPattern", async () => {
+        await client.call("watch", { urls: [pattern] });
+        input.value = "";
+      });
+    }
+  };
+  document.getElementById("watchPattern").onclick = watchPatternAction;
+  document.getElementById("patternInput").onkeydown = (e) => {
+    if (e.key === "Enter") watchPatternAction();
+  };
+
   // Filter input
   document.getElementById("targetFilter").oninput = (e) => {
     targets.setFilter(e.target.value);
@@ -203,6 +221,7 @@ async function discoverAndConnect() {
     // Initialize controllers with client
     targets.init(client, DataTable, callbacks);
     watching.init(client, DataTable, callbacks);
+    patterns.init(client, DataTable, callbacks);
     network.init(client, DataTable, callbacks);
     console_.init(client, DataTable, callbacks);
     filters.init(client, DataTable, callbacks);

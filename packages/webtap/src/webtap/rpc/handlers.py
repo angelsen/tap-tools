@@ -109,14 +109,28 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("ports.list", broadcasts=False)(_ports_list)
 
 
-def _watch(ctx: RPCContext, targets: list[str]) -> dict:
-    """Watch one or more targets."""
-    return ctx.service.watch_targets(targets)
+def _watch(ctx: RPCContext, targets: list[str] | None = None, urls: list[str] | None = None) -> dict:
+    """Watch targets by ID and/or URL patterns."""
+    if not targets and not urls:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Specify targets and/or urls")
+    results: dict = {}
+    if targets:
+        results.update(ctx.service.watch_targets(targets))
+    if urls:
+        results.update(ctx.service.watch_url_patterns(urls))
+    return results
 
 
-def _unwatch(ctx: RPCContext, targets: list[str] | None = None) -> dict:
-    """Stop watching targets. None = unwatch all."""
-    return ctx.service.unwatch_targets(targets)
+def _unwatch(ctx: RPCContext, targets: list[str] | None = None, urls: list[str] | None = None) -> dict:
+    """Stop watching targets and/or URL patterns. Both None = unwatch all."""
+    if targets is None and urls is None:
+        return ctx.service.unwatch_targets(None)
+    results: dict = {}
+    if targets:
+        results.update(ctx.service.unwatch_targets(targets))
+    if urls:
+        results.update(ctx.service.unwatch_url_patterns(urls))
+    return results
 
 
 def _targets(ctx: RPCContext) -> dict:
@@ -223,6 +237,7 @@ def _network(
     resource_type: str | None = None,
     url: str | None = None,
     state: str | None = None,
+    search: str | None = None,
     show_all: bool = False,
     order: str = "desc",
     target: str | list[str] | None = None,
@@ -235,6 +250,7 @@ def _network(
         type_filter=resource_type,
         url=url,
         state=state,
+        search=search,
         apply_groups=not show_all,
         order=order,
         target=target,

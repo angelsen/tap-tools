@@ -81,7 +81,7 @@
       <section class="section section--scroll">
         <div class="section-header flex-row">
           <span class="section-title">Targets</span>
-          <input id="targetFilter" type="text" placeholder="Filter..." class="filter-input" />
+          <input id="targetFilter" type="text" placeholder="Filter..." class="filter-input" style="max-width: none" />
           <button id="watchAll" class="btn-sm">Watch All</button>
           <button
             id="reloadTargets"
@@ -91,6 +91,16 @@
           ></button>
         </div>
         <div id="targetList" class="list-box"></div>
+      </section>
+
+      <!-- URL pattern watches -->
+      <section class="section">
+        <div class="section-header flex-row">
+          <span class="section-title">URL Patterns</span>
+          <input id="patternInput" type="text" placeholder="URL pattern..." class="filter-input" style="max-width: none" />
+          <button id="watchPattern" class="btn-sm">Watch</button>
+        </div>
+        <div id="patternList"></div>
       </section>
 
       <!-- Watched targets (hidden when nothing watched) -->

@@ -113,6 +113,9 @@ class CDPSession:
         # Broadcast callback for SSE state updates (set by service)
         self._broadcast_callback: "Any | None" = None
 
+        # Self-target flag — skip fetch interception on extension's own pages (set by service)
+        self._is_self_target: bool = False
+
         # Disconnect callback for service-level cleanup
         self._disconnect_callback: "Any | None" = None
 
