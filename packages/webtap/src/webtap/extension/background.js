@@ -27,6 +27,12 @@ function createContextMenus() {
     });
 
     chrome.contextMenus.create({
+      id: "open-tab",
+      title: "Open as Tab",
+      contexts: ["action"],
+    });
+
+    chrome.contextMenus.create({
       id: "separator",
       type: "separator",
       contexts: ["action"],
@@ -52,6 +58,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       height: 900,
       focused: true,
     });
+  } else if (info.menuItemId === "open-tab") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("sidepanel.html") });
   } else if (info.menuItemId === "close-sidepanel") {
     chrome.sidePanel.setOptions({ enabled: false, tabId: tab.id });
   }
