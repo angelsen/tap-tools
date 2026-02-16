@@ -69,34 +69,34 @@ Query these when needed, not preemptively.
 ## Architecture
 
 ```
-        ┌──────────────────────────────────┐
-        │          Chrome Browser          │
-        │  ┌─────┐ ┌─────┐ ┌─────┐       │
-        │  │Tab 1│ │Tab 2│ │ SW  │ ...    │
-        │  └──┬──┘ └──┬──┘ └──┬──┘       │
-        └─────┼────────┼──────┼───────────┘
-              └────────┼──────┘
-                       │ CDP (one WS per browser)
-              ┌────────▼────────┐
-              │ BrowserSession  │  Watch/unwatch, target discovery,
-              │ (browser.py)    │  pattern matching, auto-attach
-              └────────┬────────┘
-                       │ Multiplexed sessions
-           ┌───────────┼───────────┐
-      ┌────▼────┐ ┌────▼────┐ ┌───▼─────┐
-      │CDPSession│ │CDPSession│ │CDPSession│  Per-target DuckDB
-      │ Tab 1   │ │ Tab 2   │ │  SW     │  event storage
-      └────┬────┘ └────┬────┘ └────┬────┘
-           └───────────┼───────────┘
-                       │ SQL Queries
-          ┌────────────┼────────────┐
-          │            │            │
-  ┌───────▼──────┐ ┌───▼───┐ ┌──────▼──────┐
-  │   Commands   │ │ Tables│ │Detail Views │
-  │network()     │ │       │ │             │
-  │console()     │ │Minimal│ │Full CDP Data│
-  │js()          │ │Summary│ │+ On-Demand  │
-  └──────────────┘ └───────┘ └─────────────┘
+      ┌─────────────────────────────────────┐
+      │           Chrome Browser            │
+      │  ┌───────┐  ┌───────┐┌─────┐        │
+      │  │ Tab 1 │  │ Tab 2 ││ SW  │        │
+      │  └───┬───┘  └───┬───┘└──┬──┘        │
+      └──────┼──────────┼───────┼───────────┘
+             └──────────┼───────┘
+                        │ CDP (one WS per browser)
+               ┌────────▼────────┐
+               │ BrowserSession  │  Watch/unwatch, target discovery,
+               │ (browser.py)    │  pattern matching, auto-attach
+               └────────┬────────┘
+                        │ Multiplexed sessions
+            ┌───────────┼───────────┐
+       ┌────▼─────┐ ┌───▼────┐ ┌───▼────┐
+       │CDPSession│ │CDPSess.│ │CDPSess.│  Per-target DuckDB
+       │  Tab 1   │ │ Tab 2  │ │  SW    │  event storage
+       └────┬─────┘ └───┬────┘ └───┬────┘
+            └───────────┼──────────┘
+                        │ SQL Queries
+           ┌────────────┼───────────┐
+           │            │           │
+   ┌───────▼──────┐ ┌───▼───┐ ┌─────▼───────┐
+   │   Commands   │ │ Table │ │ Detail View │
+   │ network()    │ │       │ │             │
+   │ console()    │ │Minimal│ │Full CDP Data│
+   │ js()         │ │Summary│ │+ On-Demand  │
+   └──────────────┘ └───────┘ └─────────────┘
 ```
 
 ## Data Flow Examples

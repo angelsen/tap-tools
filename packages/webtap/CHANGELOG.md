@@ -8,12 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **URL pattern watching**: `watch(urls=["pattern"])` watches all targets whose URL contains a substring pattern. Patterns persist across browser reconnects, auto-attach matching targets, and clean up orphaned connections on unwatch
+- **Network header search**: `network(search="Bearer")` filters requests by case-insensitive match in request/response headers (uses `har_entries` view with `ILIKE`)
+- **Controls integration**: `GET /prompt` daemon endpoint sweeps watched targets for `window.controls` registries via `Runtime.evaluate`, formats as plain text for LLM context injection
+- **`webtap controls` CLI command**: Discovers daemon port, fetches `/prompt`, outputs controls state (designed for `UserPromptSubmit` hook stdout)
+- **`webtap controls-setup` CLI command**: Adds `UserPromptSubmit` hook to `.claude/settings.local.json` with idempotency check
+- **Extension URL Patterns section**: Input field and watch button for pattern-based watching, per-pattern remove buttons
+- **Suspended target verification**: `_verify_suspended_target()` detects targets gone from Chrome after extension reload and cleans up stale connections
+- **Self-target fetch skip**: Skip fetch interception on extension's own pages to avoid blocking SSE
 
 ### Changed
+- **`clear()` simplified**: Removed `events`/`console` parameters — always clears all CDP events. No more conditional flags
+- **VISION.md**: Updated architecture diagram to browser-level multiplexing model, file structure to include all current modules
 
 ### Fixed
+- **Dead DB thread restart**: `CDPSession._db_execute()` detects dead DB worker threads and restarts them instead of hanging for 30s on a result queue
+- **Disconnected browser cleanup**: `BrowserSession._on_close()` notifies service so dead BrowserSessions are removed from the registry
+- **Stashed DB leak on clear**: `clear()` now also cleans up stashed DBs and detached URL mappings from disconnected URL-watched targets
 
 ### Removed
+- **`clear()` parameters**: `events` and `console` boolean flags removed (always clears everything)
 
 ## [0.15.0] - 2026-02-14
 
