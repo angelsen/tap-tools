@@ -69,28 +69,34 @@ Query these when needed, not preemptively.
 ## Architecture
 
 ```
-                    ┌─────────────────┐
-                    │   Chrome Tab    │
-                    └────────┬────────┘
-                             │ CDP Events
-                    ┌────────▼────────┐
-                    │   WebSocket     │
-                    │  (WebSocketApp) │
-                    └────────┬────────┘
-                             │ Raw Events
-                    ┌────────▼────────┐
-                    │  DuckDB Storage │
-                    │  (events table) │
-                    └────────┬────────┘
-                             │ SQL Queries
-                ┌────────────┼────────────┐
-                │            │            │
-        ┌───────▼──────┐ ┌───▼───┐ ┌──────▼──────┐
-        │   Commands   │ │ Tables│ │Detail Views │
-        │network()     │ │       │ │             │
-        │console()     │ │Minimal│ │Full CDP Data│
-        │storage()     │ │Summary│ │+ On-Demand  │
-        └──────────────┘ └───────┘ └─────────────┘
+        ┌──────────────────────────────────┐
+        │          Chrome Browser          │
+        │  ┌─────┐ ┌─────┐ ┌─────┐       │
+        │  │Tab 1│ │Tab 2│ │ SW  │ ...    │
+        │  └──┬──┘ └──┬──┘ └──┬──┘       │
+        └─────┼────────┼──────┼───────────┘
+              └────────┼──────┘
+                       │ CDP (one WS per browser)
+              ┌────────▼────────┐
+              │ BrowserSession  │  Watch/unwatch, target discovery,
+              │ (browser.py)    │  pattern matching, auto-attach
+              └────────┬────────┘
+                       │ Multiplexed sessions
+           ┌───────────┼───────────┐
+      ┌────▼────┐ ┌────▼────┐ ┌───▼─────┐
+      │CDPSession│ │CDPSession│ │CDPSession│  Per-target DuckDB
+      │ Tab 1   │ │ Tab 2   │ │  SW     │  event storage
+      └────┬────┘ └────┬────┘ └────┬────┘
+           └───────────┼───────────┘
+                       │ SQL Queries
+          ┌────────────┼────────────┐
+          │            │            │
+  ┌───────▼──────┐ ┌───▼───┐ ┌──────▼──────┐
+  │   Commands   │ │ Tables│ │Detail Views │
+  │network()     │ │       │ │             │
+  │console()     │ │Minimal│ │Full CDP Data│
+  │js()          │ │Summary│ │+ On-Demand  │
+  └──────────────┘ └───────┘ └─────────────┘
 ```
 
 ## Data Flow Examples
@@ -189,56 +195,94 @@ ConsoleSummary(
 ```
 webtap/
 ├── VISION.md           # This file
-├── __init__.py         # Module initialization
+├── __init__.py         # Entry point, CLI commands (controls, controls-setup)
+├── __main__.py         # Python -m webtap support
 ├── app.py              # REPL app entry point
 ├── client.py           # RPCClient for JSON-RPC communication
 ├── daemon.py           # Background daemon process
 ├── filters.py          # Filter management system
+├── notices.py          # Notice management (type definitions, NoticeManager)
+├── targets.py          # Target ID utilities (make_target, parse_target)
 ├── api/                # FastAPI server (runs in daemon)
-│   ├── __init__.py
-│   ├── server.py       # Server initialization & RPC wiring
-│   ├── state.py        # State snapshot for SSE broadcasts
+│   ├── app.py          # FastAPI app & shared state
+│   ├── server.py       # Server init, RPC wiring, GET /prompt endpoint
+│   ├── state.py        # State snapshot hash & SSE formatting
 │   └── sse.py          # Server-sent events for live updates
 ├── rpc/                # JSON-RPC 2.0 framework
-│   ├── __init__.py
 │   ├── framework.py    # RPCFramework class & method registration
 │   ├── handlers.py     # All RPC method handlers
 │   └── errors.py       # RPCError and error codes
 ├── cdp/
-│   ├── __init__.py
 │   ├── browser.py      # BrowserSession (one WS per port, session multiplexing)
 │   ├── session.py      # CDPSession with DuckDB storage
-│   ├── har.py          # HAR view aggregation
+│   ├── har.py          # HAR view aggregation (har_entries, har_summary)
 │   └── schema/         # CDP protocol reference
-│       └── README.md
 ├── services/           # Service layer (business logic)
-│   ├── __init__.py
 │   ├── main.py         # WebTapService orchestrator
 │   ├── connection.py   # ConnectionManager & per-target state
 │   ├── network.py      # Network request handling
 │   ├── console.py      # Console message handling
-│   ├── fetch.py        # Request interception
-│   ├── dom.py          # DOM inspection & selection
+│   ├── fetch.py        # Request interception (capture, block, mock)
+│   ├── dom.py          # DOM inspection & element selection
 │   ├── watcher.py      # ChromeWatcher target discovery
-│   ├── state_snapshot.py  # State snapshots for SSE broadcasts
-│   └── daemon_state.py # Daemon state persistence
-└── commands/           # Thin command wrappers
-    ├── __init__.py
-    ├── _builders.py    # Response builders & validators
-    ├── _utils.py       # Shared utilities & expression eval
-    ├── _code_generation.py  # JSON/code generation helpers
-    ├── _tips.py        # Documentation parser (TIPS.md)
-    ├── connection.py   # watch, unwatch, targets, watching, clear
-    ├── navigation.py   # navigate, reload, back, forward
-    ├── network.py      # network() command
-    ├── console.py      # console() command
-    ├── request.py      # request() field selection + expr
-    ├── javascript.py   # js() execution
-    ├── fetch.py        # fetch(), requests(), resume(), fail()
-    ├── filters.py      # filters() management
-    ├── selections.py   # selections/browser() element selection
-    ├── to_model.py     # to_model() Pydantic generation
-    └── quicktype.py    # quicktype() type generation
+│   ├── state_snapshot.py  # Frozen dataclass for thread-safe SSE
+│   ├── daemon_state.py # Daemon state persistence
+│   ├── _utils.py       # Shared service utilities
+│   └── setup/          # Browser/extension setup commands
+│       ├── browser.py  # run-browser command
+│       ├── chrome.py   # Chrome discovery & profile management
+│       ├── desktop.py  # Desktop launcher generation
+│       └── platform.py # Platform detection
+├── commands/           # Thin command wrappers
+│   ├── _builders.py    # Response builders & validators
+│   ├── _utils.py       # Shared utilities & expression eval
+│   ├── _code_generation.py  # JSON/code generation helpers
+│   ├── _tips.py        # Documentation parser (TIPS.md)
+│   ├── connection.py   # watch, unwatch, targets, watching, clear
+│   ├── navigation.py   # navigate, reload, back, forward
+│   ├── network.py      # network(search=) with header filtering
+│   ├── console.py      # console() command
+│   ├── request.py      # request() field selection + expr
+│   ├── entry.py        # entry() console detail view
+│   ├── javascript.py   # js() execution
+│   ├── fetch.py        # fetch(), requests(), resume(), fail()
+│   ├── filters.py      # filters() management
+│   ├── selections.py   # selections/browser() element selection
+│   ├── to_model.py     # to_model() Pydantic generation
+│   ├── quicktype.py    # quicktype() type generation
+│   ├── launch.py       # run-browser, debug-android CLI commands
+│   ├── extension.py    # install-extension CLI command
+│   └── setup.py        # setup-browser CLI command
+├── utils/
+│   └── ports.py        # Port discovery & allocation
+└── extension/          # Chrome extension (sidepanel UI)
+    ├── manifest.json
+    ├── background.js   # Service worker
+    ├── main.js         # Sidepanel entry point
+    ├── sidepanel.html
+    ├── sidepanel.css
+    ├── client.js       # RPC client for daemon communication
+    ├── bind.js         # Data binding utilities
+    ├── datatable.js    # Reusable data table component
+    ├── controllers/    # UI controllers (one per section)
+    │   ├── targets.js  # Target discovery & watch/unwatch
+    │   ├── watching.js # Active watched targets display
+    │   ├── patterns.js # URL pattern watch management
+    │   ├── network.js  # Network request table
+    │   ├── console.js  # Console messages table
+    │   ├── capture.js  # Fetch interception controls
+    │   ├── filters.js  # Filter group management
+    │   ├── selections.js  # DOM element selection
+    │   ├── notices.js  # Notice display
+    │   ├── header.js   # Connection status header
+    │   ├── tabs.js     # Tab navigation
+    │   └── theme.js    # Dark/light theme
+    └── lib/            # Shared extension utilities
+        ├── ui.js       # DOM helpers
+        ├── utils.js    # General utilities
+        ├── target-utils.js  # Target ID formatting
+        ├── rpc/errors.js    # RPC error handling
+        └── table/      # Table rendering library
 ```
 
 ## Success Metrics
