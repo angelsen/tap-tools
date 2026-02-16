@@ -96,6 +96,7 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("page", requires_state=_ATTACHED_STATES, broadcasts=False)(_page)
 
     rpc.method("js")(_js)
+    rpc.method("screenshot", requires_state=_ATTACHED_STATES, broadcasts=False)(_screenshot)
 
     rpc.method("cdp", requires_state=_ATTACHED_STATES)(_cdp)
     rpc.method("errors.dismiss")(_errors_dismiss)
@@ -533,6 +534,24 @@ def _execute_js(ctx, cdp, code, selection, persist, await_promise, return_value)
         return {"value": value, "executed": True}
     else:
         return {"executed": True}
+
+
+def _screenshot(
+    ctx: RPCContext,
+    target: str,
+    format: str = "png",
+    quality: int | None = None,
+    full_page: bool = False,
+) -> dict:
+    """Capture screenshot of target page."""
+    cdp = _resolve_cdp_session(ctx, target)
+    params: dict = {"format": format}
+    if quality is not None:
+        params["quality"] = quality
+    if full_page:
+        params["captureBeyondViewport"] = True
+    result = cdp.execute("Page.captureScreenshot", params)
+    return {"data": result["data"], "format": format}
 
 
 def _targets_set(ctx: RPCContext, targets: list[str]) -> dict:

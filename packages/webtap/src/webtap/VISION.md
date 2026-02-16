@@ -250,6 +250,7 @@ webtap/
 │   ├── selections.py   # selections/browser() element selection
 │   ├── to_model.py     # to_model() Pydantic generation
 │   ├── quicktype.py    # quicktype() type generation
+│   ├── screenshot.py   # screenshot (resource), screenshot_capture (tool)
 │   ├── launch.py       # run-browser, debug-android CLI commands
 │   ├── extension.py    # install-extension CLI command
 │   └── setup.py        # setup-browser CLI command
