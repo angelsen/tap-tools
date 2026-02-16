@@ -150,35 +150,23 @@ def unwatch(state, targets: list = None, urls: list = None) -> dict:  # pyright:
 @app.command(
     display="markdown", fastmcp={"type": "tool", "mime_type": "text/markdown", "description": _clear_desc or ""}
 )
-def clear(state, events: bool = True, console: bool = False) -> dict:
-    """Clear various data stores.
+def clear(state) -> dict:
+    """Clear CDP events from all connected targets.
 
-    Args:
-        events: Clear CDP events (default: True)
-        console: Clear console messages (default: False)
+    Clears stored network requests, console messages, and other CDP events.
 
     Examples:
-        clear()                                    # Clear events only
-        clear(events=True, console=True)          # Clear events and console
-        clear(events=False, console=True)         # Console only
+        clear()
 
     Returns:
         Summary of what was cleared
     """
-    result, error = rpc_call(state, "clear", events=events, console=console)
+    result, error = rpc_call(state, "clear")
     if error:
         return error
 
-    # Build cleared list from result
     cleared = result.get("cleared", [])
-
-    if not cleared:
-        return info_response(
-            title="Clear Status",
-            fields={"Result": "Nothing to clear (specify events=True or console=True)"},
-        )
-
-    return info_response(title="Clear Status", fields={"Cleared": ", ".join(cleared)})
+    return info_response(title="Clear Status", fields={"Cleared": ", ".join(cleared) or "nothing"})
 
 
 @app.command(

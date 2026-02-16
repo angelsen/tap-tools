@@ -145,27 +145,19 @@ def _status(ctx: RPCContext) -> dict:
     return get_full_state()
 
 
-def _clear(ctx: RPCContext, events: bool = True, console: bool = False) -> dict:
-    """Clear various data stores."""
-    cleared = []
-
-    if events:
-        for conn in ctx.service.connections.values():
-            try:
-                conn.cdp.clear_events()
-            except Exception:
-                pass
-        cleared.append("events")
-
-    if console:
-        if ctx.service.connections:
-            success = ctx.service.console.clear_browser_console()
-            if success:
-                cleared.append("console")
-        else:
-            cleared.append("console (not connected)")
-
-    return {"cleared": cleared}
+def _clear(ctx: RPCContext) -> dict:
+    """Clear CDP events from all connected and stashed targets."""
+    for conn in ctx.service.connections.values():
+        try:
+            conn.cdp.clear_events()
+        except Exception:
+            pass
+    # Clean up stashed DBs from disconnected URL-watched targets
+    for cdp in list(ctx.service._stashed_dbs.values()):
+        cdp.cleanup()
+    ctx.service._stashed_dbs.clear()
+    ctx.service._detached_urls.clear()
+    return {"cleared": ["events"]}
 
 
 def _browser_start_inspect(ctx: RPCContext, target: str) -> dict:

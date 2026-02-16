@@ -168,7 +168,7 @@ function setupUIBindings() {
     targets.setFilter(e.target.value);
   };
 
-  bindAction("clear", "clear", { events: true });
+  bindAction("clear", "clear");
   bindAction("clearSelections", "browser.clear");
   bindAction("dismissError", "errors.dismiss");
 
