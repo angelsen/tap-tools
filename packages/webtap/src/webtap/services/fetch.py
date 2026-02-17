@@ -89,6 +89,23 @@ class FetchService:
         """Number of bodies captured this session."""
         return self._capture_count
 
+    # ============= Skip & Resume =============
+
+    def _fast_continue(self, cdp: Any, request_id: str, is_response: bool) -> None:
+        """Continue a paused request without body capture.
+
+        Args:
+            cdp: CDPSession to execute commands on
+            request_id: Fetch requestId
+            is_response: Whether this is response stage (determines CDP method)
+        """
+        try:
+            method = "Fetch.continueResponse" if is_response else "Fetch.continueRequest"
+            cdp.execute(method, {"requestId": request_id})
+            cdp.decrement_paused_count()
+        except Exception as e:
+            logger.debug(f"Failed to fast-continue {request_id}: {e}")
+
     # ============= Auto-Resume Callback =============
 
     def _on_request_paused(self, event: dict, cdp: Any, target: str) -> None:
@@ -127,8 +144,17 @@ class FetchService:
             logger.warning("requestPaused event missing requestId")
             return
 
-        # Check if this is Response stage (has responseStatusCode)
         is_response_stage = params.get("responseStatusCode") is not None
+
+        # Skip SSE streams — getResponseBody hangs on streaming responses
+        if is_response_stage:
+            response_headers = params.get("responseHeaders", [])
+            if any(
+                h.get("name", "").lower() == "content-type" and "text/event-stream" in h.get("value", "")
+                for h in response_headers
+            ):
+                self._fast_continue(cdp, request_id, True)
+                return
 
         if not is_response_stage:
             # Request stage - just continue immediately (no body to capture)
