@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Controls integration**: `GET /prompt` daemon endpoint sweeps watched targets for `window.controls` registries via `Runtime.evaluate`, formats as plain text for LLM context injection
 - **`webtap controls` CLI command**: Discovers daemon port, fetches `/prompt`, outputs controls state (designed for `UserPromptSubmit` hook stdout)
 - **`webtap controls-setup` CLI command**: Adds `UserPromptSubmit` hook to `.claude/settings.local.json` with idempotency check
+- **Screenshot capture**: `screenshot_capture(target)` captures viewport or full-page screenshot via `Page.captureScreenshot`, saves to `/tmp/webtap/` by default or custom path. MCP resource `webtap://screenshot` lists available targets as a context nudge
+- **Extension "Open as Tab"**: Right-click context menu now offers Side Panel, Popup Window, and Tab as UI modes
 - **Extension URL Patterns section**: Input field and watch button for pattern-based watching, per-pattern remove buttons
 - **Suspended target verification**: `_verify_suspended_target()` detects targets gone from Chrome after extension reload and cleans up stale connections
 - **Self-target fetch skip**: Skip fetch interception on extension's own pages to avoid blocking SSE
