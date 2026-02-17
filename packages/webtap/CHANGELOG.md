@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`webtap controls-setup` CLI command**: Adds `UserPromptSubmit` hook to `.claude/settings.local.json` with idempotency check
 - **Screenshot capture**: `screenshot_capture(target)` captures viewport or full-page screenshot via `Page.captureScreenshot`, saves to `/tmp/webtap/` by default or custom path. MCP resource `webtap://screenshot` lists available targets as a context nudge
 - **Extension "Open as Tab"**: Right-click context menu now offers Side Panel, Popup Window, and Tab as UI modes
+- **Extension max-width**: UI capped at 700px and centered, prevents stretching in tab mode
 - **Extension URL Patterns section**: Input field and watch button for pattern-based watching, per-pattern remove buttons
 - **Suspended target verification**: `_verify_suspended_target()` detects targets gone from Chrome after extension reload and cleans up stale connections
 - **Self-target fetch skip**: Skip fetch interception on extension's own pages to avoid blocking SSE
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dead DB thread restart**: `CDPSession._db_execute()` detects dead DB worker threads and restarts them instead of hanging for 30s on a result queue
 - **Disconnected browser cleanup**: `BrowserSession._on_close()` notifies service so dead BrowserSessions are removed from the registry
 - **Stashed DB leak on clear**: `clear()` now also cleans up stashed DBs and detached URL mappings from disconnected URL-watched targets
+- **SSE fetch capture hang**: Skip `Fetch.getResponseBody` for `text/event-stream` responses — streaming bodies never complete, causing 5s timeout and blocking SSE connections from watched targets
 
 ### Removed
 - **`clear()` parameters**: `events` and `console` boolean flags removed (always clears everything)
