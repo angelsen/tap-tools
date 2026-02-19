@@ -91,12 +91,12 @@ def format_timestamp(epoch_ms: float | None) -> str:
         return "-"
 
 
-def rpc_call(state, method: str, **params) -> tuple[dict, dict | None]:
+def rpc_call(state, rpc_method: str, **params) -> tuple[dict, dict | None]:
     """Execute RPC call with standard error handling.
 
     Args:
         state: Application state with client
-        method: RPC method name
+        rpc_method: RPC method name (named to avoid collision with user params like method="POST")
         **params: Method parameters
 
     Returns:
@@ -109,7 +109,7 @@ def rpc_call(state, method: str, **params) -> tuple[dict, dict | None]:
         # use result - guaranteed to be dict
     """
     try:
-        return state.client.call(method, **params), None
+        return state.client.call(rpc_method, **params), None
     except RPCError as e:
         return {}, error_response(e.message)
     except Exception as e:

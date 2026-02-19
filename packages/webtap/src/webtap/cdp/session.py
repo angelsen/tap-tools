@@ -179,6 +179,9 @@ class CDPSession:
 
             except queue.Empty:
                 continue
+            except Exception as e:
+                logger.error(f"DB worker unexpected error: {e}")
+                continue
 
     def _db_execute(self, sql: str, params: list | None = None, wait_result: bool = True) -> Any:
         """Submit database operation to dedicated thread.
