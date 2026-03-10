@@ -27,15 +27,21 @@ def _get_app():
     return _app
 
 
-_WEBTAP_HOOK = {
+_PROMPT_HOOK = {
     "type": "command",
-    "command": "webtap controls 2>/dev/null || true",
+    "command": "webtap prompt 2>/dev/null || true",
+    "timeout": 3,
+}
+
+_STOP_HOOK = {
+    "type": "command",
+    "command": "webtap stop-hook 2>/dev/null || true",
     "timeout": 3,
 }
 
 
-def _controls():
-    """Fetch controls state from daemon and print as plain text."""
+def _prompt():
+    """Fetch prompt context (controls + console) from daemon."""
     from webtap.daemon import daemon_running, get_daemon_url
 
     if not daemon_running():
@@ -52,8 +58,38 @@ def _controls():
         pass
 
 
-def _controls_setup():
-    """Add UserPromptSubmit hook for controls integration to .claude/settings.local.json."""
+def _stop_hook():
+    """Stop hook: check for new console errors after Claude finishes."""
+    import json
+
+    # Read hook input from stdin
+    try:
+        hook_input = json.load(sys.stdin)
+    except Exception:
+        return
+
+    # Prevent infinite loops
+    if hook_input.get("stop_hook_active"):
+        return
+
+    from webtap.daemon import daemon_running, get_daemon_url
+
+    if not daemon_running():
+        return
+
+    try:
+        import httpx
+
+        url = get_daemon_url()
+        response = httpx.get(f"{url}/console-check", timeout=2.0)
+        if response.status_code == 200 and response.text:
+            print(response.text)
+    except Exception:
+        pass
+
+
+def _hooks_setup():
+    """Install Claude Code hooks for controls + console integration."""
     import json
     from pathlib import Path
 
@@ -70,22 +106,31 @@ def _controls_setup():
         settings = {}
 
     hooks = settings.setdefault("hooks", {})
-    matchers = hooks.setdefault("UserPromptSubmit", [])
+    changed = False
 
-    # Check if already installed
-    for matcher in matchers:
-        for hook in matcher.get("hooks", []):
-            if "webtap controls" in hook.get("command", ""):
-                print(f"Already installed in {settings_path}")
-                return
+    # UserPromptSubmit hook (prompt context)
+    prompt_matchers = hooks.setdefault("UserPromptSubmit", [])
+    has_prompt = any("webtap prompt" in h.get("command", "") for m in prompt_matchers for h in m.get("hooks", []))
+    if not has_prompt:
+        prompt_matchers.append({"hooks": [_PROMPT_HOOK]})
+        changed = True
 
-    # Add the hook
-    matchers.append({"hooks": [_WEBTAP_HOOK]})
+    # Stop hook (console error check)
+    stop_matchers = hooks.setdefault("Stop", [])
+    has_stop = any("webtap stop-hook" in h.get("command", "") for m in stop_matchers for h in m.get("hooks", []))
+    if not has_stop:
+        stop_matchers.append({"hooks": [_STOP_HOOK]})
+        changed = True
+
+    if not changed:
+        print(f"Hooks already installed in {settings_path}")
+        return
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-    print(f"Added UserPromptSubmit hook to {settings_path}")
-    print("Controls state will be injected into Claude Code context on each prompt.")
+    print(f"Installed hooks in {settings_path}")
+    print("  UserPromptSubmit: controls + console context on each prompt")
+    print("  Stop: check for new console errors after Claude finishes")
 
 
 def __getattr__(name: str):
@@ -113,8 +158,8 @@ COMMANDS:
   cleanup                   Clean up old installations
   daemon [start|stop|status]  Manage background daemon
   status                    Show daemon and connection status
-  controls                  Output controls state for LLM context injection
-  controls-setup               Add Claude Code hooks for controls integration
+  prompt                    Output prompt context (controls + console) for LLM
+  hooks-setup               Install Claude Code hooks (prompt + stop)
 
 OPTIONS:
   --help, -h                Show this help message
@@ -178,14 +223,19 @@ def main():
                 print("Connected: no")
         return
 
-    # Controls subcommand — output controls state for LLM context
-    if arg == "controls":
-        _controls()
+    # Prompt subcommand — output controls + console context for LLM
+    if arg == "prompt":
+        _prompt()
+        return
+
+    # Stop hook subcommand — check for new console errors
+    if arg == "stop-hook":
+        _stop_hook()
         return
 
     # Hooks setup subcommand
-    if arg == "controls-setup":
-        _controls_setup()
+    if arg == "hooks-setup":
+        _hooks_setup()
         return
 
     # Daemon subcommand

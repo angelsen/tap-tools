@@ -123,7 +123,9 @@ class CDPSession:
     _STATE_AFFECTING_PREFIXES = (
         "Network.",  # Network requests table
         "Fetch.",  # Fetch interception
-        "Runtime.consoleAPI",  # Console messages
+        "Runtime.consoleAPI",  # Console messages (consoleAPICalled)
+        "Runtime.exception",  # Uncaught exceptions (exceptionThrown)
+        "Log.",  # Browser-level logs (entryAdded)
         "Overlay.",  # DOM inspection
         "DOM.",  # DOM changes
     )
@@ -465,6 +467,24 @@ class CDPSession:
             return None  # No capture attempted
         except Exception:
             return None
+
+    def store_request_body(self, request_id: str, body: str) -> None:
+        """Store captured request POST body.
+
+        Args:
+            request_id: CDP request ID (networkId from Fetch)
+            body: POST body content
+        """
+        event = {
+            "method": "Network.requestBodyCaptured",
+            "params": {"requestId": request_id, "body": body},
+        }
+        event_json = json.dumps(event)
+        self._db_execute(
+            "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
+            [event_json, event["method"], self.target, request_id],
+            wait_result=False,
+        )
 
     def store_response_body(
         self,

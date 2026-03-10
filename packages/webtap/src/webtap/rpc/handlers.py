@@ -98,6 +98,13 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("js")(_js)
     rpc.method("screenshot", requires_state=_ATTACHED_STATES, broadcasts=False)(_screenshot)
 
+    rpc.method("inject", requires_state=_ATTACHED_STATES)(_inject)
+    rpc.method("inject_remove", requires_state=_ATTACHED_STATES)(_inject_remove)
+    rpc.method("inject_list", requires_state=_ATTACHED_STATES, broadcasts=False)(_inject_list)
+
+    rpc.method("bind", requires_state=_ATTACHED_STATES)(_bind)
+    rpc.method("bind_remove", requires_state=_ATTACHED_STATES)(_bind_remove)
+
     rpc.method("cdp", requires_state=_ATTACHED_STATES)(_cdp)
     rpc.method("errors.dismiss")(_errors_dismiss)
 
@@ -345,6 +352,71 @@ def _filters_disable_all(ctx: RPCContext) -> dict:
     """Disable all filter groups."""
     ctx.service.filters.disable_all()
     return {"enabled": []}
+
+
+def _inject(ctx: RPCContext, code: str, target: str) -> dict:
+    """Inject a persistent script via Page.addScriptToEvaluateOnNewDocument."""
+    try:
+        result = ctx.service.execute_on_target(
+            target,
+            lambda cdp: cdp.execute("Page.addScriptToEvaluateOnNewDocument", {"source": code}),
+        )
+    except ValueError as e:
+        raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
+
+    identifier = result.get("identifier", "")
+    code_preview = code[:80] + ("..." if len(code) > 80 else "")
+
+    ctx.service.track_injection(target, identifier, code_preview)
+    return {"identifier": identifier, "code_preview": code_preview}
+
+
+def _inject_remove(ctx: RPCContext, id: str, target: str) -> dict:
+    """Remove a persistent script injection."""
+    try:
+        ctx.service.execute_on_target(
+            target,
+            lambda cdp: cdp.execute("Page.removeScriptToEvaluateOnNewDocument", {"identifier": id}),
+        )
+    except ValueError as e:
+        raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
+
+    ctx.service.remove_injection(target, id)
+    return {"removed": True, "identifier": id}
+
+
+def _inject_list(ctx: RPCContext, target: str) -> dict:
+    """List active script injections."""
+    injections = ctx.service.get_injections(target)
+    return {"injections": injections}
+
+
+def _bind(ctx: RPCContext, name: str, target: str) -> dict:
+    """Register a page-callable binding via Runtime.addBinding."""
+    try:
+        ctx.service.execute_on_target(
+            target,
+            lambda cdp: cdp.execute("Runtime.addBinding", {"name": name}),
+        )
+    except ValueError as e:
+        raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
+
+    ctx.service.register_binding(target, name)
+    return {"bound": True, "name": name}
+
+
+def _bind_remove(ctx: RPCContext, name: str, target: str) -> dict:
+    """Remove a page-callable binding."""
+    try:
+        ctx.service.execute_on_target(
+            target,
+            lambda cdp: cdp.execute("Runtime.removeBinding", {"name": name}),
+        )
+    except ValueError as e:
+        raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
+
+    ctx.service.unregister_binding(target, name)
+    return {"removed": True, "name": name}
 
 
 def _cdp(ctx: RPCContext, command: str, params: dict | None = None, target: str | None = None) -> dict:

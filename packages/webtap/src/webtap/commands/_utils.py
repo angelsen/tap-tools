@@ -113,32 +113,60 @@ def evaluate_expression(expr: str, namespace: dict) -> Tuple[Any, str]:
     return result, output
 
 
-def format_expression_result(result: Any, output: str, max_length: int = 2000) -> str:
-    """Format the result of an expression evaluation for display.
+def auto_spill(content: str, max_length: int = 2000, suffix: str = ".txt") -> tuple[str, str | None]:
+    """Truncate large content for display, spilling full data to a temp file.
 
     Args:
-        result: The evaluation result.
-        output: Any stdout output captured.
-        max_length: Maximum length before truncation.
+        content: Full content string.
+        max_length: Display truncation threshold.
+        suffix: File extension for spill file.
+
+    Returns:
+        Tuple of (display_content, spill_path_or_none).
+    """
+    if len(content) <= max_length:
+        return content, None
+
+    import tempfile
+    from pathlib import Path
+
+    spill_dir = Path("/tmp/webtap")
+    spill_dir.mkdir(parents=True, exist_ok=True)
+
+    fd, path = tempfile.mkstemp(dir=spill_dir, suffix=suffix, prefix="spill_")
+    with open(fd, "w") as f:
+        f.write(content)
+
+    preview = content[:max_length] + f"\n... [{len(content)} chars total → {path}]"
+    return preview, path
+
+
+def format_expression_result(result: Any, output: str, max_length: int = 2000) -> tuple[str, str | None]:
+    """Format the result of an expression evaluation for display.
+
+    Auto-spills large results to a temp file instead of hard-truncating.
+
+    Returns:
+        Tuple of (formatted_display, spill_path_or_none).
     """
     parts = []
 
+    spill_path = None
     if output:
         parts.append(output.rstrip())
 
     if result is not None:
         if isinstance(result, (dict, list)):
             formatted = json.dumps(result, indent=2)
-            if len(formatted) > max_length:
-                parts.append(formatted[:max_length] + f"\n... [truncated, {len(formatted)} chars total]")
-            else:
-                parts.append(formatted)
+            formatted, spill_path = auto_spill(formatted, max_length, suffix=".json")
+            parts.append(formatted)
         elif isinstance(result, str) and len(result) > max_length:
-            parts.append(result[:max_length] + f"\n... [truncated, {len(result)} chars total]")
+            display, spill_path = auto_spill(result, max_length)
+            parts.append(display)
         else:
             parts.append(str(result))
 
-    return "\n".join(parts) if parts else "(no output)"
+    return ("\n".join(parts) if parts else "(no output)"), spill_path
 
 
 # ============= Body Content Utilities =============

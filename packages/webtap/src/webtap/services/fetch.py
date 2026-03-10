@@ -157,7 +157,11 @@ class FetchService:
                 return
 
         if not is_response_stage:
-            # Request stage - just continue immediately (no body to capture)
+            # Request stage - capture POST body if present, then continue
+            post_data = params.get("request", {}).get("postData")
+            if post_data:
+                network_id = params.get("networkId", request_id)
+                cdp.store_request_body(network_id, post_data)
             try:
                 cdp.execute("Fetch.continueRequest", {"requestId": request_id})
                 cdp.decrement_paused_count()
@@ -298,7 +302,10 @@ class FetchService:
             return
 
         try:
-            patterns = [{"urlPattern": "*", "requestStage": "Response"}]
+            patterns = [
+                {"urlPattern": "*", "requestStage": "Request"},
+                {"urlPattern": "*", "requestStage": "Response"},
+            ]
             cdp.execute("Fetch.enable", {"patterns": patterns})
             cdp.register_event_callback(
                 "Fetch.requestPaused",

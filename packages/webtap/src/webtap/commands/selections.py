@@ -60,7 +60,7 @@ def selections(state, expr: str = None) -> dict:  # pyright: ignore[reportArgume
     try:
         namespace = {"data": data}
         result, output = evaluate_expression(expr, namespace)
-        formatted_result = format_expression_result(result, output)
+        formatted_result, spill_path = format_expression_result(result, output)
 
         return expression_result_response(expr, formatted_result)
     except Exception as e:

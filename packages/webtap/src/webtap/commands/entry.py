@@ -64,7 +64,7 @@ def entry(
         try:
             namespace = {"data": selected}
             eval_result, stdout = evaluate_expression(expr, namespace)
-            formatted = format_expression_result(eval_result, stdout)
+            formatted, spill_path = format_expression_result(eval_result, stdout)
 
             # Export to file if output path provided
             if output:

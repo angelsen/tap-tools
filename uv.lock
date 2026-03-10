@@ -1162,7 +1162,7 @@ all = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", marker = "extra == 'examples'", specifier = ">=0.116.1" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.9.2" },
+    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.9.2,<3" },
     { name = "psutil", marker = "extra == 'examples'", specifier = ">=7.0.0" },
     { name = "replkit2", extras = ["cli"], marker = "extra == 'all'" },
     { name = "replkit2", extras = ["mcp"], marker = "extra == 'all'" },

@@ -139,6 +139,12 @@ class WebTapService:
         self._own_extension_id: str | None = None
         self._has_silent_sessions = False
 
+        # Persistent script injections: {target: {identifier: {code_preview, created_at}}}
+        self._injections: dict[str, dict[str, dict]] = {}
+
+        # Page-callable bindings: {target: {name: callback}}
+        self._bindings: dict[str, dict[str, "Any"]] = {}
+
         # Updated atomically on state change, read without locks
         self._state_snapshot: StateSnapshot = StateSnapshot.create_empty()
 
@@ -340,6 +346,7 @@ class WebTapService:
             if target in self.connections:
                 conn = self.connections[target]
                 self.fetch.cleanup_target(target, conn.cdp)
+                self._cleanup_injections_and_bindings(target)
                 self.conn_mgr.disconnect(target)
                 self.conn_mgr.remove_from_tracked(target, self.tracked_targets)
 
@@ -555,6 +562,7 @@ class WebTapService:
 
                 # Clean up live state but keep DuckDB alive for queries
                 self.fetch.cleanup_target(target_id, conn.cdp)
+                self._cleanup_injections_and_bindings(target_id)
                 conn.cdp._event_callbacks.clear()
                 conn.cdp._broadcast_callback = None
 
@@ -573,6 +581,7 @@ class WebTapService:
         # Normal disconnect cleanup
         if conn:
             self.fetch.cleanup_target(target_id, conn.cdp)
+        self._cleanup_injections_and_bindings(target_id)
         self.conn_mgr.remove(target_id)
         self.conn_mgr.remove_from_tracked(target_id, self.tracked_targets)
         self._update_silent_sessions()
@@ -1231,6 +1240,85 @@ class WebTapService:
         if not conn:
             raise ValueError(f"Target '{target}' not connected")
         return callback(conn.cdp)
+
+    # -- Injection tracking --
+
+    def track_injection(self, target: str, identifier: str, code_preview: str) -> None:
+        """Track a persistent script injection."""
+        import time
+
+        if target not in self._injections:
+            self._injections[target] = {}
+        self._injections[target][identifier] = {
+            "code_preview": code_preview,
+            "target": target,
+            "created_at": time.time(),
+        }
+
+    def remove_injection(self, target: str, identifier: str) -> None:
+        """Remove injection tracking entry."""
+        if target in self._injections:
+            self._injections[target].pop(identifier, None)
+            if not self._injections[target]:
+                del self._injections[target]
+
+    def get_injections(self, target: str) -> dict[str, dict]:
+        """Get active injections for a target."""
+        return dict(self._injections.get(target, {}))
+
+    # -- Binding tracking --
+
+    def register_binding(self, target: str, name: str) -> None:
+        """Register a binding and its event callback on the CDPSession."""
+        import json
+        import time
+
+        conn = self.get_connection(target)
+        if not conn:
+            return
+
+        def _on_binding_called(event: dict) -> None:
+            params = event.get("params", {})
+            binding_name = params.get("name", "")
+            if binding_name != name:
+                return
+            payload = params.get("payload", "")
+            synthetic = {
+                "method": "Runtime.consoleAPICalled",
+                "params": {
+                    "type": "info",
+                    "source": "binding",
+                    "args": [{"type": "string", "value": f"[{binding_name}] {payload}"}],
+                    "timestamp": time.time(),
+                },
+            }
+            conn.cdp._db_execute(
+                "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
+                [json.dumps(synthetic), "Runtime.consoleAPICalled", target, None],
+                wait_result=False,
+            )
+
+        conn.cdp.register_event_callback("Runtime.bindingCalled", _on_binding_called)
+
+        if target not in self._bindings:
+            self._bindings[target] = {}
+        self._bindings[target][name] = _on_binding_called
+
+    def unregister_binding(self, target: str, name: str) -> None:
+        """Unregister a binding and remove its event callback."""
+        conn = self.get_connection(target)
+        if target in self._bindings and name in self._bindings[target]:
+            callback = self._bindings[target].pop(name)
+            if conn:
+                conn.cdp.unregister_event_callback("Runtime.bindingCalled", callback)
+            if not self._bindings[target]:
+                del self._bindings[target]
+
+    def _cleanup_injections_and_bindings(self, target: str) -> None:
+        """Clean up injection and binding state for a disconnected target."""
+        self._injections.pop(target, None)
+        if target in self._bindings:
+            del self._bindings[target]
 
     def _register_body_capture_callback(self, cdp) -> None:
         """Register callback to capture response bodies on loadingFinished.

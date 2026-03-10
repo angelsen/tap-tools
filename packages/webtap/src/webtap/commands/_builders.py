@@ -265,6 +265,8 @@ def code_result_response(
 ) -> dict:
     """Build code execution result display.
 
+    Auto-spills large results to a temp file instead of bloating context.
+
     Args:
         title: Result heading (e.g. "JavaScript Result")
         code: Source code executed
@@ -276,6 +278,8 @@ def code_result_response(
     """
     import json
 
+    from webtap.commands._utils import auto_spill
+
     elements = [
         {"type": "heading", "content": title, "level": 2},
         {"type": "code_block", "content": code, "language": language},
@@ -283,7 +287,12 @@ def code_result_response(
 
     if result is not None:
         if isinstance(result, (dict, list)):
-            elements.append({"type": "code_block", "content": json.dumps(result, indent=2), "language": "json"})
+            content = json.dumps(result, indent=2)
+            content, _spill = auto_spill(content, suffix=".json")
+            elements.append({"type": "code_block", "content": content, "language": "json"})
+        elif isinstance(result, str) and len(result) > 2000:
+            content, _spill = auto_spill(result)
+            elements.append({"type": "code_block", "content": content, "language": ""})
         else:
             elements.append({"type": "text", "content": f"**Result:** `{result}`"})
     else:

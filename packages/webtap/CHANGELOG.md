@@ -8,27 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **URL pattern watching**: `watch(urls=["pattern"])` watches all targets whose URL contains a substring pattern. Patterns persist across browser reconnects, auto-attach matching targets, and clean up orphaned connections on unwatch
-- **Network header search**: `network(search="Bearer")` filters requests by case-insensitive match in request/response headers (uses `har_entries` view with `ILIKE`)
-- **Controls integration**: `GET /prompt` daemon endpoint sweeps watched targets for `window.controls` registries via `Runtime.evaluate`, formats as plain text for LLM context injection
-- **`webtap controls` CLI command**: Discovers daemon port, fetches `/prompt`, outputs controls state (designed for `UserPromptSubmit` hook stdout)
-- **`webtap controls-setup` CLI command**: Adds `UserPromptSubmit` hook to `.claude/settings.local.json` with idempotency check
-- **Screenshot capture**: `screenshot_capture(target)` captures viewport or full-page screenshot via `Page.captureScreenshot`, saves to `/tmp/webtap/` by default or custom path. MCP resource `webtap://screenshot` lists available targets as a context nudge
-- **Extension "Open as Tab"**: Right-click context menu now offers Side Panel, Popup Window, and Tab as UI modes
-- **Extension max-width**: UI capped at 700px and centered, prevents stretching in tab mode
-- **Extension URL Patterns section**: Input field and watch button for pattern-based watching, per-pattern remove buttons
-- **Suspended target verification**: `_verify_suspended_target()` detects targets gone from Chrome after extension reload and cleans up stale connections
+- **`inject()` command**: Persistent script injection via `Page.addScriptToEvaluateOnNewDocument` — survives navigation/reload, supports add/remove/list
+- **`bind()` command**: Page-callable bindings via `Runtime.addBinding` — calls appear as synthetic console messages with `source='binding'`
+- **`webtap prompt` CLI command**: Renamed from `controls`, now includes console drain (new errors since last call) alongside controls state
+- **`webtap stop-hook` CLI command**: Post-turn hook that checks for new console errors after Claude finishes
+- **Request POST body capture**: `Fetch.requestPaused` stores POST bodies as `Network.requestBodyCaptured` synthetic events, available in HAR entries
+- **Auto-spill large results**: `code_result_response()` writes large JS/expression results to temp files instead of bloating context
+- **URL pattern watching**: `watch(urls=["pattern"])` watches all targets whose URL contains a substring pattern, persists across browser reconnects
+- **Network header search**: `network(search="Bearer")` filters by case-insensitive match in request/response headers
+- **Screenshot capture**: `screenshot_capture(target)` via `Page.captureScreenshot`, saves to `/tmp/webtap/` or custom path
+- **Extension "Open as Tab"**: Context menu offers Side Panel, Popup Window, and Tab as UI modes
+- **Extension max-width**: UI capped at 700px, centered in tab mode
+- **Extension URL Patterns section**: Input field and watch button for pattern-based watching
+- **Suspended target verification**: Detects targets gone from Chrome after extension reload, cleans up stale connections
 - **Self-target fetch skip**: Skip fetch interception on extension's own pages to avoid blocking SSE
 
 ### Changed
-- **`clear()` simplified**: Removed `events`/`console` parameters — always clears all CDP events. No more conditional flags
-- **VISION.md**: Updated architecture diagram to browser-level multiplexing model, file structure to include all current modules
+- **`controls` → `prompt`**: CLI command and hook renamed; `GET /prompt` endpoint now returns controls + console drain
+- **`controls-setup` → `prompt-setup`**: Hook setup command renamed to match
+- **SSE broadcast triggers**: `Runtime.exceptionThrown` and `Log.entryAdded` now trigger SSE broadcasts (previously only `Runtime.consoleAPICalled`)
+- **`clear()` simplified**: Removed `events`/`console` parameters — always clears all CDP events
+- **VISION.md**: Updated architecture diagram to browser-level multiplexing model
 
 ### Fixed
-- **Dead DB thread restart**: `CDPSession._db_execute()` detects dead DB worker threads and restarts them instead of hanging for 30s on a result queue
-- **Disconnected browser cleanup**: `BrowserSession._on_close()` notifies service so dead BrowserSessions are removed from the registry
-- **Stashed DB leak on clear**: `clear()` now also cleans up stashed DBs and detached URL mappings from disconnected URL-watched targets
-- **SSE fetch capture hang**: Skip `Fetch.getResponseBody` for `text/event-stream` responses — streaming bodies never complete, causing 5s timeout and blocking SSE connections from watched targets
+- **Dead DB thread restart**: `_db_execute()` detects dead DB worker threads and restarts them instead of hanging for 30s
+- **Disconnected browser cleanup**: `BrowserSession._on_close()` removes dead BrowserSessions from registry
+- **Stashed DB leak on clear**: `clear()` now also cleans up stashed DBs and detached URL mappings
+- **SSE fetch capture hang**: Skip `Fetch.getResponseBody` for `text/event-stream` responses
 
 ### Removed
 - **`clear()` parameters**: `events` and `console` boolean flags removed (always clears everything)

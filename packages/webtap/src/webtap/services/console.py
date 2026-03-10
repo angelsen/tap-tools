@@ -44,7 +44,7 @@ class ConsoleService:
         for conn in self.service.connections.values():
             try:
                 result = conn.cdp.query(
-                    "SELECT COUNT(*) FROM events WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded')"
+                    "SELECT COUNT(*) FROM events WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded', 'Runtime.exceptionThrown')"
                 )
                 total += result[0][0] if result else 0
             except Exception:
@@ -61,10 +61,11 @@ class ConsoleService:
             try:
                 result = conn.cdp.query("""
                     SELECT COUNT(*) FROM events
-                    WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
+                    WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded', 'Runtime.exceptionThrown')
                     AND (
                         json_extract_string(event, '$.params.type') = 'error'
                         OR json_extract_string(event, '$.params.entry.level') = 'error'
+                        OR method = 'Runtime.exceptionThrown'
                     )
                 """)
                 total += result[0][0] if result else 0
@@ -104,16 +105,20 @@ class ConsoleService:
             rowid,
             COALESCE(
                 json_extract_string(event, '$.params.type'),
-                json_extract_string(event, '$.params.entry.level')
+                json_extract_string(event, '$.params.entry.level'),
+                CASE WHEN method = 'Runtime.exceptionThrown' THEN 'error' END
             ) as Level,
             COALESCE(
                 json_extract_string(event, '$.params.source'),
                 json_extract_string(event, '$.params.entry.source'),
+                CASE WHEN method = 'Runtime.exceptionThrown' THEN 'exception' END,
                 'console'
             ) as Source,
             COALESCE(
                 json_extract_string(event, '$.params.args[0].value'),
-                json_extract_string(event, '$.params.entry.text')
+                json_extract_string(event, '$.params.entry.text'),
+                json_extract_string(event, '$.params.exceptionDetails.exception.description'),
+                json_extract_string(event, '$.params.exceptionDetails.text')
             ) as Message,
             COALESCE(
                 json_extract_string(event, '$.params.timestamp'),
@@ -121,7 +126,7 @@ class ConsoleService:
             ) as Time,
             target
         FROM events
-        WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded')
+        WHERE method IN ('Runtime.consoleAPICalled', 'Log.entryAdded', 'Runtime.exceptionThrown')
         """
 
         if level:
@@ -129,6 +134,7 @@ class ConsoleService:
             AND (
                 json_extract_string(event, '$.params.type') = '{level.lower()}'
                 OR json_extract_string(event, '$.params.entry.level') = '{level.lower()}'
+                OR (method = 'Runtime.exceptionThrown' AND '{level.lower()}' = 'error')
             )
             """
 
@@ -194,7 +200,7 @@ class ConsoleService:
         event = json.loads(rows[0][0])
         params = event.get("params", {})
 
-        # Normalize both Runtime.consoleAPICalled and Log.entryAdded
+        # Normalize Runtime.consoleAPICalled, Log.entryAdded, and Runtime.exceptionThrown
         if event.get("method") == "Log.entryAdded":
             entry = params.get("entry", {})
             return {
@@ -206,6 +212,19 @@ class ConsoleService:
                 "timestamp": entry.get("timestamp"),
                 "entry": entry,
                 "stackTrace": entry.get("stackTrace"),
+            }, resolution
+        elif event.get("method") == "Runtime.exceptionThrown":
+            details = params.get("exceptionDetails", {})
+            exception_obj = details.get("exception", {})
+            return {
+                "id": row_id,
+                "method": event["method"],
+                "type": "error",
+                "source": "exception",
+                "message": exception_obj.get("description") or details.get("text", ""),
+                "timestamp": params.get("timestamp"),
+                "exceptionDetails": details,
+                "stackTrace": details.get("stackTrace"),
             }, resolution
         else:  # Runtime.consoleAPICalled
             return {

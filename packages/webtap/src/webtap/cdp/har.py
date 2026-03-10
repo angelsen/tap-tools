@@ -121,6 +121,16 @@ response_extra AS (
     GROUP BY request_id
 ),
 
+-- Captured request POST bodies (from Fetch request stage)
+captured_request_bodies AS (
+    SELECT
+        request_id,
+        MAX(json_extract_string(event, '$.params.body')) as body
+    FROM events
+    WHERE method = 'Network.requestBodyCaptured'
+    GROUP BY request_id
+),
+
 -- Captured bodies with status (ok/err)
 captured_bodies AS (
     SELECT
@@ -214,7 +224,7 @@ http_entries AS (
         ap.paused_id,
         -- Prefer raw headers from ExtraInfo (includes Cookie header)
         COALESCE(reqx.raw_headers, req.request_headers) as request_headers,
-        req.post_data,
+        COALESCE(crb.body, req.post_data) as post_data,
         -- Prefer raw headers from ExtraInfo (includes Set-Cookie), then Fetch headers
         COALESCE(respx.raw_headers, ap.fetch_response_headers, resp.response_headers) as response_headers,
         resp.mime_type,
@@ -237,6 +247,7 @@ http_entries AS (
     LEFT JOIN http_finished fin ON req.request_id = fin.request_id
     LEFT JOIN http_failed fail ON req.request_id = fail.request_id
     LEFT JOIN active_paused ap ON req.request_id = ap.network_id
+    LEFT JOIN captured_request_bodies crb ON req.request_id = crb.request_id
     LEFT JOIN captured_bodies cb ON req.request_id = cb.request_id
 ),
 
