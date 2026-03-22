@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.16.0] - 2026-03-22
+
+### Added
 - **`inject()` command**: Persistent script injection via `Page.addScriptToEvaluateOnNewDocument` — survives navigation/reload, supports add/remove/list
 - **`bind()` command**: Page-callable bindings via `Runtime.addBinding` — calls appear as synthetic console messages with `source='binding'`
 - **`webtap prompt` CLI command**: Renamed from `controls`, now includes console drain (new errors since last call) alongside controls state
