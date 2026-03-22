@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Disconnected browser cleanup**: `BrowserSession._on_close()` removes dead BrowserSessions from registry
 - **Stashed DB leak on clear**: `clear()` now also cleans up stashed DBs and detached URL mappings
 - **SSE fetch capture hang**: Skip `Fetch.getResponseBody` for `text/event-stream` responses
+- **Lone surrogate crash**: Sanitize lone UTF-16 surrogates in CDP events before DuckDB insert (JS strings can contain `\uD800`–`\uDFFF` which are invalid UTF-8)
 
 ### Removed
 - **`clear()` parameters**: `events` and `console` boolean flags removed (always clears everything)

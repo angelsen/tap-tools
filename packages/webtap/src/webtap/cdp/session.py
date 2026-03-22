@@ -7,6 +7,7 @@ PUBLIC API:
 import json
 import logging
 import queue
+import re
 import threading
 from concurrent.futures import Future, TimeoutError
 from typing import Any, TYPE_CHECKING
@@ -26,6 +27,20 @@ logger = logging.getLogger(__name__)
 MAX_EVENTS = 50_000  # FIFO eviction threshold
 PRUNE_BATCH_SIZE = 5_000  # Delete in batches for efficiency
 PRUNE_CHECK_INTERVAL = 1_000  # Check count every N events
+
+# Regex to strip lone surrogates from JSON strings (DuckDB rejects \uD800-\uDFFF)
+# Keeps valid surrogate pairs intact (high \uD800-\uDBFF followed by low \uDC00-\uDFFF)
+_LONE_HIGH_SURROGATE = re.compile(r"(?<!\\)\\u[dD][89aAbB][0-9a-fA-F]{2}(?!\\u[dD][cCdDeEfF][0-9a-fA-F]{2})")
+_LONE_LOW_SURROGATE = re.compile(r"(?<!\\u[dD][89aAbB][0-9a-fA-F]{2})(?<!\\)\\u[dD][cCdDeEfF][0-9a-fA-F]{2}")
+
+
+def _json_dumps_safe(data: Any) -> str:
+    """json.dumps with lone surrogate sanitization for DuckDB compatibility."""
+    s = json.dumps(data)
+    if "\\ud" in s or "\\uD" in s:
+        s = _LONE_HIGH_SURROGATE.sub("", s)
+        s = _LONE_LOW_SURROGATE.sub("", s)
+    return s
 
 
 class CDPSession:
@@ -317,7 +332,7 @@ class CDPSession:
             # Store AS-IS in DuckDB with indexed fields for fast lookups
             self._db_execute(
                 "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
-                [json.dumps(data), method, self.target, request_id],
+                [_json_dumps_safe(data), method, self.target, request_id],
                 wait_result=False,
             )
             self._event_count += 1
@@ -479,7 +494,7 @@ class CDPSession:
             "method": "Network.requestBodyCaptured",
             "params": {"requestId": request_id, "body": body},
         }
-        event_json = json.dumps(event)
+        event_json = _json_dumps_safe(event)
         self._db_execute(
             "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
             [event_json, event["method"], self.target, request_id],
@@ -510,7 +525,7 @@ class CDPSession:
             params["capture"] = capture_meta
 
         event = {"method": "Network.responseBodyCaptured", "params": params}
-        event_json = json.dumps(event)
+        event_json = _json_dumps_safe(event)
         self._db_execute(
             "INSERT INTO events (event, method, target, request_id) VALUES (?, ?, ?, ?)",
             [event_json, event["method"], self.target, request_id],
