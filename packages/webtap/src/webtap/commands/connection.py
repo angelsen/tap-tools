@@ -38,6 +38,7 @@ _STATE_LABELS = {
 @app.command(
     display="markdown",
     fastmcp={"enabled": False},
+    typer={"enabled": False},
 )
 def watch(
     state,
@@ -112,6 +113,7 @@ def watch(
 @app.command(
     display="markdown",
     fastmcp={"enabled": False},
+    typer={"enabled": False},
 )
 def unwatch(state, targets: list = None, urls: list = None) -> dict:  # pyright: ignore[reportArgumentType]
     """Stop watching targets and/or URL patterns.
