@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`click()` command**: CDP mouse click at element coordinates via `Input.dispatchMouseEvent`
+- **`type_text()` command**: CDP keystrokes with `{Enter}`, `{Tab}`, `{Backspace}` and other special keys via `{KeyName}` syntax
+- **`network(wait=N)`**: Block up to N seconds for matching requests before returning
+- **Browser beta/dev detection**: Auto-detect `google-chrome-beta`, `google-chrome-unstable`, `microsoft-edge-beta`, `microsoft-edge-dev`
+- **`resolve_config_dir()`**: Correct bindfs profile directory for beta/dev browser variants
 
 ### Changed
 

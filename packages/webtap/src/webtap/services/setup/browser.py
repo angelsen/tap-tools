@@ -13,6 +13,7 @@ from .platform import (
     ensure_directories,
     get_browser_info,
     find_browser_path,
+    resolve_config_dir,
     SUPPORTED_BROWSERS,
 )
 
@@ -176,6 +177,9 @@ class BrowserSetupService:
         # Ensure directories exist
         ensure_directories()
         self.wrapper_dir.mkdir(parents=True, exist_ok=True)
+
+        # Resolve correct config_dir for the detected variant (e.g., google-chrome-beta)
+        browser_config = {**browser_config, "config_dir": resolve_config_dir(browser_id)}
 
         # Generate platform-specific wrapper
         if self.info["is_macos"]:

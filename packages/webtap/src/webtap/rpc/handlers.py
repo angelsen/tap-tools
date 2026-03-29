@@ -7,6 +7,8 @@ Handlers receive RPCContext and delegate to WebTapService for business logic.
 Per-target state is managed by ConnectionManager via ctx.service.conn_mgr.
 """
 
+import threading
+
 from webtap.rpc.errors import ErrorCode, RPCError
 from webtap.rpc.framework import RPCContext, RPCFramework
 
@@ -106,6 +108,8 @@ def register_handlers(rpc: RPCFramework) -> None:
     rpc.method("bind_remove", requires_state=_ATTACHED_STATES)(_bind_remove)
 
     rpc.method("cdp", requires_state=_ATTACHED_STATES)(_cdp)
+    rpc.method("click", requires_state=_ATTACHED_STATES)(_click)
+    rpc.method("type", requires_state=_ATTACHED_STATES)(_type)
     rpc.method("errors.dismiss")(_errors_dismiss)
 
     rpc.method("targets.set")(_targets_set)
@@ -241,20 +245,52 @@ def _network(
     show_all: bool = False,
     order: str = "desc",
     target: str | list[str] | None = None,
+    wait: int | None = None,
 ) -> dict:
-    """Query network requests with inline filters."""
-    requests = ctx.service.network.get_requests(
-        limit=limit,
-        status=status,
-        method=method,
-        type_filter=resource_type,
-        url=url,
-        state=state,
-        search=search,
-        apply_groups=not show_all,
-        order=order,
-        target=target,
-    )
+    """Query network requests with inline filters. Optionally wait for matches."""
+
+    def _query() -> list[dict]:
+        return ctx.service.network.get_requests(
+            limit=limit,
+            status=status,
+            method=method,
+            type_filter=resource_type,
+            url=url,
+            state=state,
+            search=search,
+            apply_groups=not show_all,
+            order=order,
+            target=target,
+        )
+
+    requests = _query()
+
+    if requests or wait is None:
+        return {"targets": _get_connected_targets(ctx), "requests": requests}
+
+    # Wait mode: block until any network event arrives, then re-query
+    match_event = threading.Event()
+    timeout_seconds = min(wait, 60)
+
+    cdps = ctx.service.get_query_cdps([target] if isinstance(target, str) else target)
+
+    def on_network_event(event: dict) -> None:
+        match_event.set()
+
+    listen_methods = ["Network.responseReceived", "Network.loadingFinished", "Network.loadingFailed"]
+
+    for cdp in cdps:
+        for method_name in listen_methods:
+            cdp.register_event_callback(method_name, on_network_event)
+
+    try:
+        match_event.wait(timeout=timeout_seconds)
+        requests = _query()
+    finally:
+        for cdp in cdps:
+            for method_name in listen_methods:
+                cdp.unregister_event_callback(method_name, on_network_event)
+
     return {"targets": _get_connected_targets(ctx), "requests": requests}
 
 
@@ -424,6 +460,68 @@ def _cdp(ctx: RPCContext, command: str, params: dict | None = None, target: str 
     cdp_session = _resolve_cdp_session(ctx, target)
     result = cdp_session.execute(command, params or {})
     return {"result": result}
+
+
+def _resolve_selector(ctx: RPCContext, selector: str | None, selection: int | None) -> str:
+    """Resolve selector from explicit CSS or selection ID."""
+    if selection is not None:
+        dom_state = ctx.service.dom.get_state()
+        selections = dom_state.get("selections", {})
+        sel_key = str(selection)
+        if sel_key not in selections:
+            available = ", ".join(selections.keys()) if selections else "none"
+            raise RPCError(ErrorCode.INVALID_PARAMS, f"Selection #{selection} not found. Available: {available}")
+        resolved = selections[sel_key].get("selector")
+        if not resolved:
+            raise RPCError(ErrorCode.INVALID_PARAMS, f"Selection #{selection} has no CSS selector")
+        return resolved
+    if not selector:
+        raise RPCError(ErrorCode.INVALID_PARAMS, "Either selector or selection is required")
+    return selector
+
+
+def _click(ctx: RPCContext, selector: str, target: str, selection: int | None = None) -> dict:
+    """Click element at its center coordinates."""
+    resolved = _resolve_selector(ctx, selector, selection)
+    try:
+        return ctx.service.execute_on_target(target, lambda cdp: _click_impl(ctx.service.input, cdp, resolved))
+    except ValueError as e:
+        raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
+
+
+def _click_impl(input_svc, cdp, selector: str) -> dict:
+    """Resolve coordinates and dispatch click."""
+    x, y = input_svc.resolve_element_center(cdp, selector)
+    input_svc.click_at(cdp, x, y)
+    return {"selector": selector, "x": x, "y": y, "clicked": True}
+
+
+def _type(
+    ctx: RPCContext,
+    selector: str,
+    text: str,
+    target: str,
+    delay_ms: int = 50,
+    selection: int | None = None,
+) -> dict:
+    """Focus element and type text via CDP Input domain."""
+    resolved = _resolve_selector(ctx, selector, selection)
+    try:
+        return ctx.service.execute_on_target(
+            target, lambda cdp: _type_impl(ctx.service.input, cdp, resolved, text, delay_ms)
+        )
+    except ValueError as e:
+        raise RPCError(ErrorCode.INVALID_PARAMS, str(e))
+
+
+def _type_impl(input_svc, cdp, selector: str, text: str, delay_ms: int) -> dict:
+    """Click to focus, then dispatch key events."""
+    from webtap.services.input import _tokenize_input
+
+    x, y = input_svc.resolve_element_center(cdp, selector)
+    input_svc.click_at(cdp, x, y)
+    input_svc.type_text(cdp, text, delay_ms)
+    return {"selector": selector, "typed": True, "length": len(_tokenize_input(text))}
 
 
 def _errors_dismiss(ctx: RPCContext) -> dict:

@@ -39,6 +39,7 @@ def network(
     search: str = None,  # pyright: ignore[reportArgumentType]
     show_all: bool = False,
     limit: int = 50,
+    wait: int = None,  # pyright: ignore[reportArgumentType]
     _ctx: ExecutionContext = None,  # pyright: ignore[reportArgumentType]
 ) -> dict:
     """List network requests with inline filters.
@@ -53,6 +54,7 @@ def network(
         search: Search in request/response headers (e.g., "Bearer", "Set-Cookie")
         show_all: Bypass noise filter groups
         limit: Max results (default 50)
+        wait: Wait up to N seconds for matching results (blocks until first match). Defaults to None.
 
     Examples:
         network()                    # Default with noise filter
@@ -64,6 +66,7 @@ def network(
         network(show_all=True)       # Show everything
         network(target="9222:abc")   # Only from specific target
         network(search="Bearer")     # Requests with Bearer in headers
+        network(url="*suggest*", wait=10)  # Wait for suggest XHR after typing
     """
     # Build params, omitting None values
     params = {"limit": limit, "show_all": show_all}
@@ -81,6 +84,8 @@ def network(
         params["state"] = req_state
     if search is not None:
         params["search"] = search
+    if wait is not None:
+        params["wait"] = wait
 
     result, error = rpc_call(state, "network", **params)
     if error:

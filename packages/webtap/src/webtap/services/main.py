@@ -15,6 +15,7 @@ from webtap.services.connection import ActiveConnection, ConnectionManager
 from webtap.services.console import ConsoleService
 from webtap.services.dom import DOMService
 from webtap.services.fetch import FetchService
+from webtap.services.input import InputService
 from webtap.services.network import NetworkService
 from webtap.services.state_snapshot import StateSnapshot
 from webtap.services.watcher import ChromeWatcher
@@ -102,11 +103,13 @@ class WebTapService:
         self.network = NetworkService()
         self.console = ConsoleService()
         self.dom = DOMService()
+        self.input = InputService()
 
         self.fetch.set_service(self)
         self.network.set_service(self)
         self.console.set_service(self)
         self.dom.set_service(self)
+        self.input.set_service(self)
 
         # Chrome availability watcher
         self.watcher = ChromeWatcher(self)

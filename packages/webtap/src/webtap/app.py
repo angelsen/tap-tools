@@ -54,6 +54,8 @@ from webtap.commands import quicktype  # noqa: E402, F401
 from webtap.commands import screenshot  # noqa: E402, F401
 from webtap.commands import inject  # noqa: E402, F401
 from webtap.commands import bind  # noqa: E402, F401
+from webtap.commands import click  # noqa: E402, F401
+from webtap.commands import type_text  # noqa: E402, F401
 from webtap.commands import selections  # noqa: E402, F401
 from webtap.commands import setup  # noqa: E402, F401
 from webtap.commands import launch  # noqa: E402, F401
