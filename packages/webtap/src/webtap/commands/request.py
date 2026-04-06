@@ -10,7 +10,7 @@ from webtap.client import RPCError
 from webtap.commands._builders import error_response, expression_result_response, success_response
 from webtap.commands._code_generation import ensure_output_directory
 from webtap.commands._tips import get_mcp_description
-from webtap.commands._utils import evaluate_expression, format_expression_result
+from webtap.commands._utils import evaluate_expression, format_expression_result, serialize_for_export
 
 _mcp_desc = get_mcp_description("request")
 
@@ -66,10 +66,10 @@ def request(
             eval_result, stdout = evaluate_expression(expr, namespace)
             formatted, spill_path = format_expression_result(eval_result, stdout)
 
-            # Export to file if output path provided
+            # Export to file if output path provided (use raw result, not truncated display)
             if output:
                 output_path = ensure_output_directory(output)
-                output_path.write_text(formatted)
+                output_path.write_text(serialize_for_export(eval_result, stdout))
                 return success_response(
                     "Exported successfully",
                     details={

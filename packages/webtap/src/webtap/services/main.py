@@ -23,13 +23,14 @@ from webtap.services.watcher import ChromeWatcher
 
 _DOMAINS_BY_TYPE = {
     "page": ["Page", "Network", "Runtime", "Log", "DOMStorage"],
+    "iframe": ["Page", "Network", "Runtime", "Log", "DOMStorage"],
     "service_worker": ["Network", "Runtime", "Log"],
     "background_page": ["Network", "Runtime", "Log", "DOMStorage"],
     "worker": ["Network", "Runtime"],
 }
 
-# Connectable target types (exclude iframes, other, etc.)
-_CONNECTABLE_TYPES = {"page", "service_worker", "background_page", "worker"}
+# Connectable target types
+_CONNECTABLE_TYPES = {"page", "iframe", "service_worker", "background_page", "worker"}
 
 # Target types watched by URL (target_id changes on extension reload)
 _URL_WATCHED_TYPES = {"service_worker", "background_page"}

@@ -169,6 +169,20 @@ def format_expression_result(result: Any, output: str, max_length: int = 2000) -
     return ("\n".join(parts) if parts else "(no output)"), spill_path
 
 
+def serialize_for_export(result: Any, stdout: str = "") -> str:
+    """Serialize expression result for file export (no truncation).
+
+    Prefers the return value; falls back to stdout for print-only expressions.
+    """
+    if isinstance(result, (dict, list)):
+        return json.dumps(result, indent=2, default=str)
+    if result is not None:
+        return str(result)
+    if stdout:
+        return stdout.rstrip()
+    return ""
+
+
 # ============= Body Content Utilities =============
 
 
