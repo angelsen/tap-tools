@@ -8,10 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **iframe target support**: Iframes now appear in `targets()` and can be watched/attached for `js()`, `network()`, etc.
 
 ### Changed
 
 ### Fixed
+- **Truncated `output` export**: `request()` and `entry()` with `expr=` + `output=` now write full data instead of the 2KB display-truncated string
+- **Stashed DB memory leak**: Cap disconnected DuckDB instances at 5 with FIFO eviction, preventing unbounded memory growth from service worker/extension reloads
 
 ### Removed
 

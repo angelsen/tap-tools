@@ -39,6 +39,7 @@ _URL_WATCHED_TYPES = {"service_worker", "background_page"}
 _NETWORK_BUFFER_SIZE = 50_000_000  # 50MB total buffer
 _NETWORK_RESOURCE_SIZE = 10_000_000  # 10MB per resource
 _MAX_DETACHED_URLS = 50  # Max URL mappings for old target ID resolution
+_MAX_STASHED_DBS = 5  # Max stashed DuckDB instances (each ~100-200MB)
 _DOMAIN_ENABLE_TIMEOUT = 10  # Healthy targets respond in <1s
 
 
@@ -227,6 +228,14 @@ class WebTapService:
         if targets is not None:
             return active
         return active + list(self._stashed_dbs.values())
+
+    def _evict_stashed_dbs(self) -> None:
+        """Evict oldest stashed DBs if over limit."""
+        while len(self._stashed_dbs) > _MAX_STASHED_DBS:
+            oldest_url = next(iter(self._stashed_dbs))
+            evicted = self._stashed_dbs.pop(oldest_url)
+            evicted.cleanup()
+            logging.getLogger(__name__).info(f"Evicted stashed DB for {oldest_url}")
 
     def set_tracked_targets(self, targets: list[str] | None) -> list[str]:
         """Set tracked targets. None or [] clears (meaning all).
@@ -575,6 +584,7 @@ class WebTapService:
                 if old_stash:
                     old_stash.cleanup()
                 self._stashed_dbs[url] = conn.cdp
+                self._evict_stashed_dbs()
 
                 self.conn_mgr.remove(target_id)
                 self.conn_mgr.remove_from_tracked(target_id, self.tracked_targets)
@@ -695,6 +705,7 @@ class WebTapService:
             if old_stash:
                 old_stash.cleanup()
             self._stashed_dbs[url] = conn.cdp
+            self._evict_stashed_dbs()
 
         self.fetch.cleanup_target(target_id, conn.cdp)
         self.conn_mgr.remove(target_id)
