@@ -15,10 +15,11 @@ PUBLIC API:
 """
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
+import re
 import subprocess
-import hashlib
 import warnings
 
 from .core import run_tmux, _get_current_pane, _is_current_pane
@@ -397,6 +398,13 @@ def get_client_for_pane(pane_id: str) -> str:
     return ""
 
 
+# Strip escape sequences that some terminal emulators leak into tmux pane buffer
+# OSC: \033]...\007 or \033]...\033\\  (e.g., title setting — confirmed on Alacritty)
+# CSI: \033[...X                       (e.g., colors, cursor — defensive)
+# Fe:  \033X                           (e.g., charset switching — defensive)
+_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-Z\\-_])")
+
+
 def __strip_trailing_empty_lines(content: str) -> str:
     """Strip tmux pane height padding lines."""
     if not content:
@@ -426,7 +434,10 @@ def capture_pane(pane_id: str) -> str:
         All pane content with trailing empty lines stripped.
     """
     code, stdout, _ = run_tmux(["capture-pane", "-t", pane_id, "-p", "-S", "-"])
-    return __strip_trailing_empty_lines(stdout) if code == 0 else ""
+    if code != 0:
+        return ""
+    cleaned = _ESCAPE_RE.sub("", stdout)
+    return __strip_trailing_empty_lines(cleaned)
 
 
 def create_panes_with_layout(session: str, num_panes: int, layout: str = "even-horizontal") -> list[str]:
