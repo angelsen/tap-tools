@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.17.1] - 2026-04-06
+
+### Added
 - **iframe target support**: Iframes now appear in `targets()` and can be watched/attached for `js()`, `network()`, etc.
 
 ### Changed
