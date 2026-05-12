@@ -1,71 +1,62 @@
 ---
-description: Build, test, and release Python packages using relkit
+description: Build, test, and release Python packages via uv wrapper
 argument-hint: [package-name] [version-bump]
 allowed-tools: Bash, Read, Edit, MultiEdit, Grep, Glob
 ---
 
-Execute a complete package release workflow using relkit.
+Release a package using the uv wrapper's release workflow.
 
-**Your task: Release a package (or the entire project) using relkit's atomic workflow.**
+**Your task: Release the specified package.**
 
-Review the output to ensure:
-- Git is clean (no uncommitted changes)
-- Changelog has entries
-- Code quality checks pass
+## Step 1: Navigate to package
 
-## Step 3: Update CHANGELOG
+For workspace packages, cd into the package directory first:
+```bash
+cd packages/<package-name>
+```
 
-Ensure CHANGELOG.md has entries in the [Unreleased] section:
+## Step 2: Ensure CHANGELOG is ready
+
+Check CHANGELOG.md has entries in the [Unreleased] section:
 - Document what was Added, Changed, Fixed, or Removed
 - Use clear, user-focused descriptions
 - Follow Keep a Changelog format
 
-## Step 4: Version Bump & Release
+If no CHANGELOG.md exists: `uv changelog init`
+
+## Step 3: Version Bump
 
 ```bash
-# For workspace packages
-relkit bump <patch|minor|major> --package <package>
-
-# For single package
-relkit bump <patch|minor|major>
+uv version --bump <patch|minor|major>
 ```
 
 This atomically:
 - Updates version in pyproject.toml
-- Moves [Unreleased] to new version in CHANGELOG
+- Syncs uv.lock
+- Moves [Unreleased] to new version in CHANGELOG.md
 - Commits changes
-- Creates appropriate tag (v1.0.0 or package-v1.0.0)
-- Pushes to remote
+- Creates git tag (v1.0.0 or package-v1.0.0 for workspace packages)
 
-## Step 5: Build & Test
-
-```bash
-# Build distribution files
-relkit build [--package <package>]
-```
-
-## Step 6: Publish (if public)
+## Step 4: Push
 
 ```bash
-# Publish to PyPI (will prompt for confirmation)
-relkit publish [--package <package>]
+git push && git push --tags
 ```
 
-Note: Private packages (with "Private :: Do Not Upload" classifier) are blocked from PyPI.
+## Step 5: Build & Publish
+
+```bash
+uv build
+uv publish
+```
+
+`uv publish` shows a review summary and provides a confirmation token. The user must run `uv publish --confirm <token>` themselves (requires GPG for PyPI token via `pass`).
+
+**Do NOT run `uv publish --confirm` — that requires the user's GPG key.**
 
 ## Key Points
 
-- **relkit enforces**: Clean git state before operations
-- **relkit blocks**: Building if dist/ has old files
-- **relkit requires**: CHANGELOG entries for releases
-- **relkit handles**: Workspace vs single package automatically
-- **relkit protects**: Against accidental public releases
-
-## Quick One-Liner
-
-For a full release after changes are ready:
-```bash
-relkit bump patch [--package <name>] && \
-relkit build [--package <name>] && \
-relkit publish [--package <name>]
-```
+- **uv wrapper enforces**: Clean git state before bump and publish
+- **uv wrapper blocks**: Publishing if tag is behind HEAD or stale dist files exist
+- **uv wrapper handles**: Workspace tag prefixes automatically (package-v1.0.0)
+- **uv wrapper gates**: Publishing behind a time-limited confirmation token + GPG
