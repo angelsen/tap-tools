@@ -12,10 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Removed
+
+## [0.17.2] - 2026-05-12
+
+### Fixed
 - **Browser discovery**: Use absolute `/usr/bin/` paths on Linux instead of `shutil.which()`, preventing user wrappers from being resolved as the system browser
 - **macOS .app launcher**: Delegate to wrapper script instead of inlining browser resolution with `shutil.which()`
 
-### Removed
 
 ## [0.17.1] - 2026-04-06
 
