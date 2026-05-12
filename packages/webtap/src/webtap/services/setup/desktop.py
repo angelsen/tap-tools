@@ -5,10 +5,11 @@ PUBLIC API:
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
-from .platform import get_platform_info
+from .platform import find_browser_path, get_platform_info
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,8 @@ _MACOS_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
+    <key>CFBundleIconFile</key>
+    <string>app.icns</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>
@@ -140,14 +143,17 @@ class DesktopSetupService:
             }
 
         if self.info["is_macos"]:
-            return self._install_macos_app(browser_config, wrapper_path, force)
+            return self._install_macos_app(browser_id, browser_config, wrapper_path, force)
         else:
             return self._install_linux_desktop(browser_config, wrapper_path, force)
 
-    def _install_macos_app(self, browser_config: dict, wrapper_path: Path, force: bool) -> dict[str, Any]:
+    def _install_macos_app(
+        self, browser_id: str, browser_config: dict, wrapper_path: Path, force: bool
+    ) -> dict[str, Any]:
         """Create .app bundle for macOS.
 
         Args:
+            browser_id: Browser ID (e.g., 'chrome', 'edge')
             browser_config: Browser configuration dict
             wrapper_path: Path to the wrapper script
             force: Overwrite existing app
@@ -185,6 +191,20 @@ exec "{wrapper_path}" "$@"
 """
         launcher_path.write_text(launcher_content)
         launcher_path.chmod(0o755)
+
+        # Symlink browser icon into Resources/
+        resources_dir = contents_dir / "Resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        icon_link = resources_dir / "app.icns"
+        browser_path = find_browser_path(browser_id)
+        if browser_path:
+            # e.g. /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+            #   -> /Applications/Google Chrome.app/Contents/Resources/app.icns
+            source_icon = Path(browser_path).parent.parent / "Resources" / "app.icns"
+            if source_icon.exists():
+                if icon_link.exists() or icon_link.is_symlink():
+                    icon_link.unlink()
+                os.symlink(source_icon, icon_link)
 
         # Create Info.plist
         plist_path = contents_dir / "Info.plist"

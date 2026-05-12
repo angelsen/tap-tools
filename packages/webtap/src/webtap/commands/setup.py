@@ -116,6 +116,53 @@ def _format_setup_result(result: dict) -> dict:
 
 @app.command(
     display="markdown",
+    typer={"name": "remove-browser", "help": "Uninstall browser wrapper and desktop launcher"},
+    fastmcp={"enabled": False},
+)
+def remove_browser(
+    state,
+    browser: Annotated[str | None, typer.Option("--browser", "-b", help="Browser ID (chrome, edge)")] = None,
+) -> dict:
+    """Uninstall browser wrapper script and desktop launcher.
+
+    Removes the wrapper script and desktop entry/app bundle created by setup-browser.
+
+    Args:
+        browser: Browser ID (auto-detects if not specified)
+
+    Returns:
+        Markdown-formatted result
+    """
+    if not browser:
+        found = detect_browsers()
+        if len(found) == 0:
+            return _format_error("No supported browser found", [])
+        elif len(found) > 1:
+            return _format_error(
+                "Multiple browsers found. Specify one with --browser",
+                [f"webtap remove-browser --browser {b}" for b in found],
+            )
+        browser = found[0]
+
+    if browser not in SUPPORTED_BROWSERS:
+        return _format_error(
+            f"Unsupported browser: {browser}",
+            [f"Supported: {', '.join(SUPPORTED_BROWSERS.keys())}"],
+        )
+
+    service = SetupService()
+    result = service.uninstall_browser(browser)
+
+    elements = []
+    level = "success" if result["success"] else "warning"
+    elements.append({"type": "alert", "message": result["message"], "level": level})
+    for item in result.get("removed", []):
+        elements.append({"type": "text", "content": f"- {item}"})
+    return {"elements": elements}
+
+
+@app.command(
+    display="markdown",
     typer={"name": "cleanup", "help": "Clean up old WebTap installations"},
     fastmcp={"enabled": False},
 )

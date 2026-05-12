@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`remove-browser` command**: Uninstall browser wrapper and desktop launcher created by `setup-browser`
+- **macOS app icon**: `.app` bundle symlinks the browser's `.icns` icon so it shows in Launchpad/Dock/Spotlight
 
 ### Changed
 

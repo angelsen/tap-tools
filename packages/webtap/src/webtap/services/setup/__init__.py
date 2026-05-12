@@ -99,6 +99,57 @@ class SetupService:
                 "desktop_result": desktop_result,
             }
 
+    def uninstall_browser(self, browser_id: str) -> dict[str, Any]:
+        """Uninstall browser wrapper and desktop launcher.
+
+        Args:
+            browser_id: Browser ID (e.g., 'chrome', 'edge')
+
+        Returns:
+            Dict with success, message, and details of what was removed
+        """
+        import shutil
+
+        browser_config = get_browser_info(browser_id)
+        if not browser_config:
+            return {
+                "success": False,
+                "message": f"Unsupported browser: {browser_id}",
+            }
+
+        removed = []
+        browser_name = browser_config["name"]
+
+        # Remove wrapper script
+        wrapper_path = self.browser_service.wrapper_dir / browser_config["wrapper"]
+        if wrapper_path.exists():
+            wrapper_path.unlink()
+            removed.append(f"Wrapper: {wrapper_path}")
+
+        # Remove desktop entry / app bundle
+        if self.info["is_macos"]:
+            app_path = self.info["paths"]["applications_dir"] / f"{browser_name} Debug.app"
+            if app_path.exists():
+                shutil.rmtree(app_path)
+                removed.append(f"App: {app_path}")
+        else:
+            desktop_path = self.info["paths"]["applications_dir"] / f"{browser_config['wrapper']}.desktop"
+            if desktop_path.exists():
+                desktop_path.unlink()
+                removed.append(f"Desktop entry: {desktop_path}")
+
+        if removed:
+            return {
+                "success": True,
+                "message": f"{browser_name} Debug uninstalled",
+                "removed": removed,
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"{browser_name} Debug is not installed",
+            }
+
     def get_platform_info(self) -> dict[str, Any]:
         """Get platform information for debugging.
 
