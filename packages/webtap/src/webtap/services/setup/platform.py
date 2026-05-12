@@ -21,7 +21,12 @@ SUPPORTED_BROWSERS = {
         "icon": "google-chrome",
         "wm_class": "Google-chrome",
         "executables": {
-            "linux": ["google-chrome-stable", "google-chrome", "google-chrome-beta", "google-chrome-unstable"],
+            "linux": [
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-beta",
+                "/usr/bin/google-chrome-unstable",
+            ],
             "darwin": [
                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                 "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
@@ -35,7 +40,12 @@ SUPPORTED_BROWSERS = {
         "icon": "microsoft-edge",
         "wm_class": "Microsoft-edge",
         "executables": {
-            "linux": ["microsoft-edge-stable", "microsoft-edge", "microsoft-edge-beta", "microsoft-edge-dev"],
+            "linux": [
+                "/usr/bin/microsoft-edge-stable",
+                "/usr/bin/microsoft-edge",
+                "/usr/bin/microsoft-edge-beta",
+                "/usr/bin/microsoft-edge-dev",
+            ],
             "darwin": [
                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
                 "/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta",
@@ -153,13 +163,15 @@ def resolve_config_dir(browser_id: str) -> str:
 
     # Find which executable was detected and derive config_dir from it
     for exe in config.get("executables", {}).get(system, []):
-        if shutil.which(exe):
+        path = Path(exe)
+        if path.exists():
+            name = path.name
             # google-chrome-stable -> google-chrome (stable is the default)
-            if exe.endswith("-stable"):
+            if name.endswith("-stable"):
                 return default_config_dir
             # google-chrome-beta -> google-chrome-beta
             # google-chrome -> google-chrome (same as default)
-            return exe
+            return name
     return default_config_dir
 
 

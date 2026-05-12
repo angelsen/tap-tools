@@ -155,8 +155,6 @@ class DesktopSetupService:
         Returns:
             Installation result
         """
-        import shutil
-
         browser_name = browser_config["name"]
         wrapper_name = browser_config["wrapper"]
         app_name = f"{browser_name} Debug.app"
@@ -170,34 +168,20 @@ class DesktopSetupService:
                 "details": "Use --force to overwrite",
             }
 
-        # Find browser path
-        browser_path = shutil.which("google-chrome-stable" if "chrome" in wrapper_name else "microsoft-edge-stable")
-
         # Create app structure
         contents_dir = app_path / "Contents"
         macos_dir = contents_dir / "MacOS"
         macos_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create launcher script
+        # Create launcher script — delegates to the wrapper script (same as
+        # Linux .desktop Exec=). Sets PATH so native messaging hosts spawned
+        # by Chrome can find their binaries (Finder/Dock launch has minimal PATH).
         launcher_path = macos_dir / f"{browser_name} Debug"
-        profile_dir = self.paths["data_dir"] / "profiles" / "default"
 
         launcher_content = f"""#!/bin/bash
-# {browser_name} Debug app launcher - direct browser execution
-# Avoids Rosetta warnings by directly launching browser
-
-PORT=${{WEBTAP_PORT:-9222}}
-PROFILE_DIR="{profile_dir}"
-mkdir -p "$PROFILE_DIR"
-
-# Launch browser directly with debugging
-exec "{browser_path}" \\
-    --remote-debugging-port="$PORT" \\
-    --remote-allow-origins='*' \\
-    --user-data-dir="$PROFILE_DIR" \\
-    --no-first-run \\
-    --no-default-browser-check \\
-    "$@"
+# {browser_name} Debug app launcher — delegates to wrapper script
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+exec "{wrapper_path}" "$@"
 """
         launcher_path.write_text(launcher_content)
         launcher_path.chmod(0o755)
