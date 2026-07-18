@@ -266,11 +266,6 @@ class SlimScreen:
         return "\n".join(line.text for line in self.lines[-n:])
 
     @property
-    def text(self) -> str:
-        """Full buffer as string."""
-        return "\n".join(line.text for line in self.lines)
-
-    @property
     def line_count(self) -> int:
         """Total number of lines in buffer (logical count)."""
         return self._current_logical()

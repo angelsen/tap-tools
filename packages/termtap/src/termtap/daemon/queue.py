@@ -74,6 +74,8 @@ class ActionQueue:
     in action.result when user responds.
     """
 
+    _MAX_RESOLVED = 100  # FIFO cap; resolved actions are only kept for status lookup
+
     def __init__(self, max_size: int = 100):
         """Initialize queue.
 
@@ -83,6 +85,11 @@ class ActionQueue:
         self.max_size = max_size
         self.pending: list[Action] = []
         self.resolved: dict[str, Action] = {}  # Track resolved for status lookup
+
+    def _store_resolved(self, action: Action):
+        self.resolved[action.id] = action
+        while len(self.resolved) > self._MAX_RESOLVED:
+            self.resolved.pop(next(iter(self.resolved)))
 
     def add(
         self,
@@ -135,7 +142,7 @@ class ActionQueue:
                 action.result = result
                 action.state = ActionState.COMPLETED
                 self.pending.pop(i)
-                self.resolved[action_id] = action  # Keep for status lookup
+                self._store_resolved(action)
                 return
 
     def cancel(self, action_id: str, reason: str = "cancelled"):
@@ -150,7 +157,7 @@ class ActionQueue:
                 action.result = {"error": reason}
                 action.state = ActionState.CANCELLED
                 self.pending.pop(i)
-                self.resolved[action_id] = action  # Keep for status lookup
+                self._store_resolved(action)
                 return
 
     def get(self, action_id: str) -> Action | None:
@@ -166,14 +173,6 @@ class ActionQueue:
             if action.id == action_id:
                 return action
         return self.resolved.get(action_id)
-
-    def get_next(self) -> Action | None:
-        """Get next pending action.
-
-        Returns:
-            Next action or None if queue is empty
-        """
-        return self.pending[0] if self.pending else None
 
     def to_dict(self) -> list[dict]:
         """Convert queue to list of dicts for serialization.

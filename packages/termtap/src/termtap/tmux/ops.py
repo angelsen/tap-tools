@@ -5,25 +5,17 @@ PUBLIC API:
   - list_panes: List all panes with full information
   - get_pane: Get single pane by ID
   - get_client_for_pane: Get client name for a pane
-  - validate_pane_id: Validate pane ID format and existence
-  - get_pane_pid: Get process ID for pane
   - send_keys: Send keystrokes to pane
-  - send_via_paste_buffer: Send content using paste buffer
   - capture_pane: Capture all pane content (history + visible)
-  - create_panes_with_layout: Create multiple panes with layout
   - build_client_context: Build client context from tmux environment
 """
 
 from dataclasses import dataclass
-import hashlib
 import json
 import os
 import re
-import subprocess
-import warnings
 
-from .core import run_tmux, _get_current_pane, _is_current_pane
-from ._exceptions import PaneNotFoundError, CurrentPaneError
+from .core import run_tmux, _get_current_pane
 from ..types import LineEnding
 
 # Type alias for session:window.pane format
@@ -88,26 +80,9 @@ def build_client_context() -> dict[str, str]:
     return {"pane": pane, "session": session, "window": window_id, "client": client}
 
 
-def validate_pane_id(pane_id: str) -> str | None:
-    """Validate pane ID exists.
-
-    Alias for resolution.validate_pane_id for use by server.py.
-
-    Args:
-        pane_id: Must be %id format (e.g., "%42")
-
-    Returns:
-        pane_id if valid, None if not found or invalid format
-    """
-    from .resolution import validate_pane_id as _validate
-
-    return _validate(pane_id)
-
-
 def send_keys(
     pane_id: str,
     *commands,
-    enter: bool | None = None,  # Deprecated
     line_ending: LineEnding | str = LineEnding.LF,
     delay: float = 0.05,
     literal: bool = False,
@@ -120,7 +95,6 @@ def send_keys(
     Args:
         pane_id: Target pane ID.
         *commands: One or more commands/keys to send.
-        enter: DEPRECATED - use line_ending instead.
         line_ending: How to terminate the command:
             - LineEnding.LF or "lf": Unix line feed (default)
             - LineEnding.CRLF or "crlf": Windows CR+LF
@@ -135,17 +109,6 @@ def send_keys(
     """
     if not commands:
         return True
-
-    # Handle deprecated 'enter' parameter
-    if enter is not None:
-        warnings.warn(
-            f"Parameter 'enter' is deprecated. Use 'line_ending' instead.\n"
-            f"  Old: send_keys(..., enter={enter})\n"
-            f"  New: send_keys(..., line_ending=LineEnding.{'LF' if enter else 'NONE'})",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        line_ending = LineEnding.LF if enter else LineEnding.NONE
 
     # Send the commands
     args = ["send-keys", "-t", pane_id]
@@ -179,103 +142,6 @@ def send_keys(
         return code == 0
 
     return True
-
-
-def send_via_paste_buffer(
-    pane_id: str,
-    content: str,
-    enter: bool | None = None,  # Deprecated
-    line_ending: LineEnding | str = LineEnding.LF,
-    delay: float = 0.05,
-) -> bool:
-    """Send content using tmux paste buffer for multiline/special content.
-
-    Args:
-        pane_id: Target pane ID.
-        content: Content to send (can be multiline).
-        enter: DEPRECATED - use line_ending instead.
-        line_ending: How to terminate the command:
-            - LineEnding.LF or "lf": Unix line feed (default)
-            - LineEnding.CRLF or "crlf": Windows CR+LF
-            - LineEnding.CR or "cr": Carriage return only
-            - LineEnding.NONE or "": No line ending
-        delay: Delay in seconds before sending line ending.
-    """
-    if _is_current_pane(pane_id):
-        raise CurrentPaneError(f"Cannot send to current pane ({pane_id})")
-
-    # Handle deprecated 'enter' parameter
-    if enter is not None:
-        warnings.warn(
-            f"Parameter 'enter' is deprecated. Use 'line_ending' instead.\n"
-            f"  Old: send_via_paste_buffer(..., enter={enter})\n"
-            f"  New: send_via_paste_buffer(..., line_ending=LineEnding.{'LF' if enter else 'NONE'})",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        line_ending = LineEnding.LF if enter else LineEnding.NONE
-
-    buffer_name = f"tt_{hashlib.md5(content.encode()).hexdigest()[:8]}"
-
-    proc = subprocess.Popen(
-        ["tmux", "load-buffer", "-b", buffer_name, "-"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    _, stderr = proc.communicate(input=content)
-
-    if proc.returncode != 0:
-        raise RuntimeError(f"Failed to load buffer: {stderr}")
-
-    code, _, stderr = run_tmux(["paste-buffer", "-t", pane_id, "-b", buffer_name, "-d", "-p"])
-
-    if code != 0:
-        raise RuntimeError(f"Failed to paste buffer: {stderr}")
-
-    # Send appropriate line ending
-    if line_ending and line_ending != LineEnding.NONE:
-        if delay > 0:
-            import time
-
-            time.sleep(delay)
-
-        if line_ending == LineEnding.LF or line_ending == "lf":
-            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
-        elif line_ending == LineEnding.CRLF or line_ending == "crlf":
-            # Send Ctrl-M (carriage return) followed by Ctrl-J (line feed)
-            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m", "C-j"])
-        elif line_ending == LineEnding.CR or line_ending == "cr":
-            # Send only Ctrl-M (carriage return)
-            code, _, _ = run_tmux(["send-keys", "-t", pane_id, "C-m"])
-
-    return code == 0
-
-
-def get_pane_pid(pane_id: str) -> int:
-    """Get the PID of a pane's process.
-
-    Args:
-        pane_id: Tmux pane ID.
-
-    Returns:
-        Process ID of the pane.
-
-    Raises:
-        PaneNotFoundError: If pane doesn't exist.
-    """
-    code, stdout, stderr = run_tmux(
-        ["list-panes", "-t", pane_id, "-f", f"#{{==:#{{pane_id}},{pane_id}}}", "-F", "#{pane_pid}"]
-    )
-
-    if code != 0:
-        raise PaneNotFoundError(f"Failed to get pane PID: {stderr}")
-
-    try:
-        return int(stdout.strip())
-    except ValueError:
-        raise RuntimeError(f"Failed to parse PID: invalid format '{stdout}'")
 
 
 def get_pane(pane_id: str) -> PaneInfo | None:
@@ -438,42 +304,3 @@ def capture_pane(pane_id: str) -> str:
         return ""
     cleaned = _ESCAPE_RE.sub("", stdout)
     return __strip_trailing_empty_lines(cleaned)
-
-
-def create_panes_with_layout(session: str, num_panes: int, layout: str = "even-horizontal") -> list[str]:
-    """Create multiple panes in session with layout.
-
-    Args:
-        session: Session name.
-        num_panes: Number of panes to create.
-        layout: Tmux layout name.
-    """
-    if num_panes < 2:
-        raise RuntimeError("Failed to create layout: need at least 2 panes")
-
-    pane_ids = []
-
-    code, stdout, _ = run_tmux(["list-panes", "-t", f"{session}:0", "-F", "#{pane_id}"])
-    if code == 0:
-        pane_ids.append(stdout.strip())
-
-    for i in range(1, num_panes):
-        code, stdout, _ = run_tmux(["split-window", "-t", f"{session}:0.{i - 1}", "-P", "-F", "#{pane_id}"])
-        if code == 0:
-            pane_ids.append(stdout.strip())
-
-    __apply_layout(session, layout)
-
-    return pane_ids
-
-
-def __apply_layout(session: str, layout: str, window: int = 0) -> bool:
-    """Apply layout to window.
-
-    Args:
-        session: Session name.
-        layout: Layout name.
-        window: Window index.
-    """
-    code, _, _ = run_tmux(["select-layout", "-t", f"{session}:{window}", layout])
-    return code == 0

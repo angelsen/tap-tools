@@ -5,7 +5,6 @@ PUBLIC API:
   - HookManager: Check and track hook firing
 """
 
-import re
 import time
 from dataclasses import dataclass, field
 
@@ -23,17 +22,11 @@ class Hook:
     keys: list[str] = field(default_factory=list)
     debounce: float = 2.0
     _last_fired: float = 0.0
-    _regex: re.Pattern | None = field(default=None, repr=False)
-
-    @property
-    def regex(self) -> re.Pattern:
-        if self._regex is None:
-            self._regex = compile_dsl(self.pattern)
-        return self._regex
 
     def matches(self, output: str) -> bool:
         lines = [line.rstrip() for line in output.rstrip("\n").split("\n")]
-        return any(self.regex.search(line) for line in lines)
+        regex = compile_dsl(self.pattern)
+        return any(regex.search(line) for line in lines)
 
     def can_fire(self) -> bool:
         if self.debounce <= 0:

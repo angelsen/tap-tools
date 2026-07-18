@@ -37,7 +37,7 @@ def ls(state, filter: str = None):  # pyright: ignore[reportArgumentType]
     Returns:
         Table data with pane information.
     """
-    client = DaemonClient(auto_start=False)
+    client = DaemonClient()
 
     try:
         result = client.ls()

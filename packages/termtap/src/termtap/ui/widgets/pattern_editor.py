@@ -2,21 +2,17 @@
 
 PUBLIC API:
   - PatternEditor: Editable TextArea for DSL patterns
-  - PatternEntry: Entry with text and position
-  - PatternState: Collection of entries (source of truth)
-  - ValidationState: Three-state validation enum
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from enum import Enum
 
 from textual.reactive import reactive
 from textual.widgets import TextArea
 
-__all__ = ["PatternEditor", "PatternEntry", "PatternState", "ValidationState"]
+__all__ = ["PatternEditor"]
 
 
 @dataclass
@@ -70,11 +66,6 @@ def _escape_literal(text: str) -> str:
     return text.replace("[", "\\[").replace("]", "\\]")
 
 
-def _unescape_literal(text: str) -> str:
-    """Unescape brackets in literal text."""
-    return text.replace("\\[", "[").replace("\\]", "]")
-
-
 def generate_dsl(state: PatternState) -> str:
     """Generate DSL from entries with exact gaps.
 
@@ -109,44 +100,6 @@ def generate_dsl(state: PatternState) -> str:
         lines.append("".join(line_parts))
 
     return "\n".join(lines)
-
-
-def parse_dsl_literals(dsl: str) -> list[str]:
-    """Extract literal contents from DSL.
-
-    Literals are [text] where text is NOT:
-    - A single number or range (gap exact)
-    - * or + (gap wildcards)
-    """
-    literals = []
-    i = 0
-
-    while i < len(dsl):
-        if dsl[i] == "[":
-            j = i + 1
-            while j < len(dsl):
-                if dsl[j] == "]" and (j == i + 1 or dsl[j - 1] != "\\"):
-                    break
-                j += 1
-
-            if j < len(dsl):
-                content = dsl[i + 1 : j]
-                if not _is_gap_content(content):
-                    literals.append(_unescape_literal(content))
-            i = j + 1
-        else:
-            i += 1
-
-    return literals
-
-
-def _is_gap_content(content: str) -> bool:
-    """Check if bracket content is a gap (not a literal)."""
-    if content in ("*", "+"):
-        return True
-    if re.fullmatch(r"\d+(-\d+)?", content):
-        return True
-    return False
 
 
 def _try_compile_dsl(dsl: str) -> bool:

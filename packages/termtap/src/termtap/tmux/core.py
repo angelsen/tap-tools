@@ -22,23 +22,6 @@ def run_tmux(args: list[str]) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-def _parse_format_line(line: str, delimiter: str = ":") -> dict:
-    """Parse tmux format string output into dict.
-
-    Args:
-        line: Format string line to parse.
-        delimiter: Field delimiter. Defaults to ':'.
-    """
-    parts = line.strip().split(delimiter)
-    return {str(i): part for i, part in enumerate(parts)}
-
-
-def _check_tmux_available() -> bool:
-    """Check if tmux is available and server is running."""
-    code, _, _ = run_tmux(["info"])
-    return code == 0
-
-
 def _get_current_pane() -> str | None:
     """Get current tmux pane ID if inside tmux."""
     if not os.environ.get("TMUX"):
@@ -46,40 +29,5 @@ def _get_current_pane() -> str | None:
 
     code, stdout, _ = run_tmux(["display", "-p", "#{pane_id}"])
     if code == 0:
-        return stdout.strip()
-    return None
-
-
-def _is_current_pane(pane_id: str) -> bool:
-    """Check if given pane ID is the current pane.
-
-    Args:
-        pane_id: Pane ID to check.
-    """
-    current = _get_current_pane()
-    return current == pane_id if current else False
-
-
-def _get_pane_id(session: str, window: str, pane: str) -> str | None:
-    """Get pane ID for a specific session:window.pane location.
-
-    Args:
-        session: Session name.
-        window: Window index (as string).
-        pane: Pane index (as string).
-    """
-    swp = f"{session}:{window}.{pane}"
-    code, stdout, _ = run_tmux(
-        [
-            "list-panes",
-            "-t",
-            swp,
-            "-f",
-            f"#{{==:#{{window_index}}.#{{pane_index}},{window}.{pane}}}",
-            "-F",
-            "#{pane_id}",
-        ]
-    )
-    if code == 0 and stdout.strip():
         return stdout.strip()
     return None

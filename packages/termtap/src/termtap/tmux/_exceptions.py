@@ -7,12 +7,6 @@ class TmuxError(Exception):
     pass
 
 
-class SessionNotFoundError(TmuxError):
-    """Raised when a tmux session cannot be found."""
-
-    pass
-
-
 class CurrentPaneError(TmuxError):
     """Raised when attempting forbidden operations on current pane."""
 
@@ -21,11 +15,5 @@ class CurrentPaneError(TmuxError):
 
 class PaneNotFoundError(TmuxError):
     """Raised when a tmux pane cannot be found."""
-
-    pass
-
-
-class WindowNotFoundError(TmuxError):
-    """Raised when a tmux window cannot be found."""
 
     pass

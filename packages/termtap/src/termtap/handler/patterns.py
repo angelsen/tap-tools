@@ -10,6 +10,7 @@ PUBLIC API:
 import re
 import tempfile
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -65,8 +66,9 @@ def parse_quantifier(dsl: str, pos: int) -> tuple[str, int]:
     return ("+", 0)  # Default
 
 
+@lru_cache(maxsize=256)
 def compile_dsl(dsl: str) -> re.Pattern:
-    """Compile DSL string to regex pattern.
+    """Compile DSL string to regex pattern (cached — called per line on the match hot path).
 
     DSL Syntax:
         Types:      #=digit, w=word, .=any, _=space
@@ -155,24 +157,11 @@ class Pattern:
     raw: str  # Original DSL string (may have newlines)
     process: str  # Process name
     state: str  # "ready" or "busy"
-    _regex: re.Pattern | None = field(default=None, repr=False)
-
-    @property
-    def regex(self) -> re.Pattern:
-        """Compile DSL to regex (cached)."""
-        if self._regex is None:
-            self._regex = compile_dsl(self.raw)
-        return self._regex
 
     @property
     def lines(self) -> list[str]:
         """Split into lines for multi-line matching."""
         return self.raw.strip().split("\n")
-
-    @property
-    def is_multiline(self) -> bool:
-        """Check if pattern spans multiple lines."""
-        return "\n" in self.raw
 
     def matches(self, output: str) -> bool:
         """Check if pattern matches output.

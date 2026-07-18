@@ -10,7 +10,7 @@ PUBLIC API:
 
 import sys
 
-__version__ = "0.11.0"
+__version__ = "0.13.4"
 __all__ = ["main"]
 
 

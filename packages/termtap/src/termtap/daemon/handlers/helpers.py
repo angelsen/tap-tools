@@ -109,7 +109,7 @@ def validate_pane_target(target: str) -> str:
     Raises:
         ValueError: If pane ID format is invalid
     """
-    from ...tmux.ops import validate_pane_id
+    from ...tmux.resolution import validate_pane_id
 
     pane_id = validate_pane_id(target)
     if not pane_id:

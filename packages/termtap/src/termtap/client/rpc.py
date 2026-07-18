@@ -3,7 +3,6 @@
 PUBLIC API:
   - DaemonClient: Sync/async client for daemon RPC
   - DaemonNotRunning: Exception when daemon is not available
-  - build_client_context: Build client context from environment (re-exported from tmux.ops)
 """
 
 import json
@@ -14,7 +13,7 @@ from typing import Any
 from ..paths import SOCKET_PATH
 from ..tmux.ops import build_client_context
 
-__all__ = ["DaemonClient", "DaemonNotRunning", "build_client_context"]
+__all__ = ["DaemonClient", "DaemonNotRunning"]
 
 
 class DaemonNotRunning(Exception):
@@ -26,12 +25,7 @@ class DaemonNotRunning(Exception):
 class DaemonClient:
     """Thin client for termtap daemon."""
 
-    def __init__(self, auto_start: bool = False):
-        """Initialize client.
-
-        Args:
-            auto_start: Deprecated, always False. Daemon must be started via entry points.
-        """
+    def __init__(self):
         self._request_id = 0
 
     def call(self, method: str, params: dict[str, Any] | None = None, timeout: float | None = 30.0) -> Any:
@@ -110,11 +104,6 @@ class DaemonClient:
             return self._poll_until_resolved(result["action_id"])
         return result
 
-    def send(self, pane_id: str, message: str) -> dict:
-        """Send message to pane (alias for execute)."""
-        client_context = build_client_context()
-        return self.call("send", {"target": pane_id, "message": message, "client_context": client_context})
-
     def interrupt(self, pane_id: str) -> dict:
         """Send Ctrl+C to pane."""
         return self.call("interrupt", {"target": pane_id})
@@ -122,10 +111,6 @@ class DaemonClient:
     def ls(self) -> dict:
         """List panes."""
         return self.call("ls")
-
-    def ping(self) -> dict:
-        """Check if daemon is responsive."""
-        return self.call("ping")
 
     def debug_eval(self, code: str) -> dict:
         """Execute Python code in daemon with state context.

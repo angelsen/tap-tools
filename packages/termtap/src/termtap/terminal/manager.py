@@ -215,19 +215,6 @@ class PaneManager:
         logger.error(f"Failed to start pipe-pane for {pane_id}")
         return False
 
-    def stop_pipe_pane(self, pane_id: str) -> None:
-        """Stop tmux pipe-pane for this pane.
-
-        Args:
-            pane_id: Pane identifier
-        """
-        if pane_id not in self._active_pipes:
-            return
-        from ..tmux.core import run_tmux
-
-        run_tmux(["pipe-pane", "-t", pane_id])  # Empty stops it
-        self._active_pipes.discard(pane_id)
-
     def cleanup(self, pane_id: str) -> None:
         """Remove pane terminal.
 

@@ -37,7 +37,7 @@ class TermtapScreen(Screen):
     def client(self) -> DaemonClient:
         """Lazy-initialized daemon client."""
         if self._client is None:
-            self._client = DaemonClient(auto_start=False)
+            self._client = DaemonClient()
         return self._client
 
     def action_back(self) -> None:
