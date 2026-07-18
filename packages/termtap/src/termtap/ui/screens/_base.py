@@ -2,13 +2,14 @@
 
 PUBLIC API:
   - TermtapScreen: Base screen with common patterns
+  - ActionScreen: Screen bound to a queue action (pattern learning, pane selection)
 """
 
 from textual.screen import Screen
 
 from ...client import DaemonClient
 
-__all__ = ["TermtapScreen"]
+__all__ = ["TermtapScreen", "ActionScreen"]
 
 
 class TermtapScreen(Screen):
@@ -50,3 +51,17 @@ class TermtapScreen(Screen):
             return self.client.call(method, params)
         except Exception:
             return None
+
+
+class ActionScreen(TermtapScreen):
+    """Screen bound to a queue action (pattern learning, pane selection)."""
+
+    def __init__(self, action: dict):
+        super().__init__()
+        self.action = action
+
+    def resolve_action(self, result: dict) -> None:
+        """Send resolve RPC and pop screen."""
+        if action_id := self.action.get("id"):
+            self.rpc("resolve", {"action_id": action_id, "result": result})
+        self.app.pop_screen()

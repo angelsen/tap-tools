@@ -11,14 +11,14 @@ from textual.widgets import Footer, OptionList, Static
 
 from rich.text import Text
 
-from ._base import TermtapScreen
+from ._base import ActionScreen
 from ..widgets import FzfSelector, FzfItem, PreviewPane
 from ...pane import Pane
 
 __all__ = ["PaneSelectScreen"]
 
 
-class PaneSelectScreen(TermtapScreen):
+class PaneSelectScreen(ActionScreen):
     """Select pane(s) from list.
 
     Args:
@@ -40,8 +40,7 @@ class PaneSelectScreen(TermtapScreen):
     ]
 
     def __init__(self, action: dict, multi_select: bool = False):
-        super().__init__()
-        self.action = action
+        super().__init__(action)
         self.multi_select = multi_select
         self._show_working_set = True  # Default: working set only
         self._all_panes = []  # Store all panes for filtering
@@ -120,10 +119,10 @@ class PaneSelectScreen(TermtapScreen):
         """Handle pane selection from FzfSelector."""
         if self.multi_select:
             panes = event.value if isinstance(event.value, list) else [event.value]
-            self._resolve_action({"panes": panes})
+            self.resolve_action({"panes": panes})
         else:
             pane = event.value if isinstance(event.value, str) else event.value[0]
-            self._resolve_action({"pane": pane})
+            self.resolve_action({"pane": pane})
 
     def on_fzf_selector_cancelled(self, event: FzfSelector.Cancelled) -> None:
         """Handle cancellation from FzfSelector."""
@@ -166,10 +165,3 @@ class PaneSelectScreen(TermtapScreen):
             preview.set_content(pane.content)
         else:
             preview.set_content("(no pane selected)")
-
-    def _resolve_action(self, result: dict) -> None:
-        """Send resolve RPC and pop screen."""
-        action_id = self.action.get("id")
-        if action_id:
-            self.rpc("resolve", {"action_id": action_id, "result": result})
-        self.app.pop_screen()

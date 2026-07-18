@@ -9,7 +9,7 @@ from typing import Any
 from ..app import app
 from ..client import DaemonClient
 from ..tmux.ops import send_keys
-from ._helpers import _require_pane_id, build_hint
+from ._helpers import _require_pane_id, build_hint, error_response
 
 
 @app.command(
@@ -54,13 +54,10 @@ def send_keystrokes(state, keys: list[str], pane_id: str = None) -> dict[str, An
     try:
         resolved_pane_id = _require_pane_id(client, "send_keystrokes", pane_id)
     except ValueError as e:
-        return {"elements": [{"type": "text", "content": str(e)}]}
+        return error_response(str(e))
 
     if not keys:
-        return {
-            "elements": [{"type": "text", "content": "Error: No keys to send"}],
-            "frontmatter": {"status": "error", "error": "No keys to send"},
-        }
+        return error_response("No keys to send")
 
     try:
         from ..types import LineEnding
@@ -91,7 +88,4 @@ def send_keystrokes(state, keys: list[str], pane_id: str = None) -> dict[str, An
             }
 
     except Exception as e:
-        return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"status": "error", "error": str(e)},
-        }
+        return error_response(str(e))

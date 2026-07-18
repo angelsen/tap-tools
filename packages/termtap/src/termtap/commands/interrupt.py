@@ -8,7 +8,7 @@ from typing import Any
 
 from ..app import app
 from ..client import DaemonClient
-from ._helpers import _require_pane_id, build_hint
+from ._helpers import _require_pane_id, build_hint, error_response
 
 
 @app.command(
@@ -35,7 +35,7 @@ def interrupt(state, pane_id: str = None) -> dict[str, Any]:  # pyright: ignore[
     try:
         resolved_pane_id = _require_pane_id(client, "interrupt", pane_id)
     except ValueError as e:
-        return {"elements": [{"type": "text", "content": str(e)}]}
+        return error_response(str(e))
 
     try:
         client.interrupt(resolved_pane_id)
@@ -52,7 +52,4 @@ def interrupt(state, pane_id: str = None) -> dict[str, Any]:  # pyright: ignore[
         }
 
     except Exception as e:
-        return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"status": "error", "error": str(e)},
-        }
+        return error_response(str(e))

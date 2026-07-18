@@ -125,33 +125,16 @@ class PaneManager:
                         logger.debug(f"Action {action_id}: busy pattern visible")
                     elif self._busy_tracking.get(action_id, False) and state == "ready":
                         # Busy was seen, now gone, ready matches → complete
-                        output = Pane.get(pane.pane_id, pane).content
-                        truncated = False
                         logger.info(f"Action {action_id} completed (auto-pair): busy disappeared")
-                        pane.action.result = {"output": output, "truncated": truncated}
-                        pane.action.state = ActionState.COMPLETED
-
-                        if self.on_resolve:
-                            self.on_resolve(pane.action)
-
-                        # Cleanup tracking
-                        self._busy_tracking.pop(action_id, None)
-                        pane.action = None
+                        output = Pane.get(pane.pane_id, pane).content
+                        self._finish_watch(pane, action_id, output)
                 elif state == "ready":
                     # Normal mode: complete when ready pattern matches
                     # (Manual teaching completes via set_linked_busy RPC before reaching here)
                     action_id = pane.action.id
                     output = Pane.get(pane.pane_id, pane).content
-                    truncated = False
                     logger.info(f"Action {action_id} completed: output={len(output)} chars")
-                    pane.action.result = {"output": output, "truncated": truncated}
-                    pane.action.state = ActionState.COMPLETED
-
-                    if self.on_resolve:
-                        self.on_resolve(pane.action)
-
-                    pane.action = None
-                    self._busy_tracking.pop(action_id, None)  # cleanup if exists
+                    self._finish_watch(pane, action_id, output)
 
             elif pane.action.state == ActionState.READY_CHECK and state == "ready":
                 # READY_CHECK: pattern now matches, signal ready for auto-transition
@@ -163,6 +146,18 @@ class PaneManager:
                     self.on_resolve(pane.action)
 
                 # Don't clear pane.action - daemon will update it to WATCHING
+
+    def _finish_watch(self, pane: PaneTerminal, action_id: str, output: str) -> None:
+        """Complete a watched action: set result, notify daemon, detach from pane."""
+        assert pane.action is not None
+        pane.action.result = {"output": output, "truncated": False}
+        pane.action.state = ActionState.COMPLETED
+
+        if self.on_resolve:
+            self.on_resolve(pane.action)
+
+        pane.action = None
+        self._busy_tracking.pop(action_id, None)
 
     def _check_hooks(self, pane_id: str, pane: PaneTerminal) -> None:
         """Check and fire matching hooks for pane.

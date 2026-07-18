@@ -3,6 +3,7 @@
 PUBLIC API:
   - DaemonClient: Sync/async client for daemon RPC
   - DaemonNotRunning: Exception when daemon is not available
+  - RPCError: RPC error from daemon
 """
 
 import json
@@ -11,9 +12,10 @@ import time
 from typing import Any
 
 from ..paths import SOCKET_PATH
+from ..protocol import RPCError, encode, request as build_request
 from ..tmux.ops import build_client_context
 
-__all__ = ["DaemonClient", "DaemonNotRunning"]
+__all__ = ["DaemonClient", "DaemonNotRunning", "RPCError"]
 
 
 class DaemonNotRunning(Exception):
@@ -45,19 +47,14 @@ class DaemonClient:
         """
 
         self._request_id += 1
-        request = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params or {},
-            "id": self._request_id,
-        }
+        req = build_request(method, params or {}, self._request_id)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(timeout)
 
         try:
             sock.connect(str(SOCKET_PATH))
-            sock.sendall(json.dumps(request).encode() + b"\n")
+            sock.sendall(encode(req))
 
             # Read response
             response_data = b""
@@ -123,6 +120,27 @@ class DaemonClient:
         """
         return self.call("debug_eval", {"code": code})
 
+    def _select(self, method: str, command: str, key: str) -> dict:
+        """Shared select-pane(s) flow: call, poll until resolved, extract result key.
+
+        Args:
+            method: RPC method name ("select_pane" or "select_panes")
+            command: Command name that needs target pane(s)
+            key: Result key to extract ("pane" or "panes")
+
+        Returns:
+            dict with status ("completed", "cancelled", "error") and,
+            on success, the extracted key.
+        """
+        client_context = build_client_context()
+        result = self.call(method, {"command": command, "client_context": client_context})
+        if result.get("status") != "selecting_pane":
+            return result
+        status = self._poll_until_resolved(result["action_id"])
+        if status.get("status") == "completed" and status.get("result"):
+            return {"status": "completed", key: status["result"].get(key)}
+        return status
+
     def select_pane(self, command: str) -> dict:
         """Request pane selection via interaction queue.
 
@@ -135,15 +153,7 @@ class DaemonClient:
             dict with status ("completed", "cancelled", "error")
             and optionally "pane" or "error" fields
         """
-        client_context = build_client_context()
-        result = self.call("select_pane", {"command": command, "client_context": client_context})
-        if result.get("status") != "selecting_pane":
-            return result
-        status = self._poll_until_resolved(result["action_id"])
-        # Extract pane from result
-        if status.get("status") == "completed" and status.get("result"):
-            return {"status": "completed", "pane": status["result"].get("pane")}
-        return status
+        return self._select("select_pane", command, "pane")
 
     def select_panes(self, command: str) -> dict:
         """Request multi-pane selection via interaction queue.
@@ -157,15 +167,10 @@ class DaemonClient:
             dict with status ("completed", "cancelled", "error")
             and optionally "panes" (list) or "error" fields
         """
-        client_context = build_client_context()
-        result = self.call("select_panes", {"command": command, "client_context": client_context})
-        if result.get("status") != "selecting_pane":
-            return result
-        status = self._poll_until_resolved(result["action_id"])
-        # Extract panes from result
-        if status.get("status") == "completed" and status.get("result"):
-            return {"status": "completed", "panes": status["result"].get("panes", [])}
-        return status
+        result = self._select("select_panes", command, "panes")
+        if result.get("status") == "completed":
+            result["panes"] = result.get("panes") or []
+        return result
 
     def _poll_until_resolved(self, action_id: str) -> dict:
         """Poll action status until resolved.
@@ -185,13 +190,3 @@ class DaemonClient:
             if status.get("status") not in in_progress_states:
                 return status
             time.sleep(0.5)
-
-
-class RPCError(Exception):
-    """RPC error from daemon."""
-
-    def __init__(self, code: int, message: str, data: Any = None):
-        self.code = code
-        self.message = message
-        self.data = data
-        super().__init__(f"[{code}] {message}")

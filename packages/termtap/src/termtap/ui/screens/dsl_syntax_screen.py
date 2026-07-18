@@ -44,7 +44,6 @@ class DslSyntaxScreen(TermtapScreen):
 
     BINDINGS = [
         Binding("question_mark", "back", "Close", key_display="?"),
-        ("escape", "back"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -55,7 +54,3 @@ class DslSyntaxScreen(TermtapScreen):
             yield example_card("Brackets", BRACKETS_CONTENT, "card-info")
             yield example_card("Anchors", ANCHORS_CONTENT, "card-info")
             yield Footer()
-
-    def action_back(self) -> None:
-        """Go back to pattern screen."""
-        self.app.pop_screen()

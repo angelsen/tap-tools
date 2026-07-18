@@ -11,7 +11,7 @@ from ..app import app
 from ..client import DaemonClient
 from ..pane import Pane
 from ..tmux.resolution import validate_pane_id
-from ._helpers import build_tips, build_range_info
+from ._helpers import build_tips, build_range_info, error_response, _require_pane_id
 
 __all__ = ["pane", "panes"]
 
@@ -44,48 +44,25 @@ def pane(
     Returns:
         Markdown formatted result with pane output.
     """
-    # Resolution
-    resolved_pane_id: str
-    if pane_id is None:
-        client = DaemonClient()
-        result = client.select_pane("pane")
+    client = DaemonClient()
 
-        if result["status"] != "completed":
-            return {
-                "elements": [{"type": "text", "content": f"Pane selection {result['status']}"}],
-                "frontmatter": {"status": result["status"]},
-            }
-
-        resolved_pane_id = result["pane"]
-    else:
-        resolved_pane_id = pane_id
-
-    # Validate pane ID
-    validated_pane_id = validate_pane_id(resolved_pane_id)
-    if not validated_pane_id:
-        return {
-            "elements": [
-                {
-                    "type": "text",
-                    "content": f"Error: Invalid pane ID format: {resolved_pane_id}. Use %id format (e.g., %42).",
-                }
-            ],
-            "frontmatter": {"status": "error", "error": f"Invalid pane ID format: {resolved_pane_id}"},
-        }
+    try:
+        resolved_pane_id = _require_pane_id(client, "pane", pane_id)
+    except ValueError as e:
+        return error_response(str(e))
 
     # Touch via daemon to register intentional access (best-effort)
     try:
-        client = DaemonClient()
-        client.call("touch", {"pane_id": validated_pane_id})
+        client.call("touch", {"pane_id": resolved_pane_id})
     except Exception:
         pass  # Daemon may not be running
 
     try:
         # Capture using Pane abstraction
         if offset is not None and limit is not None:
-            p = Pane.capture_range(validated_pane_id, offset, limit)
+            p = Pane.capture_range(resolved_pane_id, offset, limit)
         else:
-            p = Pane.capture_tail(validated_pane_id, tail)
+            p = Pane.capture_tail(resolved_pane_id, tail)
 
         # Build response
         elements = [
@@ -111,10 +88,7 @@ def pane(
         }
 
     except Exception as e:
-        return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"status": "error", "error": str(e)},
-        }
+        return error_response(str(e))
 
 
 @app.command(
@@ -143,10 +117,7 @@ def panes(state) -> dict[str, Any]:
     result = client.select_panes("panes")
 
     if result["status"] == "error":
-        return {
-            "elements": [{"type": "text", "content": f"Error: {result.get('error', 'Unknown error')}"}],
-            "frontmatter": {"status": "error", "error": result.get("error")},
-        }
+        return error_response(result.get("error", "Unknown error"))
 
     if result["status"] != "completed":
         return {

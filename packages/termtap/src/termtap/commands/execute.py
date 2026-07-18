@@ -8,7 +8,7 @@ from typing import Any
 
 from ..app import app
 from ..client import DaemonClient
-from ._helpers import build_tips, build_hint, _require_pane_id
+from ._helpers import build_tips, build_hint, error_response, _require_pane_id
 
 _MAX_OUTPUT_LINES = 200
 
@@ -60,7 +60,7 @@ def execute(state, command: str, pane_id: str = None) -> dict[str, Any]:  # pyri
     try:
         resolved_pane_id = _require_pane_id(client, "execute", pane_id)
     except ValueError as e:
-        return {"elements": [{"type": "text", "content": str(e)}]}
+        return error_response(str(e))
 
     try:
         result = client.execute(resolved_pane_id, command)
@@ -123,7 +123,4 @@ def execute(state, command: str, pane_id: str = None) -> dict[str, Any]:  # pyri
             "frontmatter": {"status": "timeout", "pane": resolved_pane_id},
         }
     except Exception as e:
-        return {
-            "elements": [{"type": "text", "content": f"Error: {e}"}],
-            "frontmatter": {"status": "error", "error": str(e)},
-        }
+        return error_response(str(e))

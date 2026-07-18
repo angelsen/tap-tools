@@ -5,15 +5,22 @@ PUBLIC API:
   - format_panes_state: Format pane manager for debug output
   - format_patterns_state: Format patterns for debug output
   - make_serializable: Convert objects to JSON-serializable format
-  - validate_pane_target: Validate pane target string
+  - resolve_pane_target: Validate a pane target, returning (pane_id, None) or (None, error_response)
+  - complete_action: Single completion path for queue actions
 """
+
+from typing import Any
+
+from ...pane import Pane
+from ..queue import Action
 
 __all__ = [
     "format_queue_state",
     "format_panes_state",
     "format_patterns_state",
     "make_serializable",
-    "validate_pane_target",
+    "resolve_pane_target",
+    "complete_action",
 ]
 
 
@@ -97,21 +104,51 @@ def make_serializable(obj):
     return repr(obj)
 
 
-def validate_pane_target(target: str) -> str:
-    """Validate pane target, raise ValueError if invalid.
+def resolve_pane_target(target: str) -> tuple[str, None] | tuple[None, dict]:
+    """Validate a pane target.
 
     Args:
         target: Pane target string to validate
 
     Returns:
-        Validated pane ID
-
-    Raises:
-        ValueError: If pane ID format is invalid
+        (pane_id, None) if valid, or (None, error_response) if invalid.
     """
     from ...tmux.resolution import validate_pane_id
 
     pane_id = validate_pane_id(target)
     if not pane_id:
-        raise ValueError(f"Invalid pane ID format: {target}. Use %id format (e.g., %42).")
-    return pane_id
+        return None, {"status": "error", "error": f"Invalid pane ID format: {target}. Use %id format (e.g., %42)."}
+    return pane_id, None
+
+
+async def complete_action(ctx: Any, action: Action, *, state: str | None = None, result: dict | None = None) -> dict:
+    """Complete a queue action: set result, resolve queue, clear pane binding, broadcast.
+
+    Single completion path for all handler-side action completions. Always
+    clears pane.action and busy tracking regardless of prior state -- a
+    completed action must not remain attached to the pane.
+
+    Args:
+        ctx: DaemonContext with daemon dependencies
+        action: Action being completed
+        state: If given, captures live pane output with this state label
+        result: If state is not given, used as the action result directly
+
+    Returns:
+        {"status": "completed" | "busy", "result": action.result}
+    """
+    if state is not None:
+        pane = ctx.pane_manager.get_or_create(action.pane_id)
+        action.result = {"output": Pane.get(action.pane_id, pane).content, "truncated": False, "state": state}
+    else:
+        action.result = result or {}
+
+    ctx.queue.resolve(action.id, action.result)
+
+    pane = ctx.pane_manager.panes.get(action.pane_id)
+    if pane is not None and pane.action is action:
+        pane.action = None
+    ctx.pane_manager._busy_tracking.pop(action.id, None)
+
+    await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action.id})
+    return {"status": "busy" if state == "busy" else "completed", "result": action.result}

@@ -5,7 +5,6 @@ Handlers for resolve, get_queue, get_status, select_pane, select_panes.
 
 from typing import Any
 
-from ...pane import Pane
 from ..context import DaemonContext
 
 __all__ = ["register_handlers"]
@@ -30,10 +29,11 @@ def register_handlers(rpc, ctx: DaemonContext):
         """
         from ...tmux.ops import send_keys
         from ..queue import ActionState
+        from .helpers import complete_action
 
         action = ctx.queue.get(action_id)
         if not action:
-            return {"ok": False, "error": "Action not found"}
+            return {"status": "error", "error": "Action not found"}
 
         # Handle READY_CHECK → WATCHING transition
         if action.state == ActionState.READY_CHECK and result.get("state") == "ready":
@@ -48,64 +48,38 @@ def register_handlers(rpc, ctx: DaemonContext):
             pane.bytes_since_watching = 0  # Reset counter for new data tracking
 
             await ctx.daemon.broadcast_event({"type": "action_watching", "id": action_id, "action": action.to_dict()})
-            return {"ok": True, "status": "watching"}
+            return {"status": "watching"}
 
         # Handle READY_CHECK + busy (terminal is busy, capture current output)
         if action.state == ActionState.READY_CHECK and result.get("state") == "busy":
-            pane = ctx.pane_manager.get_or_create(action.pane_id)
-            output = Pane.get(action.pane_id, pane).content
-
-            action.result = {"output": output, "truncated": False, "state": "busy"}
-            ctx.queue.resolve(action_id, action.result)
-
-            await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action_id})
-            return {"ok": True, "status": "busy", "result": action.result}
+            return await complete_action(ctx, action, state="busy")
 
         # Handle WATCHING + busy (terminal became busy, capture current output)
         if action.state == ActionState.WATCHING and result.get("state") == "busy":
-            pane = ctx.pane_manager.get_or_create(action.pane_id)
-            output = Pane.get(action.pane_id, pane).content
-
-            action.result = {"output": output, "truncated": False, "state": "busy"}
-            ctx.queue.resolve(action_id, action.result)
-            pane.action = None
-
-            await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action_id})
-            return {"ok": True, "status": "busy", "result": action.result}
+            return await complete_action(ctx, action, state="busy")
 
         # Handle WATCHING completion
         if action.state == ActionState.WATCHING and result.get("state") == "ready":
-            pane = ctx.pane_manager.get_or_create(action.pane_id)
-            output = Pane.get(action.pane_id, pane).content
-
-            action.result = {"output": output, "truncated": False, "state": "ready"}
-            ctx.queue.resolve(action_id, action.result)
-
-            await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action_id})
-            return {"ok": True, "status": "completed", "result": action.result}
+            return await complete_action(ctx, action, state="ready")
 
         # Handle SELECTING_PANE resolution (pane selected by user)
         if action.state == ActionState.SELECTING_PANE:
             selected_pane = result.get("pane_id") or result.get("panes")
             if selected_pane:
-                ctx.queue.resolve(action_id, result)
-                await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action_id})
-                return {"ok": True, "status": "completed", "result": result}
+                return await complete_action(ctx, action, result=result)
 
-        ctx.queue.resolve(action_id, result)
-        await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action_id})
-        return {"ok": True}
+        return await complete_action(ctx, action, result=result)
 
     @rpc.method("cancel")
     async def _cancel(action_id: str):
         """Cancel an action."""
         action = ctx.queue.get(action_id)
         if not action:
-            return {"ok": False, "error": "Action not found"}
+            return {"status": "error", "error": "Action not found"}
 
         ctx.queue.cancel(action_id, "User cancelled")
         await ctx.daemon.broadcast_event({"type": "action_cancelled", "id": action_id})
-        return {"ok": True}
+        return {"status": "cancelled"}
 
     @rpc.method("get_queue")
     async def _get_queue():

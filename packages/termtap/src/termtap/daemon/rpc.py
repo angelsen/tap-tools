@@ -2,38 +2,25 @@
 
 PUBLIC API:
   - RPCDispatcher: Register and dispatch JSON-RPC methods
-  - RPCError: RPC error with code and message
 """
 
 import json
 import traceback
-from dataclasses import dataclass
 from typing import Any, Callable, Awaitable
 
-__all__ = ["RPCDispatcher", "RPCError"]
+from ..protocol import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    RPCError,
+    encode,
+    error_response,
+    success_response,
+)
 
-
-# Standard JSON-RPC error codes
-PARSE_ERROR = -32700
-INVALID_REQUEST = -32600
-METHOD_NOT_FOUND = -32601
-INVALID_PARAMS = -32602
-INTERNAL_ERROR = -32603
-
-
-@dataclass
-class RPCError(Exception):
-    """JSON-RPC error."""
-
-    code: int
-    message: str
-    data: Any = None
-
-    def to_dict(self) -> dict:
-        result = {"code": self.code, "message": self.message}
-        if self.data is not None:
-            result["data"] = self.data
-        return result
+__all__ = ["RPCDispatcher"]
 
 
 class RPCDispatcher:
@@ -60,18 +47,18 @@ class RPCDispatcher:
         try:
             request = json.loads(request_data.decode())
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            return self._error_response(None, PARSE_ERROR, f"Parse error: {e}")
+            return encode(error_response(None, PARSE_ERROR, f"Parse error: {e}"))
 
         request_id = request.get("id")
         method = request.get("method")
         params = request.get("params", {})
 
         if not isinstance(method, str):
-            return self._error_response(request_id, INVALID_REQUEST, "Invalid request: method must be string")
+            return encode(error_response(request_id, INVALID_REQUEST, "Invalid request: method must be string"))
 
         handler = self._methods.get(method)
         if handler is None:
-            return self._error_response(request_id, METHOD_NOT_FOUND, f"Method not found: {method}")
+            return encode(error_response(request_id, METHOD_NOT_FOUND, f"Method not found: {method}"))
 
         try:
             if isinstance(params, dict):
@@ -81,23 +68,12 @@ class RPCDispatcher:
             else:
                 result = await handler()
 
-            return self._success_response(request_id, result)
+            return encode(success_response(request_id, result))
 
         except RPCError as e:
-            return self._error_response(request_id, e.code, e.message, e.data)
+            return encode(error_response(request_id, e.code, e.message, e.data))
         except TypeError as e:
-            return self._error_response(request_id, INVALID_PARAMS, f"Invalid params: {e}")
+            return encode(error_response(request_id, INVALID_PARAMS, f"Invalid params: {e}"))
         except Exception as e:
             tb = traceback.format_exc()
-            return self._error_response(request_id, INTERNAL_ERROR, f"Internal error: {e}", tb)
-
-    def _success_response(self, request_id: Any, result: Any) -> bytes:
-        response = {"jsonrpc": "2.0", "result": result, "id": request_id}
-        return json.dumps(response).encode() + b"\n"
-
-    def _error_response(self, request_id: Any, code: int, message: str, data: Any = None) -> bytes:
-        error = {"code": code, "message": message}
-        if data is not None:
-            error["data"] = data
-        response = {"jsonrpc": "2.0", "error": error, "id": request_id}
-        return json.dumps(response).encode() + b"\n"
+            return encode(error_response(request_id, INTERNAL_ERROR, f"Internal error: {e}", tb))

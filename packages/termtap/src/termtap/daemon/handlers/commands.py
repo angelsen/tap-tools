@@ -1,6 +1,6 @@
 """Command execution RPC handlers.
 
-Handlers for execute, send, and check_ready RPC methods.
+Handlers for execute and check_ready RPC methods.
 """
 
 import logging
@@ -38,12 +38,12 @@ def register_handlers(rpc, ctx: DaemonContext):
         """
         from ...tmux.ops import send_keys
         from ..queue import ActionState
-        from .helpers import validate_pane_target
+        from .helpers import resolve_pane_target
 
-        try:
-            pane_id = validate_pane_target(target)
-        except ValueError as e:
-            return {"status": "error", "error": str(e)}
+        pane_id, err = resolve_pane_target(target)
+        if err:
+            return err
+        assert pane_id is not None
 
         # Check if trying to execute in client's active pane
         client_pane = client_context.get("pane", "")
@@ -113,20 +113,15 @@ def register_handlers(rpc, ctx: DaemonContext):
 
             return {"status": "ready_check", "action_id": action.id}
 
-    @rpc.method("send")
-    async def _send(target: str, message: str, client_context: dict):
-        """Send message (alias for execute)."""
-        return await _execute(target, message, client_context)
-
     @rpc.method("check_ready")
     async def _check_ready(target: str):
         """Check if pane is ready for input."""
-        from .helpers import validate_pane_target
+        from .helpers import resolve_pane_target
 
-        try:
-            pane_id = validate_pane_target(target)
-        except ValueError as e:
-            return {"status": "error", "error": str(e)}
+        pane_id, err = resolve_pane_target(target)
+        if err:
+            return err
+        assert pane_id is not None
 
         pane = ctx.pane_manager.get_or_create(pane_id)
         state = pane.check_patterns(ctx.patterns)

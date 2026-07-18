@@ -20,12 +20,12 @@ def register_handlers(rpc, ctx: DaemonContext):
     @rpc.method("interrupt")
     async def _interrupt(target: str):
         from ...tmux.ops import send_keys
-        from .helpers import validate_pane_target
+        from .helpers import resolve_pane_target
 
-        try:
-            pane_id = validate_pane_target(target)
-        except ValueError as e:
-            return {"status": "error", "error": str(e)}
+        pane_id, err = resolve_pane_target(target)
+        if err:
+            return err
+        assert pane_id is not None
 
         send_keys(pane_id, "C-c")
         return {"status": "sent"}

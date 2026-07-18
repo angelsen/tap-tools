@@ -85,7 +85,6 @@ class PatternListScreen(TermtapScreen):
 
     BINDINGS = [
         ("delete", "delete_pattern", "Delete"),
-        ("escape", "back", "Back"),
     ]
 
     def __init__(self):

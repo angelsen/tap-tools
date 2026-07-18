@@ -4,11 +4,14 @@ PUBLIC API:
   - build_tips: Build per-pane interaction tips for markdown output
   - build_hint: Build "check output" hint for action commands
   - build_range_info: Build range info blockquote for output commands
+  - error_response: Build standard markdown-command error response
 """
 
 from typing import Any
 
-__all__ = ["build_tips", "build_hint", "build_range_info"]
+from ..tmux.resolution import validate_pane_id
+
+__all__ = ["build_tips", "build_hint", "build_range_info", "error_response"]
 
 
 def build_tips(pane_id: str) -> dict[str, str]:
@@ -63,8 +66,24 @@ def build_range_info(pane_id: str, range_: tuple[int, int], total: int) -> dict[
     }
 
 
+def error_response(message: str, **frontmatter: Any) -> dict[str, Any]:
+    """Standard markdown-command error: text element + error frontmatter.
+
+    Args:
+        message: Error message (rendered as "Error: {message}")
+        **frontmatter: Additional frontmatter fields merged in
+
+    Returns:
+        dict with elements (text) and frontmatter (status: error)
+    """
+    return {
+        "elements": [{"type": "text", "content": f"Error: {message}"}],
+        "frontmatter": {"status": "error", "error": message, **frontmatter},
+    }
+
+
 def _require_pane_id(client: Any, command_name: str, pane_id: str | None) -> str:
-    """Get pane ID, triggering selection if needed.
+    """Get pane ID, triggering selection if needed. Validates format either way.
 
     Args:
         client: DaemonClient instance
@@ -75,17 +94,23 @@ def _require_pane_id(client: Any, command_name: str, pane_id: str | None) -> str
         Validated pane ID
 
     Raises:
-        ValueError: If pane selection fails or is cancelled
+        ValueError: If pane selection fails/is cancelled, or pane ID is invalid
     """
-    if pane_id:
-        return pane_id
+    resolved: str
+    if pane_id is None:
+        result = client.select_pane(command_name)
 
-    result = client.select_pane(command_name)
+        if result["status"] == "timeout":
+            raise ValueError("Pane selection timed out. Run 'termtap companion' to respond.")
 
-    if result["status"] == "completed":
-        return result["pane"]
+        if result["status"] != "completed":
+            raise ValueError(f"Pane selection {result['status']}")
 
-    if result["status"] == "timeout":
-        raise ValueError("Pane selection timed out. Run 'termtap companion' to respond.")
+        resolved = result["pane"]
+    else:
+        resolved = pane_id
 
-    raise ValueError(f"Pane selection {result['status']}")
+    if not validate_pane_id(resolved):
+        raise ValueError(f"Invalid pane ID format: {resolved}. Use %id format (e.g., %42).")
+
+    return resolved

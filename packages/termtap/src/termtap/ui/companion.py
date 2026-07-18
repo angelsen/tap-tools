@@ -7,12 +7,12 @@ PUBLIC API:
 
 import asyncio
 import json
-import socket
 
 from textual.app import App
 from textual.timer import Timer
 
-from ..paths import EVENTS_SOCKET_PATH, SOCKET_PATH
+from ..client import DaemonClient
+from ..paths import EVENTS_SOCKET_PATH
 from .screens import PaneSelectScreen, PatternScreen, QueueScreen
 
 __all__ = ["TermtapCompanion", "run_companion"]
@@ -62,28 +62,18 @@ class TermtapCompanion(App):
     def _load_queue(self) -> None:
         """Load queue from daemon."""
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(5)
-            sock.connect(str(SOCKET_PATH))
+            result = DaemonClient().call("get_queue", timeout=5.0)
+            actions = result.get("actions", [])
+            if self._queue_screen:
+                self._queue_screen.set_actions(actions)
 
-            request = {"method": "get_queue", "params": {}, "id": 1}
-            sock.sendall(json.dumps(request).encode() + b"\n")
+            # Auto-open first action if any
+            if actions:
+                self.push_screen(self._create_action_screen(actions[-1]))
 
-            response = json.loads(sock.recv(65536).decode())
-            sock.close()
-
-            if "result" in response:
-                actions = response["result"].get("actions", [])
-                if self._queue_screen:
-                    self._queue_screen.set_actions(actions)
-
-                # Auto-open first action if any
-                if actions:
-                    self.push_screen(self._create_action_screen(actions[-1]))
-
-                # Exit in popup mode if no actions
-                if self.popup_mode and not actions:
-                    self.exit()
+            # Exit in popup mode if no actions
+            if self.popup_mode and not actions:
+                self.exit()
         except Exception:
             pass
 

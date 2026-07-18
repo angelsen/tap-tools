@@ -9,13 +9,13 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Footer, Static
 
-from ._base import TermtapScreen
+from ._base import ActionScreen
 from ..widgets import DslReference, OutputPane, PatternEditor
 
 __all__ = ["PatternScreen"]
 
 
-class PatternScreen(TermtapScreen):
+class PatternScreen(ActionScreen):
     """Mark patterns for state detection.
 
     Shows OutputPane with pane content and PatternEditor for DSL patterns.
@@ -35,12 +35,10 @@ class PatternScreen(TermtapScreen):
         ("p", "resolve_pair", "Pair"),
         ("ctrl+r", "refresh", "Refresh"),
         Binding("question_mark", "show_syntax", "Syntax", key_display="?"),
-        ("escape", "back"),
     ]
 
     def __init__(self, action: dict):
-        super().__init__()
-        self.action = action
+        super().__init__(action)
         self.pair_mode_enabled = False
         self._data_loaded = False
         self._current_process = "unknown"
@@ -128,10 +126,6 @@ class PatternScreen(TermtapScreen):
         editor = self.query_one(PatternEditor)
         editor.clear_pattern()
 
-    def action_back(self) -> None:
-        """Go back to queue."""
-        self.app.pop_screen()
-
     def action_show_syntax(self) -> None:
         """Show full DSL syntax reference."""
         from .dsl_syntax_screen import DslSyntaxScreen
@@ -185,7 +179,7 @@ class PatternScreen(TermtapScreen):
         result: dict = {"state": state, "pair_mode": pair_mode}
         if pattern:
             result["pattern"] = pattern
-        self._resolve_action(result)
+        self.resolve_action(result)
 
     def _set_linked_busy(self) -> None:
         """Set linked busy pattern and complete action immediately."""
@@ -199,16 +193,9 @@ class PatternScreen(TermtapScreen):
                     "pattern": pattern,
                 },
             )
-            if result and result.get("ok"):
+            if result and result.get("status") == "completed":
                 self.notify("Pair learned, action completed")
                 self.app.pop_screen()
             else:
                 error_msg = result.get("error", "Unknown error") if result else "No response"
                 self.notify(f"Error: {error_msg}", severity="error")
-
-    def _resolve_action(self, result: dict) -> None:
-        """Send resolve RPC and pop screen."""
-        action_id = self.action.get("id")
-        if action_id:
-            self.rpc("resolve", {"action_id": action_id, "result": result})
-        self.app.pop_screen()
