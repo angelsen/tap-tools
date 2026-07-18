@@ -29,15 +29,18 @@ def register_handlers(rpc, ctx: DaemonContext):
     @rpc.method("get_pane_data")
     async def _get_pane_data(pane_id: str, lines: int = 20):
         """Get live pane data for display."""
+        import asyncio
+
         from ...pane import Pane
         from ...tmux.ops import get_pane
 
         # Touch first to register intentional access (e.g., pattern screen viewing)
         ctx.pane_manager.get_or_create(pane_id)
 
-        captured = Pane.capture_tail(pane_id, lines)
+        # Off-loop: pure tmux reads costing several subprocess calls
+        captured = await asyncio.to_thread(Pane.capture_tail, pane_id, lines)
         # Get swp from pane info (Pane doesn't include this)
-        info = get_pane(pane_id)
+        info = await asyncio.to_thread(get_pane, pane_id)
 
         return {
             "content": captured.content,
@@ -47,11 +50,12 @@ def register_handlers(rpc, ctx: DaemonContext):
 
     @rpc.method("ls")
     async def _ls():
+        import asyncio
         from dataclasses import asdict
 
         from ...tmux.ops import list_panes
 
-        panes = list_panes()
+        panes = await asyncio.to_thread(list_panes)
         result = []
         for p in panes:
             pane_dict = asdict(p)

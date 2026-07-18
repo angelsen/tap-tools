@@ -171,7 +171,7 @@ class FzfSelector(Vertical):
                     option = option_list.get_option_at_index(option_list.highlighted)
                     if option and option.id:
                         self.post_message(self.Selected([str(option.id)]))
-                        return
+                return  # nothing marked, nothing highlighted: not a selection
             # Confirm all selected items
             self.post_message(self.Selected(list(self._selected)))
         else:

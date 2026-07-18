@@ -314,6 +314,8 @@ class TermtapDaemon:
 
             pane_id = line.decode().strip()
             logger.info(f"Collector connected for {pane_id}")
+            if self.pane_manager:
+                self.pane_manager._connected_pipes.add(pane_id)
 
             # Read and route all data to PaneManager
             while True:
@@ -334,6 +336,7 @@ class TermtapDaemon:
             if pane_id and self.pane_manager:
                 logger.warning(f"Pipe-pane collector stopped for {pane_id} (total: {bytes_received} bytes)")
                 self.pane_manager._active_pipes.discard(pane_id)
+                self.pane_manager._connected_pipes.discard(pane_id)
                 # Clear stale process info so it refreshes on next use
                 if pane_id in self.pane_manager.panes:
                     self.pane_manager.panes[pane_id].process = ""

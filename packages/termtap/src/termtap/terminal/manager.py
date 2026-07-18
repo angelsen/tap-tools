@@ -49,7 +49,9 @@ class PaneManager:
         self.on_resolve = on_resolve
         self.on_hook_fire = on_hook_fire
         self.max_lines = max_lines
-        self._active_pipes: set[str] = set()
+        self._active_pipes: set[str] = set()  # pipe-pane started in tmux
+        self._connected_pipes: set[str] = set()  # collector actually connected back
+        self._pipe_started: dict[str, float] = {}  # pane_id -> monotonic start time
         self._busy_tracking: dict[str, bool] = {}  # action_id -> seen_busy
 
     def get_or_create(self, pane_id: str) -> PaneTerminal:
@@ -193,14 +195,23 @@ class PaneManager:
         Returns:
             True if pipe-pane is active, False on failure
         """
-        # Even if we think it's active, verify the pane still exists
+        import time
+
+        # Even if we think it's active, verify the pane still exists and
+        # the collector actually connected back (a collector that died at
+        # startup would otherwise leave the pane dark forever).
         if pane_id in self._active_pipes:
             from ..tmux.ops import get_pane
 
-            if get_pane(pane_id):
+            if not get_pane(pane_id):
+                # Pane is gone, remove from tracking
+                self._active_pipes.discard(pane_id)
+            elif pane_id in self._connected_pipes:
                 return True
-            # Pane is gone, remove from tracking
-            self._active_pipes.discard(pane_id)
+            elif time.monotonic() - self._pipe_started.get(pane_id, 0.0) < 5.0:
+                return True  # collector still within startup grace period
+            else:
+                logger.warning(f"Collector for {pane_id} never connected; restarting pipe")
 
         import sys
         from ..tmux.core import run_tmux
@@ -209,6 +220,7 @@ class PaneManager:
         code, _, _ = run_tmux(["pipe-pane", "-t", pane_id, cmd])
         if code == 0:
             self._active_pipes.add(pane_id)
+            self._pipe_started[pane_id] = time.monotonic()
             logger.info(f"Started pipe-pane collector for {pane_id}")
             return True
         logger.error(f"Failed to start pipe-pane for {pane_id}")
@@ -242,6 +254,8 @@ class PaneManager:
             if pane_id not in live_panes:
                 self.cleanup(pane_id)
                 self._active_pipes.discard(pane_id)
+                self._connected_pipes.discard(pane_id)
+                self._pipe_started.pop(pane_id, None)
                 dead.append(pane_id)
         return dead
 
