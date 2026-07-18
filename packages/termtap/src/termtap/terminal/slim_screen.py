@@ -78,10 +78,16 @@ class SlimScreen:
     # --- pyte screen interface (required methods) ---
 
     def draw(self, data: str) -> None:
-        """Draw text at cursor position."""
+        """Draw text at cursor position.
+
+        cursor_col is the source of truth: sync the LineBuffer cursor
+        before writing so cursor_forward/back/tab and row moves (which
+        only update cursor_col) position the write correctly.
+        """
         self._ensure_row(self.cursor_row)
         physical = self._logical_to_physical(self.preserve_before + self.cursor_row)
         if physical is not None:
+            self.lines[physical].set_cursor(self.cursor_col)
             self.lines[physical].write(data)
             self.cursor_col += len(data)
 
@@ -93,9 +99,6 @@ class SlimScreen:
     def carriage_return(self) -> None:
         """Return cursor to column 0."""
         self.cursor_col = 0
-        physical = self._logical_to_physical(self.preserve_before + self.cursor_row)
-        if physical is not None:
-            self.lines[physical].set_cursor(0)
 
     def cursor_position(self, row: int = 1, col: int = 1) -> None:
         """Move cursor to position (1-indexed from terminal).
@@ -108,9 +111,6 @@ class SlimScreen:
     def cursor_to_column(self, col: int = 1) -> None:
         """Move cursor to column (1-indexed). Used by spinners."""
         self.cursor_col = col - 1
-        physical = self._logical_to_physical(self.preserve_before + self.cursor_row)
-        if physical is not None:
-            self.lines[physical].set_cursor(self.cursor_col)
 
     def cursor_to_line(self, row: int = 1) -> None:
         """Move cursor to line (1-indexed)."""

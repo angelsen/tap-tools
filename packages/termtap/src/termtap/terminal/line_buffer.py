@@ -24,7 +24,12 @@ class LineBuffer:
         - If cursor < len, overwrite existing char (spinner behavior)
         - If cursor >= len, append new char (normal writing)
         - Cursor advances after each char
+
+        A cursor positioned past the end (cursor-forward/tab) pads the
+        gap with spaces so text lands at the cursor column.
         """
+        if self.cursor > len(self._chars):
+            self._chars.extend(" " * (self.cursor - len(self._chars)))
         for char in text:
             if self.cursor < len(self._chars):
                 self._chars[self.cursor] = char

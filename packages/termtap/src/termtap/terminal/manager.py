@@ -111,14 +111,18 @@ class PaneManager:
 
                 if is_auto_pair:
                     # Auto-pair mode: wait for busy pattern to appear then disappear
-                    from ..handler.patterns import compile_dsl
+                    from ..handler.patterns import Pattern
 
                     action_id = pane.action.id
                     assert pane.action.linked_busy_pattern is not None  # Guaranteed by is_auto_pair check
 
-                    # Check if busy pattern is currently visible
-                    busy_regex = compile_dsl(pane.action.linked_busy_pattern)
-                    busy_visible = bool(busy_regex.search(Pane.get(pane.pane_id, pane, n=10).content))
+                    # Check if busy pattern is currently visible (per-line, same
+                    # semantics as Pattern matching everywhere else — a raw
+                    # search on the joined window breaks ^/$ anchored patterns)
+                    busy_pattern = Pattern(
+                        raw=pane.action.linked_busy_pattern, process=pane.process or "", state="busy"
+                    )
+                    busy_visible = busy_pattern.matches(Pane.get(pane.pane_id, pane, n=10).content)
 
                     if busy_visible:
                         self._busy_tracking[action_id] = True

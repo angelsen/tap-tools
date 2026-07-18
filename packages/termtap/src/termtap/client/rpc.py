@@ -184,9 +184,18 @@ class DaemonClient:
             Final status dict
         """
         # States that mean "still in progress"
-        in_progress_states = ("selecting_pane", "ready_check", "watching", "not_found")
+        in_progress_states = ("selecting_pane", "ready_check", "watching")
+        # "not_found" means the daemon lost the action (restart, eviction).
+        # Tolerate a few in case of transient races, then give up — polling
+        # forever wedges the synchronous MCP tool call.
+        not_found_count = 0
         while True:
             status = self.call("get_status", {"action_id": action_id})
-            if status.get("status") not in in_progress_states:
+            state = status.get("status")
+            if state == "not_found":
+                not_found_count += 1
+                if not_found_count >= 3:
+                    return {"status": "error", "error": f"Action {action_id} no longer exists (daemon restarted?)"}
+            elif state not in in_progress_states:
                 return status
             time.sleep(0.5)
