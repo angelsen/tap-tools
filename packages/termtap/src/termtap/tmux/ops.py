@@ -6,6 +6,7 @@ PUBLIC API:
   - get_pane: Get single pane by ID
   - get_client_for_pane: Get client name for a pane
   - send_keys: Send keystrokes to pane
+  - paste_text: Paste text into pane via buffer (for commands)
   - capture_pane: Capture all pane content (history + visible)
   - build_client_context: Build client context from tmux environment
 """
@@ -142,6 +143,40 @@ def send_keys(
         return code == 0
 
     return True
+
+
+def paste_text(pane_id: str, text: str, delay: float = 0.05) -> bool:
+    """Paste text into a pane via tmux paste-buffer, then send Enter.
+
+    Preferred over send_keys for command strings: send-keys types
+    character-by-character, which triggers per-keystroke processing in
+    shells (fish autosuggestion/highlighting redraws leave artifacts in
+    the stream buffer). paste-buffer -p uses bracketed paste when the
+    application requested it and falls back to a plain paste otherwise.
+
+    Args:
+        pane_id: Target pane ID.
+        text: Text to paste (single or multi-line).
+        delay: Delay in seconds between paste and Enter.
+
+    Returns:
+        True if successful.
+    """
+    code, _, _ = run_tmux(["load-buffer", "-b", "termtap_send", "-"], input=text)
+    if code != 0:
+        return False
+
+    code, _, _ = run_tmux(["paste-buffer", "-t", pane_id, "-b", "termtap_send", "-d", "-p"])
+    if code != 0:
+        return False
+
+    if delay > 0:
+        import time
+
+        time.sleep(delay)
+
+    code, _, _ = run_tmux(["send-keys", "-t", pane_id, "Enter"])
+    return code == 0
 
 
 def get_pane(pane_id: str) -> PaneInfo | None:

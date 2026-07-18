@@ -90,6 +90,25 @@ class PaneTerminal:
         except Exception as e:
             logger.error(f"Pane {self.pane_id} pyte feed error: {e}")
 
+    def mark_output_start(self) -> None:
+        """Clear the stream buffer for fresh output capture.
+
+        Syncs the buffer cursor to the pane's real cursor column: the pane
+        still shows its prompt, and shells repaint the command line with
+        prompt-relative cursor moves (\\r + CUF). A column-0 cursor would
+        desync the initial command echo from the repaint, leaving residue
+        like 'ececho ...' in the captured output.
+        """
+        from ..tmux.core import run_tmux
+
+        self.screen.clear()
+        code, out, _ = run_tmux(["display", "-p", "-t", self.pane_id, "#{cursor_x}"])
+        if code == 0:
+            try:
+                self.screen.cursor_col = int(out.strip())
+            except ValueError:
+                pass
+
     def check_patterns(self, patterns: PatternStore) -> str | None:
         """Check last N lines against patterns.
 

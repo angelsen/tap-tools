@@ -27,7 +27,7 @@ def register_handlers(rpc, ctx: DaemonContext):
 
         Flow:
         1. Pre-check pattern state
-        2. If ready: mark, send_keys, create WATCHING action
+        2. If ready: mark, paste command, create WATCHING action
         3. If busy: return busy status
         4. If unknown: return READY_CHECK action for UI
 
@@ -36,7 +36,7 @@ def register_handlers(rpc, ctx: DaemonContext):
             command: Command to execute
             client_context: Client context (pane, session) from environment
         """
-        from ...tmux.ops import send_keys
+        from ...tmux.ops import paste_text
         from ..queue import ActionState
         from .helpers import resolve_pane_target
 
@@ -64,8 +64,8 @@ def register_handlers(rpc, ctx: DaemonContext):
 
         if state == "ready":
             # Clear stream, send command, create WATCHING action
-            pane.screen.clear()
-            send_keys(pane_id, command)
+            pane.mark_output_start()
+            paste_text(pane_id, command)
 
             action = ctx.queue.add(
                 pane_id=pane_id,

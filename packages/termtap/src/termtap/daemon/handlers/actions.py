@@ -27,7 +27,7 @@ def register_handlers(rpc, ctx: DaemonContext):
         - WATCHING + ready: capture output since mark, complete action
         - Otherwise: just resolve as-is
         """
-        from ...tmux.ops import send_keys
+        from ...tmux.ops import paste_text
         from ..queue import ActionState
         from .helpers import complete_action
 
@@ -40,8 +40,8 @@ def register_handlers(rpc, ctx: DaemonContext):
             pane = ctx.pane_manager.get_or_create(action.pane_id)
             action.pair_mode = result.get("pair_mode", False)
             action.matched_ready_pattern = result.get("pattern")  # Capture for pairing later
-            pane.screen.clear()
-            send_keys(action.pane_id, action.command)
+            pane.mark_output_start()
+            paste_text(action.pane_id, action.command)
 
             action.state = ActionState.WATCHING
             pane.action = action

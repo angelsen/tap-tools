@@ -97,14 +97,14 @@ class TermtapDaemon:
 
         # READY_CHECK auto-resolve: send command, transition to WATCHING
         if action.result and action.result.get("auto") and action.state == ActionState.READY_CHECK:
-            from ..tmux.ops import send_keys
+            from ..tmux.ops import paste_text
 
             if not self.pane_manager:
                 return
 
             pane = self.pane_manager.get_or_create(action.pane_id)
-            pane.screen.clear()
-            send_keys(action.pane_id, action.command)
+            pane.mark_output_start()
+            paste_text(action.pane_id, action.command)
 
             # Transition to WATCHING
             action.state = ActionState.WATCHING
