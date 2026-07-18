@@ -101,13 +101,12 @@ class Pane:
         Returns:
             Pane with last N lines from stream
         """
-        info = get_pane(terminal.pane_id)
         content = terminal.screen.last_n_lines(n)
         total = terminal.screen.line_count
         return cls(
             pane_id=terminal.pane_id,
             content=content,
-            process=info.pane_current_command if info else "unknown",
+            process=terminal.current_process(),
             total_lines=total,
             range=(max(0, total - n), total),
         )
@@ -122,14 +121,13 @@ class Pane:
         Returns:
             Pane with all buffer content
         """
-        info = get_pane(terminal.pane_id)
         content = terminal.screen.all_content()
         total = terminal.screen.line_count
 
         return cls(
             pane_id=terminal.pane_id,
             content=content,
-            process=info.pane_current_command if info else "unknown",
+            process=terminal.current_process(),
             total_lines=total,
             range=(0, total),
         )

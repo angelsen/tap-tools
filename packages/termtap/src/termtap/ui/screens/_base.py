@@ -48,7 +48,9 @@ class TermtapScreen(Screen):
     def rpc(self, method: str, params: dict | None = None) -> dict | None:
         """Make RPC call, return result or None on failure."""
         try:
-            return self.client.call(method, params)
+            # 5s bound: this blocks the Textual event loop (sync socket);
+            # the 30s default would freeze the UI far too long on a stuck daemon.
+            return self.client.call(method, params, timeout=5.0)
         except Exception:
             return None
 

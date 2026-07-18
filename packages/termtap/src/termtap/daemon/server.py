@@ -112,16 +112,14 @@ class TermtapDaemon:
             pane.action = action
             pane.bytes_since_watching = 0  # Reset counter for new data tracking
 
-            asyncio.create_task(
-                self.broadcast_event({"type": "action_watching", "id": action.id, "action": action.to_dict()})
-            )
+            self._spawn(self.broadcast_event({"type": "action_watching", "id": action.id, "action": action.to_dict()}))
             return
 
         # WATCHING completion: remove from queue and broadcast
         if self.queue:
             self.queue.resolve(action.id, action.result or {})
 
-        asyncio.create_task(
+        self._spawn(
             self.broadcast_event(
                 {
                     "type": "action_resolved",
@@ -199,6 +197,22 @@ class TermtapDaemon:
         subprocess.Popen(cmd)
         # Don't block - companion will load queue when it connects
 
+    def _spawn(self, coro) -> "asyncio.Task":
+        """create_task with exception logging.
+
+        Fire-and-forget tasks otherwise fail silently: stderr goes to
+        /dev/null in the daemonized process, so 'Task exception was never
+        retrieved' warnings vanish.
+        """
+
+        def _log(task: "asyncio.Task") -> None:
+            if not task.cancelled() and task.exception() is not None:
+                logger.error(f"Background task failed: {task.exception()!r}")
+
+        task = asyncio.create_task(coro)
+        task.add_done_callback(_log)
+        return task
+
     async def _delayed_popup(self, action_id: str, client_context: dict, delay: float):
         """Spawn popup after delay if action still pending."""
         if delay > 0:
@@ -241,7 +255,7 @@ class TermtapDaemon:
         # Setup signal handlers
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+            loop.add_signal_handler(sig, lambda: self._spawn(self.stop()))
 
         logger.info("Daemon started")
 
@@ -273,8 +287,14 @@ class TermtapDaemon:
     async def run(self):
         """Start and run until stopped."""
         await self.start()
+        ticks = 0
         while self._running:
             await asyncio.sleep(1)
+            ticks += 1
+            if ticks % 60 == 0 and self.pane_manager:
+                dead = self.pane_manager.cleanup_dead()
+                if dead:
+                    logger.info(f"Evicted dead panes: {dead}")
 
     async def _handle_collector(self, reader: StreamReader, writer: StreamWriter):
         """Handle incoming collector connection.
@@ -409,7 +429,7 @@ class TermtapDaemon:
             except ValueError:
                 delay = 0.0
 
-            asyncio.create_task(self._delayed_popup(action_id, client_context, delay))
+            self._spawn(self._delayed_popup(action_id, client_context, delay))
 
         if not self.event_clients:
             return

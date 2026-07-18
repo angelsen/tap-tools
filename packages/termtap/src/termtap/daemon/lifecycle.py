@@ -9,6 +9,7 @@ PUBLIC API:
 
 import asyncio
 import atexit
+import fcntl
 import os
 import signal
 import sys
@@ -55,16 +56,29 @@ def start_daemon(foreground: bool = False) -> dict:
     Returns:
         {"status": "started", "pid": N} or {"status": "already_running", "pid": N}
     """
-    if is_daemon_running():
-        pid = int(PID_PATH.read_text().strip())
-        return {"status": "already_running", "pid": pid}
+    # Serialize concurrent starters (e.g. two MCP clients connecting at
+    # once): without the lock both see "not running" and fork two daemons,
+    # the second of which unlinks the first's socket.
+    lock_path = PID_PATH.parent / "start.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
 
-    _cleanup_stale()
+        if is_daemon_running():
+            pid = int(PID_PATH.read_text().strip())
+            return {"status": "already_running", "pid": pid}
 
-    if foreground:
-        return _run_daemon_foreground()
-    else:
-        return _run_daemon_background()
+        _cleanup_stale()
+
+        if not foreground:
+            # The forked daemon must close its inherited copy of the lock
+            # fd: flock releases only when ALL duplicated fds close, so a
+            # daemon holding it would block every future starter forever.
+            return _run_daemon_background(lock_file)
+
+    # Foreground blocks in asyncio.run — must not hold the lock meanwhile,
+    # or every later start_daemon() would hang instead of seeing "running".
+    return _run_daemon_foreground()
 
 
 def _run_daemon_foreground() -> dict:
@@ -85,8 +99,13 @@ def _run_daemon_foreground() -> dict:
     return {"status": "stopped", "pid": pid}
 
 
-def _run_daemon_background() -> dict:
-    """Fork daemon to background."""
+def _run_daemon_background(lock_file=None) -> dict:
+    """Fork daemon to background.
+
+    Args:
+        lock_file: Open start-lock file to close in the daemon fork
+            (flock is held until every duplicated fd closes).
+    """
     # Double fork to daemonize
     pid = os.fork()
     if pid > 0:
@@ -97,7 +116,9 @@ def _run_daemon_background() -> dict:
             return {"status": "started", "pid": daemon_pid}
         return {"status": "failed", "error": "Daemon failed to start"}
 
-    # Child - detach from terminal
+    # Child - release inherited start lock, detach from terminal
+    if lock_file is not None:
+        lock_file.close()
     os.setsid()
 
     # Second fork

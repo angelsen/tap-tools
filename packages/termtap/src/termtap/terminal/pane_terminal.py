@@ -35,6 +35,27 @@ class PaneTerminal:
     bytes_fed: int = 0
     bytes_since_watching: int = 0  # Track data received since WATCHING started
     last_accessed: float = 0.0  # Unix timestamp of last intentional access
+    _process_at: float = 0.0  # monotonic time of last process refresh
+
+    _PROCESS_TTL = 1.0  # seconds between tmux process-name lookups
+
+    def current_process(self) -> str:
+        """Process name, refreshed from tmux at most once per TTL.
+
+        The feed hot path needs the process for pattern matching on every
+        chunk; an uncached lookup costs two subprocess calls per query and
+        stalls the daemon event loop.
+        """
+        import time
+
+        now = time.monotonic()
+        if now - self._process_at >= self._PROCESS_TTL:
+            from ..tmux.ops import get_pane
+
+            info = get_pane(self.pane_id)
+            self.process = info.pane_current_command if info else "unknown"
+            self._process_at = now
+        return self.process
 
     @classmethod
     def create(cls, pane_id: str, max_lines: int = 5000) -> "PaneTerminal":
