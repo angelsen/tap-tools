@@ -62,12 +62,7 @@ def register_handlers(rpc, ctx: DaemonContext):
         if action.state == ActionState.WATCHING and result.get("state") == "ready":
             return await complete_action(ctx, action, state="ready")
 
-        # Handle SELECTING_PANE resolution (pane selected by user)
-        if action.state == ActionState.SELECTING_PANE:
-            selected_pane = result.get("pane_id") or result.get("panes")
-            if selected_pane:
-                return await complete_action(ctx, action, result=result)
-
+        # SELECTING_PANE and anything else: resolve with the caller's result as-is
         return await complete_action(ctx, action, result=result)
 
     @rpc.method("cancel")

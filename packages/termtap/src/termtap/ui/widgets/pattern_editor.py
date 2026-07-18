@@ -62,8 +62,12 @@ class ValidationState(Enum):
 
 
 def _escape_literal(text: str) -> str:
-    """Escape brackets in literal text."""
-    return text.replace("[", "\\[").replace("]", "\\]")
+    """Escape backslashes and brackets in literal text.
+
+    Backslashes first — a trailing backslash would otherwise read as
+    escaping the literal's closing bracket in the DSL.
+    """
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
 def generate_dsl(state: PatternState) -> str:

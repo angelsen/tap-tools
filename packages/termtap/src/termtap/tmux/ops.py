@@ -266,9 +266,11 @@ def get_client_for_pane(pane_id: str) -> str:
 
 # Strip escape sequences that some terminal emulators leak into tmux pane buffer
 # OSC: \033]...\007 or \033]...\033\\  (e.g., title setting — confirmed on Alacritty)
+#      Unterminated OSC is stripped to end of line/string — otherwise the Fe
+#      branch would eat only \033] and leak the payload as matchable text.
 # CSI: \033[...X                       (e.g., colors, cursor — defensive)
 # Fe:  \033X                           (e.g., charset switching — defensive)
-_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-Z\\-_])")
+_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\|(?=\n)|$)|[@-Z\\-_])")
 
 
 def __strip_trailing_empty_lines(content: str) -> str:

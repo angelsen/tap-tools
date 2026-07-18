@@ -66,7 +66,13 @@ class DaemonClient:
                 if b"\n" in response_data:
                     break
 
-            response = json.loads(response_data.decode())
+            if not response_data:
+                raise DaemonNotRunning("Daemon closed connection without responding")
+
+            try:
+                response = json.loads(response_data.decode())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                raise DaemonNotRunning("Daemon sent an incomplete response (crashed mid-request?)")
 
             if "error" in response:
                 error = response["error"]

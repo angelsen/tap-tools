@@ -49,6 +49,9 @@ class RPCDispatcher:
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             return encode(error_response(None, PARSE_ERROR, f"Parse error: {e}"))
 
+        if not isinstance(request, dict):
+            return encode(error_response(None, INVALID_REQUEST, "Invalid request: expected JSON object"))
+
         request_id = request.get("id")
         method = request.get("method")
         params = request.get("params", {})

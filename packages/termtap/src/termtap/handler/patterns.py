@@ -66,6 +66,20 @@ def parse_quantifier(dsl: str, pos: int) -> tuple[str, int]:
     return ("+", 0)  # Default
 
 
+def _unescape_literal(content: str) -> str:
+    """Decode \\\\, \\[ and \\] escapes in literal bracket content."""
+    out = []
+    k = 0
+    while k < len(content):
+        if content[k] == "\\" and k + 1 < len(content) and content[k + 1] in "\\[]":
+            out.append(content[k + 1])
+            k += 2
+        else:
+            out.append(content[k])
+            k += 1
+    return "".join(out)
+
+
 @lru_cache(maxsize=256)
 def compile_dsl(dsl: str) -> re.Pattern:
     """Compile DSL string to regex pattern (cached — called per line on the match hot path).
@@ -96,13 +110,21 @@ def compile_dsl(dsl: str) -> re.Pattern:
 
         # Literal brackets
         elif char == "[":
-            # Find closing ] that isn't escaped with backslash
+            # Find closing ] that isn't escaped: a ] preceded by an odd
+            # number of backslashes is escaped (\\] is an escaped
+            # backslash followed by a real closing bracket).
             j = i + 1
             end = None
             while j < len(dsl):
-                if dsl[j] == "]" and dsl[j - 1] != "\\":
-                    end = j
-                    break
+                if dsl[j] == "]":
+                    backslashes = 0
+                    k = j - 1
+                    while k > i and dsl[k] == "\\":
+                        backslashes += 1
+                        k -= 1
+                    if backslashes % 2 == 0:
+                        end = j
+                        break
                 j += 1
             if end is None:
                 context_start = max(0, i - 5)
@@ -118,9 +140,7 @@ def compile_dsl(dsl: str) -> re.Pattern:
             elif content.isdigit():
                 result.append(f".{{{content}}}")  # [31] → .{31}
             else:
-                # Unescape \[ and \] before re.escape
-                unescaped = content.replace("\\[", "[").replace("\\]", "]")
-                result.append(re.escape(unescaped))
+                result.append(re.escape(_unescape_literal(content)))
             i = end
 
         # Types with quantifiers

@@ -417,7 +417,9 @@ class TermtapDaemon:
         data = json.dumps(event).encode() + b"\n"
         dead_clients = []
 
-        for writer in self.event_clients:
+        # Iterate a copy: _handle_events can remove clients concurrently
+        # while we await drain(), which would skip entries mid-iteration.
+        for writer in list(self.event_clients):
             try:
                 writer.write(data)
                 await writer.drain()
@@ -425,4 +427,5 @@ class TermtapDaemon:
                 dead_clients.append(writer)
 
         for writer in dead_clients:
-            self.event_clients.remove(writer)
+            if writer in self.event_clients:
+                self.event_clients.remove(writer)
