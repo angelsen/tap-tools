@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Removed
+
+## [0.14.0] - 2026-07-19
+
+### Changed
 - Commands are pasted into panes (bracketed paste) instead of typed per-key — eliminates shell autosuggestion/highlighting artifacts in captured output
 - Pattern editor no longer encodes the selection's column as a leading `[N]` gap — taught prompt patterns keep matching when the prompt prefix (cwd, git branch) changes length
 - Pattern matching priority is explicit: busy patterns win over ready when both match a line (was YAML section order)
