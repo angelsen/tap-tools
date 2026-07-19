@@ -125,28 +125,41 @@ class PaneManager:
                 is_auto_pair = pane.action.pair_mode and pane.action.linked_busy_pattern is not None
 
                 if is_auto_pair:
-                    # Auto-pair mode: wait for busy pattern to appear then disappear
-                    from ..handler.patterns import dsl_matches, split_output
+                    # Auto-pair mode: wait for busy pattern to appear then clear
+                    from ..handler.patterns import DSLError, dsl_match_line, split_output
 
                     action_id = pane.action.id
                     assert pane.action.linked_busy_pattern is not None  # Guaranteed by is_auto_pair check
 
-                    # Per-line, same semantics as pattern matching everywhere
-                    # else — a raw search on the joined window breaks ^/$
-                    # anchored patterns.
-                    busy_visible = dsl_matches(pane.action.linked_busy_pattern, split_output(recent.content))
+                    # Busy counts as active only while no ready match sits
+                    # BELOW it: after completion the busy line can linger in
+                    # the 10-line window with the fresh prompt printed
+                    # underneath, which must not block resolution.
+                    lines = split_output(recent.content)
+                    ready_raw = pane.action.matched_ready_pattern
+                    try:
+                        busy_idx = dsl_match_line(pane.action.linked_busy_pattern, lines)
+                        ready_idx = dsl_match_line(ready_raw, lines) if ready_raw else None
+                    except DSLError:
+                        busy_idx = ready_idx = None
+                    busy_active = busy_idx is not None and (ready_idx is None or ready_idx <= busy_idx)
 
-                    if busy_visible:
+                    if busy_active:
                         self._busy_seen.add(action_id)
-                        logger.debug(f"Action {action_id}: busy pattern visible")
+                        logger.debug(f"Action {action_id}: busy pattern active")
                     elif action_id in self._busy_seen and state == "ready":
-                        # Busy was seen, now gone, ready matches → complete
-                        logger.info(f"Action {action_id} completed (auto-pair): busy disappeared")
+                        # Busy was seen, now cleared, ready matches → complete
+                        logger.info(f"Action {action_id} completed (auto-pair): busy cleared")
                         output = Pane.get(pane.pane_id, pane).content
                         self._finish_watch(pane, action_id, output)
+                elif pane.action.pair_mode:
+                    # Manual pair teaching (linked busy not set yet): do NOT
+                    # complete on ready — the user is about to mark the busy
+                    # pattern in the companion; set_linked_busy RPC completes
+                    # the action. Completing here would drop the taught pair.
+                    pass
                 elif state == "ready":
                     # Normal mode: complete when ready pattern matches
-                    # (Manual teaching completes via set_linked_busy RPC before reaching here)
                     action_id = pane.action.id
                     output = Pane.get(pane.pane_id, pane).content
                     logger.info(f"Action {action_id} completed: output={len(output)} chars")

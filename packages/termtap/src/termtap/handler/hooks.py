@@ -8,7 +8,7 @@ PUBLIC API:
 import time
 from dataclasses import dataclass, field
 
-from .patterns import dsl_matches, split_output
+from .patterns import DSLError, dsl_matches, split_output
 
 __all__ = ["Hook", "HookManager"]
 
@@ -63,7 +63,14 @@ class HookManager:
         if not hooks:
             return []
         output_lines = split_output(output)  # split once for all hooks
-        return [h for h in hooks if h.matches_lines(output_lines) and h.can_fire()]
+        matched = []
+        for hook in hooks:
+            try:
+                if hook.matches_lines(output_lines) and hook.can_fire():
+                    matched.append(hook)
+            except DSLError:
+                continue  # hand-edited YAML can hold invalid DSL
+        return matched
 
 
 def _parse_debounce(value: str) -> float:

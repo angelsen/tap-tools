@@ -71,11 +71,17 @@ def _escape_literal(text: str) -> str:
 
 
 def generate_dsl(state: PatternState) -> str:
-    """Generate DSL from entries with exact gaps.
+    """Generate DSL from entries, with exact gaps only BETWEEN entries.
 
     Uses sorted_entries() for position order.
     Groups by row, calculates gaps, emits [N] and [text].
     Does NOT add anchors - caller handles those.
+
+    No leading gap: an entry's absolute column encodes how long the text
+    before it happened to be (cwd, git branch, ...), and emitting it as an
+    exact [N] gap breaks the pattern as soon as that prefix changes length.
+    Gaps between two selections on the same row are kept — that spacing is
+    structure the user chose.
     """
     if not state.entries:
         return ""
@@ -92,12 +98,13 @@ def generate_dsl(state: PatternState) -> str:
         row_entries = rows[row]  # Already sorted by add order within row
         row_entries.sort(key=lambda e: e.col)  # Sort by column
         line_parts = []
-        prev_end = 0
+        prev_end: int | None = None
 
         for entry in row_entries:
-            gap = entry.col - prev_end
-            if gap > 0:
-                line_parts.append(f"[{gap}]")
+            if prev_end is not None:
+                gap = entry.col - prev_end
+                if gap > 0:
+                    line_parts.append(f"[{gap}]")
             line_parts.append(f"[{_escape_literal(entry.text)}]")
             prev_end = entry.end_col
 
@@ -112,7 +119,10 @@ def _try_compile_dsl(dsl: str) -> bool:
 
     try:
         for line in dsl.strip().split("\n"):
-            line = line.lstrip("^").rstrip("$")
+            # compile_dsl handles single ^/$ anchors itself; strip at most
+            # one of each (lstrip/rstrip would eat ALL of them, so "5$"
+            # would validate differently than it compiles)
+            line = line.removeprefix("^").removesuffix("$")
             if line:
                 compile_dsl(line)
         return True
@@ -135,7 +145,7 @@ def validate_dsl(dsl: str, state: PatternState) -> ValidationState:
 
     # Compare against regenerated DSL (ignoring anchors)
     generated = generate_dsl(state)
-    current = dsl.lstrip("^").rstrip("$")
+    current = dsl.removeprefix("^").removesuffix("$")
 
     if current == generated:
         return ValidationState.MATCHES

@@ -4,6 +4,7 @@ PUBLIC API:
   - PatternStore: Load/save/match patterns from YAML
   - split_output: Normalize output text into lines for matching
   - dsl_matches: Check a DSL pattern against pre-split output lines
+  - dsl_match_line: Last output line index where a DSL pattern matches
   - compile_dsl: Compile DSL string to regex
   - DSLError: DSL parsing and compilation errors
 """
@@ -22,7 +23,7 @@ from ..paths import PATTERNS_PATH
 if TYPE_CHECKING:
     from .hooks import HookManager
 
-__all__ = ["PatternStore", "PatternPair", "split_output", "dsl_matches", "compile_dsl", "DSLError"]
+__all__ = ["PatternStore", "PatternPair", "split_output", "dsl_matches", "dsl_match_line", "compile_dsl", "DSLError"]
 
 
 class DSLError(Exception):
@@ -59,7 +60,11 @@ def parse_quantifier(dsl: str, pos: int) -> tuple[str, int]:
             j += 1
         spec = dsl[pos:j]
         if "-" in spec:
-            # Convert DSL range (2-4) to regex range {2,4}
+            # Convert DSL range (2-4) to regex range {2,4}. More than one
+            # hyphen would emit {2,4,6}, which re treats as LITERAL text --
+            # silently wrong, so reject it here.
+            if spec.count("-") > 1:
+                raise DSLError(f"Invalid quantifier '{spec}': use N or N-M")
             return (f"{{{spec.replace('-', ',')}}}", j - pos)
         else:
             return (f"{{{spec}}}", j - pos)  # {4}
@@ -96,7 +101,17 @@ def compile_dsl(dsl: str) -> re.Pattern:
 
     Returns:
         Compiled regex pattern
+
+    Raises:
+        DSLError: On malformed DSL, or DSL that would compile to a regex
+            matching everything (empty pattern) or to an invalid regex
+            (e.g. reversed range quantifier)
     """
+    if not dsl:
+        # Empty DSL compiles to the empty regex, which search()-matches every
+        # line -- a pattern that reports every pane as ready forever.
+        raise DSLError("Empty pattern")
+
     result = []
     i = 0
 
@@ -134,6 +149,8 @@ def compile_dsl(dsl: str) -> re.Pattern:
                     f"Invalid DSL pattern at position {i}: unmatched '[' (context: '{dsl[context_start:context_end]}')"
                 )
             content = dsl[i + 1 : end]
+            if content == "":
+                raise DSLError(f"Invalid DSL pattern at position {i}: empty brackets '[]'")
             if content == "*":
                 result.append(".*")
             elif content == "+":
@@ -168,7 +185,13 @@ def compile_dsl(dsl: str) -> re.Pattern:
 
         i += 1
 
-    return re.compile("".join(result))
+    try:
+        return re.compile("".join(result))
+    except re.error as e:
+        # e.g. a reversed range quantifier (#4-2 -> \d{4,2}). Surface as
+        # DSLError so write-time validation rejects it and the match loop
+        # skips it instead of crashing the feed path.
+        raise DSLError(f"Invalid DSL pattern '{dsl}': {e}") from e
 
 
 def _validate_dsl(pattern: str) -> None:
@@ -224,6 +247,39 @@ def dsl_matches(raw: str, output_lines: list[str]) -> bool:
         if all(regex.search(output_lines[start_idx + i]) for i, regex in enumerate(regexes)):
             return True
     return False
+
+
+def dsl_match_line(raw: str, output_lines: list[str]) -> int | None:
+    """Index of the LAST output line where the pattern matches, or None.
+
+    For a multi-line pattern, the index of the last line of the last
+    matching window. Used by auto-pair resolution to compare where the
+    busy and ready patterns sit relative to each other.
+
+    Args:
+        raw: DSL pattern string (may have newlines)
+        output_lines: Output lines from split_output()
+
+    Raises:
+        DSLError: If the pattern does not compile
+    """
+    pattern_lines = raw.strip().split("\n")
+
+    if len(output_lines) < len(pattern_lines):
+        return None
+
+    if len(pattern_lines) == 1:
+        regex = compile_dsl(pattern_lines[0])
+        for idx in range(len(output_lines) - 1, -1, -1):
+            if regex.search(output_lines[idx]):
+                return idx
+        return None
+
+    regexes = [compile_dsl(line) for line in pattern_lines]
+    for start_idx in range(len(output_lines) - len(regexes), -1, -1):
+        if all(regex.search(output_lines[start_idx + i]) for i, regex in enumerate(regexes)):
+            return start_idx + len(regexes) - 1
+    return None
 
 
 @dataclass
@@ -323,6 +379,11 @@ class PatternStore:
     def _match_process(self, process: str, output_lines: list[str]) -> tuple[str | None, str | None]:
         """Check patterns for specific process against pre-split output.
 
+        Priority is explicit, not YAML section order: standalone busy first
+        (a line matching both busy and ready must count as busy -- the
+        conservative failure mode is waiting, not double-sending), then pair
+        ready patterns, then remaining standalone states.
+
         Args:
             process: Process name
             output_lines: Output lines from split_output()
@@ -333,7 +394,23 @@ class PatternStore:
         if process not in self.patterns:
             return (None, None)
 
-        # Check pairs first
+        def _match_state(state: str) -> str | None:
+            pattern_list = self.patterns[process].get(state)
+            if not isinstance(pattern_list, list):
+                return None
+            for raw in pattern_list:
+                try:
+                    if dsl_matches(raw, output_lines):
+                        return raw
+                except DSLError:
+                    continue  # hand-edited YAML can hold invalid DSL
+            return None
+
+        # 1. Standalone busy
+        if raw := _match_state("busy"):
+            return ("busy", raw)
+
+        # 2. Pair ready patterns
         pairs_raw = self.patterns[process].get("pairs", [])
         if isinstance(pairs_raw, list):
             for pair_dict in pairs_raw:
@@ -346,18 +423,12 @@ class PatternStore:
                         except DSLError:
                             continue  # hand-edited YAML can hold invalid DSL
 
-        # Check standalone patterns
-        for state, pattern_list in self.patterns[process].items():
-            if state in ("pairs", "hooks"):  # Skip pairs and hooks (config sections, not states)
+        # 3. Remaining standalone states (ready and any custom states)
+        for state in self.patterns[process]:
+            if state in ("busy", "pairs", "hooks"):  # busy done; pairs/hooks are config sections
                 continue
-            if not isinstance(pattern_list, list):
-                continue
-            for raw in pattern_list:
-                try:
-                    if dsl_matches(raw, output_lines):
-                        return (state, raw)
-                except DSLError:
-                    continue  # hand-edited YAML can hold invalid DSL
+            if raw := _match_state(state):
+                return (state, raw)
 
         return (None, None)
 
