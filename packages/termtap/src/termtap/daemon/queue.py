@@ -181,9 +181,3 @@ class ActionQueue:
             List of action dicts
         """
         return [a.to_dict() for a in self.pending]
-
-    def __len__(self) -> int:
-        return len(self.pending)
-
-    def __bool__(self) -> bool:
-        return bool(self.pending)

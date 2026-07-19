@@ -27,9 +27,8 @@ def register_handlers(rpc, ctx: DaemonContext):
         - WATCHING + ready: capture output since mark, complete action
         - Otherwise: just resolve as-is
         """
-        from ...tmux.ops import paste_text
         from ..queue import ActionState
-        from .helpers import complete_action
+        from .helpers import begin_watching, complete_action
 
         action = ctx.queue.get(action_id)
         if not action:
@@ -37,15 +36,9 @@ def register_handlers(rpc, ctx: DaemonContext):
 
         # Handle READY_CHECK → WATCHING transition
         if action.state == ActionState.READY_CHECK and result.get("state") == "ready":
-            pane = ctx.pane_manager.get_or_create(action.pane_id)
             action.pair_mode = result.get("pair_mode", False)
             action.matched_ready_pattern = result.get("pattern")  # Capture for pairing later
-            pane.mark_output_start()
-            paste_text(action.pane_id, action.command)
-
-            action.state = ActionState.WATCHING
-            pane.action = action
-            pane.bytes_since_watching = 0  # Reset counter for new data tracking
+            begin_watching(ctx.pane_manager, action)
 
             await ctx.daemon.broadcast_event({"type": "action_watching", "id": action_id, "action": action.to_dict()})
             return {"status": "watching"}

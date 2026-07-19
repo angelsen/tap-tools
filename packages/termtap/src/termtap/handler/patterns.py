@@ -170,6 +170,16 @@ def compile_dsl(dsl: str) -> re.Pattern:
     return re.compile("".join(result))
 
 
+def _validate_dsl(pattern: str) -> None:
+    """Raise DSLError if any line of the pattern fails to compile.
+
+    Called at write time so a malformed pattern is rejected at the RPC
+    edge instead of throwing on the feed hot path forever after.
+    """
+    for line in pattern.strip().split("\n"):
+        compile_dsl(line)
+
+
 @dataclass
 class Pattern:
     """Single or multi-line pattern with DSL support."""
@@ -329,8 +339,11 @@ class PatternStore:
                     ready_pattern = pair_dict.get("ready")
                     if ready_pattern and isinstance(ready_pattern, str):
                         pattern = Pattern(raw=ready_pattern, process=process, state="ready")
-                        if pattern.matches(output):
-                            return ("ready", ready_pattern)
+                        try:
+                            if pattern.matches(output):
+                                return ("ready", ready_pattern)
+                        except DSLError:
+                            continue  # hand-edited YAML can hold invalid DSL
 
         # Check standalone patterns
         for state, pattern_list in self.patterns[process].items():
@@ -340,8 +353,11 @@ class PatternStore:
                 continue
             for raw in pattern_list:
                 pattern = Pattern(raw=raw, process=process, state=state)
-                if pattern.matches(output):
-                    return (state, raw)
+                try:
+                    if pattern.matches(output):
+                        return (state, raw)
+                except DSLError:
+                    continue  # hand-edited YAML can hold invalid DSL
 
         return (None, None)
 
@@ -367,7 +383,11 @@ class PatternStore:
             process: Process name
             pattern: DSL pattern string
             state: State this pattern indicates
+
+        Raises:
+            DSLError: If the pattern does not compile
         """
+        _validate_dsl(pattern)
         self.patterns.setdefault(process, {}).setdefault(state, []).append(pattern)
         self.save()
 
@@ -378,7 +398,12 @@ class PatternStore:
             process: Process name
             ready: Ready pattern DSL
             busy: Busy pattern DSL
+
+        Raises:
+            DSLError: If either pattern does not compile
         """
+        _validate_dsl(ready)
+        _validate_dsl(busy)
         proc_patterns = self.patterns.setdefault(process, {})
         # Get or create pairs list (typing: list[dict] not list[str])
         if "pairs" not in proc_patterns:

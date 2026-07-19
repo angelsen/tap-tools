@@ -29,9 +29,6 @@ POPUP_DELAYS = {
 }
 
 
-# Import helpers from context module
-
-
 class TermtapDaemon:
     """Main daemon process managing streams, patterns, and interactions."""
 
@@ -44,24 +41,15 @@ class TermtapDaemon:
         self._servers: list[asyncio.Server] = []
         self._log_buffer: list[str] = []  # Ring buffer for recent logs
 
-        self.pane_manager: PaneManager | None = None
-        self.queue: ActionQueue | None = None
-        self.patterns: PatternStore | None = None
-
         self._setup_log_handler()
 
-    def _setup_components(self):
-        """Initialize components."""
         self.queue = ActionQueue()
         self.patterns = PatternStore()
-
-        # Create PaneManager with auto-resolution callback
         self.pane_manager = PaneManager(
             patterns=self.patterns,
             on_resolve=self._handle_auto_resolve,
             on_hook_fire=self._handle_hook_fire,
         )
-
         self._register_handlers()
 
     def _setup_log_handler(self):
@@ -93,42 +81,21 @@ class TermtapDaemon:
         For READY_CHECK: sends command and transitions to WATCHING.
         For WATCHING: removes from queue and broadcasts completion.
         """
-        from .queue import ActionState
-
         # READY_CHECK auto-resolve: send command, transition to WATCHING
         if action.result and action.result.get("auto") and action.state == ActionState.READY_CHECK:
-            from ..tmux.ops import paste_text
+            from .handlers.helpers import begin_watching
 
-            if not self.pane_manager:
-                return
-
-            pane = self.pane_manager.get_or_create(action.pane_id)
-            pane.mark_output_start()
-            paste_text(action.pane_id, action.command)
-
-            # Transition to WATCHING
-            action.state = ActionState.WATCHING
             action.result = None  # Clear the auto flag
-            pane.action = action
-            pane.bytes_since_watching = 0  # Reset counter for new data tracking
+            begin_watching(self.pane_manager, action)
 
             self._spawn(self.broadcast_event({"type": "action_watching", "id": action.id, "action": action.to_dict()}))
             return
 
-        # WATCHING completion: remove from queue and broadcast
-        if self.queue:
-            self.queue.resolve(action.id, action.result or {})
-
-        self._spawn(
-            self.broadcast_event(
-                {
-                    "type": "action_resolved",
-                    "id": action.id,
-                    "output": action.result.get("output", "") if action.result else "",
-                    "truncated": action.result.get("truncated", False) if action.result else False,
-                }
-            )
-        )
+        # WATCHING completion: remove from queue and broadcast.
+        # Same event shape as complete_action -- the companion only reads "id";
+        # clients fetch output via get_status polling, not the event.
+        self.queue.resolve(action.id, action.result or {})
+        self._spawn(self.broadcast_event({"type": "action_resolved", "id": action.id}))
 
     def _handle_hook_fire(self, pane_id: str, hook, output: str):
         """Execute hook action.
@@ -219,14 +186,12 @@ class TermtapDaemon:
             await asyncio.sleep(delay)
 
         # Check if action still needs user interaction
-        if self.queue:
-            action = self.queue.get(action_id)
-            if action and action.state not in (ActionState.COMPLETED, ActionState.CANCELLED):
-                self._ensure_companion_running(client_context)
+        action = self.queue.get(action_id)
+        if action and action.state not in (ActionState.COMPLETED, ActionState.CANCELLED):
+            self._ensure_companion_running(client_context)
 
     async def start(self):
         """Start daemon and listen on all sockets."""
-        self._setup_components()
         self._running = True
 
         # Clean up old sockets
@@ -291,7 +256,7 @@ class TermtapDaemon:
         while self._running:
             await asyncio.sleep(1)
             ticks += 1
-            if ticks % 60 == 0 and self.pane_manager:
+            if ticks % 60 == 0:
                 dead = self.pane_manager.cleanup_dead()
                 if dead:
                     logger.info(f"Evicted dead panes: {dead}")
@@ -314,8 +279,7 @@ class TermtapDaemon:
 
             pane_id = line.decode().strip()
             logger.info(f"Collector connected for {pane_id}")
-            if self.pane_manager:
-                self.pane_manager._connected_pipes.add(pane_id)
+            self.pane_manager._connected_pipes.add(pane_id)
 
             # Read and route all data to PaneManager
             while True:
@@ -324,8 +288,7 @@ class TermtapDaemon:
                     logger.info(f"Collector {pane_id} EOF after {bytes_received} bytes")
                     break
                 bytes_received += len(chunk)
-                if self.pane_manager:
-                    self.pane_manager.feed(pane_id, chunk)
+                self.pane_manager.feed(pane_id, chunk)
 
         except (ConnectionResetError, BrokenPipeError) as e:
             logger.warning(f"Collector {pane_id} connection error after {bytes_received} bytes: {e}")
@@ -333,7 +296,7 @@ class TermtapDaemon:
             logger.error(f"Collector {pane_id} unexpected error: {e}", exc_info=True)
         finally:
             # Mark pipe as inactive so it can be restarted
-            if pane_id and self.pane_manager:
+            if pane_id:
                 logger.warning(f"Pipe-pane collector stopped for {pane_id} (total: {bytes_received} bytes)")
                 self.pane_manager._active_pipes.discard(pane_id)
                 self.pane_manager._connected_pipes.discard(pane_id)
@@ -358,7 +321,7 @@ class TermtapDaemon:
                 response = await self.rpc.dispatch(data)
                 writer.write(response)
                 await writer.drain()
-        except ConnectionResetError:
+        except (ConnectionResetError, BrokenPipeError):
             pass
         finally:
             writer.close()

@@ -24,7 +24,12 @@ def register_handlers(rpc, ctx: DaemonContext):
 
     @rpc.method("learn_pattern")
     async def _learn_pattern(process: str, pattern: str, state: str):
-        ctx.patterns.add(process, pattern, state)
+        from ...handler.patterns import DSLError
+
+        try:
+            ctx.patterns.add(process, pattern, state)
+        except DSLError as e:
+            return {"status": "error", "error": f"Invalid pattern: {e}"}
         return {"status": "ok"}
 
     @rpc.method("set_linked_busy")
@@ -36,13 +41,18 @@ def register_handlers(rpc, ctx: DaemonContext):
         if action and action.pair_mode:
             pane = ctx.pane_manager.get_or_create(action.pane_id)
 
-            # Store as pair with the matched ready pattern
-            if action.matched_ready_pattern:
-                ctx.patterns.add_pair(pane.process, action.matched_ready_pattern, pattern)
-                logger.info(f"Action {action_id}: learned pair ready={action.matched_ready_pattern} busy={pattern}")
-            else:
-                # Fallback: just add as standalone busy pattern
-                ctx.patterns.add(pane.process, pattern, "busy")
+            from ...handler.patterns import DSLError
+
+            try:
+                # Store as pair with the matched ready pattern
+                if action.matched_ready_pattern:
+                    ctx.patterns.add_pair(pane.process, action.matched_ready_pattern, pattern)
+                    logger.info(f"Action {action_id}: learned pair ready={action.matched_ready_pattern} busy={pattern}")
+                else:
+                    # Fallback: just add as standalone busy pattern
+                    ctx.patterns.add(pane.process, pattern, "busy")
+            except DSLError as e:
+                return {"status": "error", "error": f"Invalid pattern: {e}"}
 
             action.linked_busy_pattern = pattern
             output = Pane.get(action.pane_id, pane).content

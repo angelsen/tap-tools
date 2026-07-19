@@ -36,9 +36,8 @@ def register_handlers(rpc, ctx: DaemonContext):
             command: Command to execute
             client_context: Client context (pane, session) from environment
         """
-        from ...tmux.ops import paste_text
         from ..queue import ActionState
-        from .helpers import resolve_pane_target
+        from .helpers import begin_watching, resolve_pane_target
 
         pane_id, err = resolve_pane_target(target)
         if err:
@@ -63,10 +62,6 @@ def register_handlers(rpc, ctx: DaemonContext):
         )
 
         if state == "ready":
-            # Clear stream, send command, create WATCHING action
-            pane.mark_output_start()
-            paste_text(pane_id, command)
-
             action = ctx.queue.add(
                 pane_id=pane_id,
                 command=command,
@@ -83,7 +78,7 @@ def register_handlers(rpc, ctx: DaemonContext):
                     action.linked_busy_pattern = pair.busy
                     logger.info(f"Action {action.id}: auto-enabled pair mode with busy={pair.busy}")
 
-            pane.action = action
+            begin_watching(ctx.pane_manager, action)
 
             logger.info(f"Action {action.id} created: pane={pane_id} cmd={command[:50]} state=WATCHING")
 

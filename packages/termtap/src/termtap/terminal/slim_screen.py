@@ -251,9 +251,15 @@ class SlimScreen:
     # --- Our API ---
 
     def clear(self) -> None:
-        """Clear buffer for fresh output capture."""
+        """Clear buffer for fresh output capture.
+
+        Resets preserve_before too: a stale alt-screen boundary from a
+        previous vim/less session would make _ensure_row pad the fresh
+        capture with empty lines and skew reset_mode's cursor math.
+        """
         self.lines = []
         self.base_idx = 0
+        self.preserve_before = 0
         self.cursor_row = 0
         self.cursor_col = 0
 

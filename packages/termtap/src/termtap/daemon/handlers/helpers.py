@@ -7,12 +7,14 @@ PUBLIC API:
   - make_serializable: Convert objects to JSON-serializable format
   - resolve_pane_target: Validate a pane target, returning (pane_id, None) or (None, error_response)
   - complete_action: Single completion path for queue actions
+  - begin_watching: Single WATCHING-transition path for queue actions
 """
 
 from typing import Any
 
 from ...pane import Pane
-from ..queue import Action
+from ...tmux.ops import paste_text
+from ..queue import Action, ActionState
 
 __all__ = [
     "format_queue_state",
@@ -21,6 +23,7 @@ __all__ = [
     "make_serializable",
     "resolve_pane_target",
     "complete_action",
+    "begin_watching",
 ]
 
 
@@ -119,6 +122,22 @@ def resolve_pane_target(target: str) -> tuple[str, None] | tuple[None, dict]:
     if not pane_id:
         return None, {"status": "error", "error": f"Invalid pane ID format: {target}. Use %id format (e.g., %42)."}
     return pane_id, None
+
+
+def begin_watching(pane_manager: Any, action: Action) -> None:
+    """Transition an action to WATCHING: mark stream, paste command, attach to pane.
+
+    Single transition path for all WATCHING starts (execute pre-check,
+    manual resolve, auto-resolve). bytes_since_watching must reset here:
+    PaneManager.feed only auto-resolves after fresh output arrives, and a
+    stale counter from a previous action on the same pane voids that guard.
+    """
+    pane = pane_manager.get_or_create(action.pane_id)
+    pane.mark_output_start()
+    paste_text(action.pane_id, action.command)
+    action.state = ActionState.WATCHING
+    pane.action = action
+    pane.bytes_since_watching = 0
 
 
 async def complete_action(ctx: Any, action: Action, *, state: str | None = None, result: dict | None = None) -> dict:
