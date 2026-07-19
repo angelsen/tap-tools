@@ -2,7 +2,8 @@
 
 PUBLIC API:
   - PatternStore: Load/save/match patterns from YAML
-  - Pattern: Single or multi-line pattern with DSL
+  - split_output: Normalize output text into lines for matching
+  - dsl_matches: Check a DSL pattern against pre-split output lines
   - compile_dsl: Compile DSL string to regex
   - DSLError: DSL parsing and compilation errors
 """
@@ -21,7 +22,7 @@ from ..paths import PATTERNS_PATH
 if TYPE_CHECKING:
     from .hooks import HookManager
 
-__all__ = ["PatternStore", "Pattern", "PatternPair", "compile_dsl", "DSLError"]
+__all__ = ["PatternStore", "PatternPair", "split_output", "dsl_matches", "compile_dsl", "DSLError"]
 
 
 class DSLError(Exception):
@@ -180,56 +181,49 @@ def _validate_dsl(pattern: str) -> None:
         compile_dsl(line)
 
 
-@dataclass
-class Pattern:
-    """Single or multi-line pattern with DSL support."""
+def split_output(output: str) -> list[str]:
+    """Normalize output text into lines for matching.
 
-    raw: str  # Original DSL string (may have newlines)
-    process: str  # Process name
-    state: str  # "ready" or "busy"
+    Strips trailing whitespace from each line to normalize between:
+    - tmux capture-pane (strips trailing spaces)
+    - pipe-pane stream (preserves trailing spaces)
+    """
+    return [line.rstrip() for line in output.rstrip("\n").split("\n")]
 
-    @property
-    def lines(self) -> list[str]:
-        """Split into lines for multi-line matching."""
-        return self.raw.strip().split("\n")
 
-    def matches(self, output: str) -> bool:
-        """Check if pattern matches output.
+def dsl_matches(raw: str, output_lines: list[str]) -> bool:
+    """Check a DSL pattern (single or multi-line) against pre-split output.
 
-        Single-line: matches if found anywhere.
-        Multi-line: matches if consecutive sequence found anywhere.
+    Single-line: matches if found anywhere.
+    Multi-line: matches if consecutive sequence found anywhere.
 
-        Args:
-            output: Output text to match against
+    Takes pre-split lines so callers matching many patterns against the
+    same output (the feed hot path) split once, not once per pattern.
 
-        Returns:
-            True if pattern matches
-        """
-        # Strip trailing whitespace from each line to normalize between:
-        # - tmux capture-pane (strips trailing spaces)
-        # - pipe-pane stream (preserves trailing spaces)
-        output_lines = [line.rstrip() for line in output.rstrip("\n").split("\n")]
-        pattern_lines = self.lines
+    Args:
+        raw: DSL pattern string (may have newlines)
+        output_lines: Output lines from split_output()
 
-        if len(output_lines) < len(pattern_lines):
-            return False
+    Returns:
+        True if pattern matches
 
-        # Single-line pattern: search anywhere
-        if len(pattern_lines) == 1:
-            line_regex = compile_dsl(pattern_lines[0])
-            return any(line_regex.search(line) for line in output_lines)
+    Raises:
+        DSLError: If the pattern does not compile
+    """
+    pattern_lines = raw.strip().split("\n")
 
-        # Multi-line pattern: find consecutive sequence anywhere
-        for start_idx in range(len(output_lines) - len(pattern_lines) + 1):
-            match = True
-            for i, pattern_line in enumerate(pattern_lines):
-                line_regex = compile_dsl(pattern_line)
-                if not line_regex.search(output_lines[start_idx + i]):
-                    match = False
-                    break
-            if match:
-                return True
+    if len(output_lines) < len(pattern_lines):
         return False
+
+    if len(pattern_lines) == 1:
+        regex = compile_dsl(pattern_lines[0])
+        return any(regex.search(line) for line in output_lines)
+
+    regexes = [compile_dsl(line) for line in pattern_lines]
+    for start_idx in range(len(output_lines) - len(regexes) + 1):
+        if all(regex.search(output_lines[start_idx + i]) for i, regex in enumerate(regexes)):
+            return True
+    return False
 
 
 @dataclass
@@ -313,16 +307,22 @@ class PatternStore:
         Returns:
             Tuple of (state, matched_pattern) or (None, None) if no match
         """
+        # Split once here: every stored pattern matches against the same lines
+        output_lines = split_output(output)
         if process in ("ssh", "", None):
-            return self._match_all_with_info(output)
-        return self._match_process_with_info(process, output)
+            for candidate in self.patterns:
+                state, pattern = self._match_process(candidate, output_lines)
+                if state:
+                    return (state, pattern)
+            return (None, None)
+        return self._match_process(process, output_lines)
 
-    def _match_process_with_info(self, process: str, output: str) -> tuple[str | None, str | None]:
-        """Check patterns for specific process with matched pattern info.
+    def _match_process(self, process: str, output_lines: list[str]) -> tuple[str | None, str | None]:
+        """Check patterns for specific process against pre-split output.
 
         Args:
             process: Process name
-            output: Output text
+            output_lines: Output lines from split_output()
 
         Returns:
             Tuple of (state, matched_pattern) or (None, None)
@@ -332,15 +332,13 @@ class PatternStore:
 
         # Check pairs first
         pairs_raw = self.patterns[process].get("pairs", [])
-        # Type check: pairs is a list of dicts, not strings
-        if isinstance(pairs_raw, list) and pairs_raw and isinstance(pairs_raw[0], dict):
+        if isinstance(pairs_raw, list):
             for pair_dict in pairs_raw:
                 if isinstance(pair_dict, dict):
                     ready_pattern = pair_dict.get("ready")
                     if ready_pattern and isinstance(ready_pattern, str):
-                        pattern = Pattern(raw=ready_pattern, process=process, state="ready")
                         try:
-                            if pattern.matches(output):
+                            if dsl_matches(ready_pattern, output_lines):
                                 return ("ready", ready_pattern)
                         except DSLError:
                             continue  # hand-edited YAML can hold invalid DSL
@@ -352,28 +350,12 @@ class PatternStore:
             if not isinstance(pattern_list, list):
                 continue
             for raw in pattern_list:
-                pattern = Pattern(raw=raw, process=process, state=state)
                 try:
-                    if pattern.matches(output):
+                    if dsl_matches(raw, output_lines):
                         return (state, raw)
                 except DSLError:
                     continue  # hand-edited YAML can hold invalid DSL
 
-        return (None, None)
-
-    def _match_all_with_info(self, output: str) -> tuple[str | None, str | None]:
-        """Check all patterns with info (for ssh/unknown).
-
-        Args:
-            output: Output text
-
-        Returns:
-            Tuple of (state, matched_pattern) or (None, None)
-        """
-        for process in self.patterns:
-            state, pattern = self._match_process_with_info(process, output)
-            if state:
-                return (state, pattern)
         return (None, None)
 
     def add(self, process: str, pattern: str, state: str):

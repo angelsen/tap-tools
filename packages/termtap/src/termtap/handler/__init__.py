@@ -2,7 +2,8 @@
 
 PUBLIC API:
   - PatternStore: Load/save/match patterns
-  - Pattern: Single pattern definition
+  - split_output: Normalize output text into lines for matching
+  - dsl_matches: Check a DSL pattern against pre-split output lines
   - compile_dsl: Compile DSL string to regex
   - DSLError: DSL parsing and compilation errors
   - Hook: Single hook configuration
@@ -10,6 +11,6 @@ PUBLIC API:
 """
 
 from .hooks import Hook, HookManager
-from .patterns import DSLError, Pattern, PatternStore, compile_dsl
+from .patterns import DSLError, PatternStore, compile_dsl, dsl_matches, split_output
 
-__all__ = ["PatternStore", "Pattern", "compile_dsl", "DSLError", "Hook", "HookManager"]
+__all__ = ["PatternStore", "split_output", "dsl_matches", "compile_dsl", "DSLError", "Hook", "HookManager"]

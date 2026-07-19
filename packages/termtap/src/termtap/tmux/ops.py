@@ -16,7 +16,7 @@ import json
 import os
 import re
 
-from .core import run_tmux, _get_current_pane
+from .core import run_tmux
 from ..types import LineEnding
 
 # Type alias for session:window.pane format
@@ -32,13 +32,9 @@ class PaneInfo:
         session: Session name.
         window_id: Tmux window ID (e.g., '@3').
         window_index: Window index.
-        window_name: Window name.
         pane_index: Pane index.
-        pane_title: Pane title.
         pane_pid: Process ID of pane.
         pane_current_command: Current process name (e.g., 'bash', 'python').
-        is_active: Whether pane is active in window.
-        is_current: Whether pane is currently selected.
         swp: Session:window.pane format.
     """
 
@@ -46,14 +42,39 @@ class PaneInfo:
     session: str
     window_id: str  # @3
     window_index: int
-    window_name: str
     pane_index: int
-    pane_title: str
     pane_pid: int
     pane_current_command: str
-    is_active: bool
-    is_current: bool
     swp: SessionWindowPane  # session:window.pane
+
+
+# Shared by list_panes/get_pane. JSON keeps field parsing safe from
+# escaping issues; pane_title is deliberately absent (it can hold quotes).
+_PANE_FORMAT = (
+    '{"pane_id":"#{pane_id}","session_name":"#{session_name}","window_id":"#{window_id}",'
+    '"window_index":"#{window_index}","pane_index":"#{pane_index}","pane_pid":"#{pane_pid}",'
+    '"pane_current_command":"#{pane_current_command}"}'
+)
+
+
+def _parse_pane(line: str) -> PaneInfo | None:
+    """Parse one _PANE_FORMAT JSON line into PaneInfo."""
+    try:
+        data = json.loads(line)
+        window_idx = int(data["window_index"])
+        pane_idx = int(data["pane_index"])
+        return PaneInfo(
+            pane_id=data["pane_id"],
+            session=data["session_name"],
+            window_id=data["window_id"],
+            window_index=window_idx,
+            pane_index=pane_idx,
+            pane_pid=int(data["pane_pid"]),
+            pane_current_command=data.get("pane_current_command", ""),
+            swp=f"{data['session_name']}:{window_idx}.{pane_idx}",
+        )
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
 
 
 def build_client_context() -> dict[str, str]:
@@ -180,7 +201,10 @@ def paste_text(pane_id: str, text: str, delay: float = 0.05) -> bool:
 
 
 def get_pane(pane_id: str) -> PaneInfo | None:
-    """Get pane by ID.
+    """Get pane by ID with a single targeted tmux call.
+
+    On the hot path (Pane.capture_*, current_process TTL refresh) — must
+    not enumerate every pane in the server.
 
     Args:
         pane_id: Tmux pane ID (e.g., '%42').
@@ -188,10 +212,10 @@ def get_pane(pane_id: str) -> PaneInfo | None:
     Returns:
         PaneInfo or None if not found.
     """
-    for pane in list_panes(all=True):
-        if pane.pane_id == pane_id:
-            return pane
-    return None
+    code, stdout, _ = run_tmux(["display-message", "-p", "-t", pane_id, _PANE_FORMAT])
+    if code != 0:
+        return None
+    return _parse_pane(stdout.strip())
 
 
 def list_panes(all: bool = True, session: str | None = None, window: str | None = None) -> list[PaneInfo]:
@@ -214,58 +238,12 @@ def list_panes(all: bool = True, session: str | None = None, window: str | None 
     elif all:
         cmd.append("-a")
 
-    # First run: Get all fields except pane_title as JSON (safe from escaping issues)
-    json_format = '{"pane_id":"#{pane_id}","session_name":"#{session_name}","window_id":"#{window_id}","window_index":"#{window_index}","window_name":"#{window_name}","pane_index":"#{pane_index}","pane_pid":"#{pane_pid}","pane_active":"#{pane_active}","pane_current_command":"#{pane_current_command}"}'
-
-    cmd.extend(["-F", json_format])
+    cmd.extend(["-F", _PANE_FORMAT])
     code, stdout, _ = run_tmux(cmd)
     if code != 0:
         return []
 
-    # Second run: Get just pane_titles in same order
-    title_cmd = ["list-panes"]
-    if window:
-        title_cmd.extend(["-t", window])
-    elif session:
-        title_cmd.extend(["-t", session])
-    elif all:
-        title_cmd.append("-a")
-
-    title_cmd.extend(["-F", "#{pane_title}"])
-    _, title_stdout, _ = run_tmux(title_cmd)
-
-    titles = title_stdout.strip().split("\n")
-    panes = []
-    current_pane_id = _get_current_pane()
-
-    for i, line in enumerate(stdout.strip().split("\n")):
-        if not line:
-            continue
-
-        try:
-            data = json.loads(line)
-            window_idx = int(data["window_index"])
-            pane_idx = int(data["pane_index"])
-
-            panes.append(
-                PaneInfo(
-                    pane_id=data["pane_id"],
-                    session=data["session_name"],
-                    window_id=data["window_id"],
-                    window_index=window_idx,
-                    window_name=data["window_name"] or str(window_idx),
-                    pane_index=pane_idx,
-                    pane_title=titles[i] if i < len(titles) else "",  # Get title by index
-                    pane_pid=int(data["pane_pid"]),
-                    pane_current_command=data.get("pane_current_command", ""),
-                    is_active=data["pane_active"] == "1",
-                    is_current=data["pane_id"] == current_pane_id,
-                    swp=f"{data['session_name']}:{window_idx}.{pane_idx}",
-                )
-            )
-        except (json.JSONDecodeError, KeyError, ValueError, IndexError):
-            continue
-
+    panes = [info for line in stdout.strip().split("\n") if line and (info := _parse_pane(line))]
     panes.sort(key=lambda p: (p.session, p.window_index, p.pane_index))
     return panes
 

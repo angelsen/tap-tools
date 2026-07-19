@@ -84,23 +84,36 @@ class PaneManager:
         - WATCHING + "ready" match → capture output, complete action
         """
         pane = self.get_or_create(pane_id)
-        logger.debug(f"Pane {pane_id} received {len(data)} bytes (total: {pane.bytes_fed + len(data)})")
+        logger.debug("Pane %s received %d bytes (total: %d)", pane_id, len(data), pane.bytes_fed + len(data))
         pane.feed(data)
 
         # Track data received since WATCHING started
         if pane.action and pane.action.state == ActionState.WATCHING:
             pane.bytes_since_watching += len(data)
 
+        # Nothing watches this pane: skip the content build entirely
+        if not pane.action and not self.patterns.hook_manager.hooks:
+            return
+
+        # Build the last-10-lines window once per chunk: pattern check, hooks,
+        # and the auto-pair busy check all read the same content.
+        recent = Pane.get(pane_id, pane, n=10)
+        pane.process = recent.process
+
         # Phase 1: Check state (for action resolution)
-        state = pane.check_patterns(self.patterns) if pane.action else None
+        state = self.patterns.match(recent.process, recent.content) if pane.action else None
 
         # Phase 2: Always check hooks (independent of action state)
-        self._check_hooks(pane_id, pane)
+        self._check_hooks(pane_id, recent)
 
         # Phase 3: Handle action based on state
         if pane.action:
             logger.debug(
-                f"Pane {pane_id} post-feed check: action={pane.action.id} state={state or 'unknown'} bytes_since_watching={pane.bytes_since_watching}"
+                "Pane %s post-feed check: action=%s state=%s bytes_since_watching=%d",
+                pane_id,
+                pane.action.id,
+                state or "unknown",
+                pane.bytes_since_watching,
             )
 
             # WATCHING: only auto-resolve if we've received new data since transition
@@ -113,18 +126,15 @@ class PaneManager:
 
                 if is_auto_pair:
                     # Auto-pair mode: wait for busy pattern to appear then disappear
-                    from ..handler.patterns import Pattern
+                    from ..handler.patterns import dsl_matches, split_output
 
                     action_id = pane.action.id
                     assert pane.action.linked_busy_pattern is not None  # Guaranteed by is_auto_pair check
 
-                    # Check if busy pattern is currently visible (per-line, same
-                    # semantics as Pattern matching everywhere else — a raw
-                    # search on the joined window breaks ^/$ anchored patterns)
-                    busy_pattern = Pattern(
-                        raw=pane.action.linked_busy_pattern, process=pane.process or "", state="busy"
-                    )
-                    busy_visible = busy_pattern.matches(Pane.get(pane.pane_id, pane, n=10).content)
+                    # Per-line, same semantics as pattern matching everywhere
+                    # else — a raw search on the joined window breaks ^/$
+                    # anchored patterns.
+                    busy_visible = dsl_matches(pane.action.linked_busy_pattern, split_output(recent.content))
 
                     if busy_visible:
                         self._busy_tracking[action_id] = True
@@ -165,26 +175,22 @@ class PaneManager:
         pane.action = None
         self._busy_tracking.pop(action_id, None)
 
-    def _check_hooks(self, pane_id: str, pane: PaneTerminal) -> None:
+    def _check_hooks(self, pane_id: str, recent: Pane) -> None:
         """Check and fire matching hooks for pane.
 
         Args:
             pane_id: Pane identifier
-            pane: PaneTerminal instance
+            recent: Recent pane content (built once per feed chunk)
         """
-        if not pane.process:
+        if not recent.process or not recent.content:
             return
 
-        output = Pane.get(pane_id, pane, n=10).content
-        if not output:
-            return
-
-        matched = self.patterns.hook_manager.check_hooks(pane.process, output)
+        matched = self.patterns.hook_manager.check_hooks(recent.process, recent.content)
         for hook in matched:
             logger.info(f"Hook fired: pane={pane_id} pattern={hook.pattern}")
             hook.mark_fired()
             if self.on_hook_fire:
-                self.on_hook_fire(pane_id, hook, output)
+                self.on_hook_fire(pane_id, hook, recent.content)
 
     def ensure_pipe_pane(self, pane_id: str) -> bool:
         """Ensure tmux pipe-pane is active for this pane.

@@ -85,7 +85,7 @@ class PaneTerminal:
         self.bytes_fed += len(data)
         try:
             text = data.decode("utf-8", errors="replace")
-            logger.debug(f"Pane {self.pane_id} feeding {len(text)} chars to pyte")
+            logger.debug("Pane %s feeding %d chars to pyte", self.pane_id, len(text))
             self.stream.feed(text)
         except Exception as e:
             logger.error(f"Pane {self.pane_id} pyte feed error: {e}")

@@ -8,7 +8,7 @@ PUBLIC API:
 import time
 from dataclasses import dataclass, field
 
-from .patterns import compile_dsl
+from .patterns import dsl_matches, split_output
 
 __all__ = ["Hook", "HookManager"]
 
@@ -23,10 +23,8 @@ class Hook:
     debounce: float = 2.0
     _last_fired: float = 0.0
 
-    def matches(self, output: str) -> bool:
-        lines = [line.rstrip() for line in output.rstrip("\n").split("\n")]
-        regex = compile_dsl(self.pattern)
-        return any(regex.search(line) for line in lines)
+    def matches_lines(self, output_lines: list[str]) -> bool:
+        return dsl_matches(self.pattern, output_lines)
 
     def can_fire(self) -> bool:
         if self.debounce <= 0:
@@ -61,9 +59,11 @@ class HookManager:
                     self.hooks[process] = process_hooks
 
     def check_hooks(self, process: str, output: str) -> list[Hook]:
-        if process not in self.hooks:
+        hooks = self.hooks.get(process)
+        if not hooks:
             return []
-        return [h for h in self.hooks[process] if h.matches(output) and h.can_fire()]
+        output_lines = split_output(output)  # split once for all hooks
+        return [h for h in hooks if h.matches_lines(output_lines) and h.can_fire()]
 
 
 def _parse_debounce(value: str) -> float:
