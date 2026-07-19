@@ -10,10 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+- Commands are pasted into panes (bracketed paste) instead of typed per-key — eliminates shell autosuggestion/highlighting artifacts in captured output
+- Pattern editor no longer encodes the selection's column as a leading `[N]` gap — taught prompt patterns keep matching when the prompt prefix (cwd, git branch) changes length
+- Pattern matching priority is explicit: busy patterns win over ready when both match a line (was YAML section order)
+- Invalid DSL patterns (unmatched `[`, empty, reversed ranges like `#4-2`) are rejected when taught and skipped when hand-edited into patterns.yaml — previously a bad stored pattern could match everything or crash matching on every output chunk
+- Daemon start is serialized with a file lock — concurrent MCP clients can no longer fork duplicate daemons
+- Hot-path performance: process lookups TTL-cached, one content build and one output split per stream chunk, pane lookups use a single tmux call (was three)
 
 ### Fixed
+- Stream-buffer cursor desync corrupted captured output for programs using tab/cursor-forward positioning
+- Stale alternate-screen boundary padded captures with blank lines after vim/less ran in a pane
+- Repeated execute on the same pane could resolve before fresh output arrived (stale byte counter)
+- Manual pair teaching completed on the ready match before the busy pattern could be marked, dropping the taught pair
+- Auto-pair resolution stalled when the busy line stayed visible with the new prompt printed below it
+- MCP execute no longer polls forever when a daemon restart loses the action
+- Dead pipe-pane collectors are detected and the pipe restarted instead of leaving the pane dark
+- OSC/CSI escape sequences leaked by some terminals (Alacritty title updates) are stripped from captured content
+- RPC edge cases: handler errors keep their tracebacks instead of reporting as invalid params; clients disconnecting mid-response no longer log spurious errors
 
 ### Removed
+- Dead code across daemon, terminal, and client layers (~500 lines), including unused `PaneInfo` fields (`pane_title`, `window_name`, `is_active`, `is_current`) from the `ls` RPC payload
 
 ## [0.13.4] - 2026-04-06
 
