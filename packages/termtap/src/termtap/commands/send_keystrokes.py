@@ -9,6 +9,7 @@ from typing import Any
 from ..app import app
 from ..client import DaemonClient
 from ..tmux.ops import send_keys
+from ..types import LineEnding
 from ._helpers import _require_pane_id, build_hint, error_response
 
 
@@ -60,8 +61,6 @@ def send_keystrokes(state, keys: list[str], pane_id: str = None) -> dict[str, An
         return error_response("No keys to send")
 
     try:
-        from ..types import LineEnding
-
         success = send_keys(resolved_pane_id, *keys, line_ending=LineEnding.NONE)
 
         keys_display = " ".join(keys)

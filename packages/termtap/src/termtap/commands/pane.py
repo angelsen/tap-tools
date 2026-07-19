@@ -16,6 +16,39 @@ from ._helpers import build_tips, build_range_info, error_response, _require_pan
 __all__ = ["pane", "panes"]
 
 
+def _pane_section(
+    client: DaemonClient,
+    pane_id: str,
+    *,
+    tail: int = 100,
+    offset: int | None = None,
+    limit: int | None = None,
+) -> tuple[list[dict[str, Any]], Pane]:
+    """Capture a pane and build its display elements (shared by pane/panes).
+
+    Touches the pane via daemon first (best-effort) to register
+    intentional access for working-set tracking.
+    """
+    try:
+        client.call("touch", {"pane_id": pane_id})
+    except Exception:
+        pass  # Daemon may not be running
+
+    if offset is not None and limit is not None:
+        p = Pane.capture_range(pane_id, offset, limit)
+    else:
+        p = Pane.capture_tail(pane_id, tail)
+
+    elements: list[dict[str, Any]] = [build_tips(pane_id)]
+    if p.content:
+        elements.append({"type": "code_block", "content": p.content, "language": "text"})
+    else:
+        elements.append({"type": "text", "content": "(empty)"})
+    elements.append(build_range_info(pane_id, p.range, p.total_lines))
+
+    return elements, p
+
+
 @app.command(
     display="markdown",
     fastmcp={
@@ -51,30 +84,8 @@ def pane(
     except ValueError as e:
         return error_response(str(e))
 
-    # Touch via daemon to register intentional access (best-effort)
     try:
-        client.call("touch", {"pane_id": resolved_pane_id})
-    except Exception:
-        pass  # Daemon may not be running
-
-    try:
-        # Capture using Pane abstraction
-        if offset is not None and limit is not None:
-            p = Pane.capture_range(resolved_pane_id, offset, limit)
-        else:
-            p = Pane.capture_tail(resolved_pane_id, tail)
-
-        # Build response
-        elements = [
-            build_tips(resolved_pane_id),
-        ]
-
-        if p.content:
-            elements.append({"type": "code_block", "content": p.content, "language": "text"})
-        else:
-            elements.append({"type": "text", "content": "(empty)"})
-
-        elements.append(build_range_info(resolved_pane_id, p.range, p.total_lines))
+        elements, p = _pane_section(client, resolved_pane_id, tail=tail, offset=offset, limit=limit)
 
         return {
             "elements": elements,
@@ -83,7 +94,6 @@ def pane(
                 "status": "ok",
                 "range": list(p.range),
                 "total_lines": p.total_lines,
-                "truncated": False,
             },
         }
 
@@ -144,25 +154,11 @@ def panes(state) -> dict[str, Any]:
         if not validated:
             continue
 
-        # Touch via daemon to register intentional access (best-effort)
         try:
-            client.call("touch", {"pane_id": validated})
-        except Exception:
-            pass  # Daemon may not be running
+            section, p = _pane_section(client, validated, tail=lines)
 
-        try:
-            p = Pane.capture_tail(validated, lines)
-
-            # Per-pane section
             elements.append({"type": "heading", "content": target, "level": 3})
-            elements.append(build_tips(target))
-
-            if p.content:
-                elements.append({"type": "code_block", "content": p.content, "language": "text"})
-            else:
-                elements.append({"type": "text", "content": "(empty)"})
-
-            elements.append(build_range_info(target, p.range, p.total_lines))
+            elements.extend(section)
 
             results.append(
                 {

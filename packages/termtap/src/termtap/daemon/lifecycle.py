@@ -20,18 +20,28 @@ from ..paths import PID_PATH, SOCKET_PATH
 __all__ = ["start_daemon", "stop_daemon", "daemon_status", "is_daemon_running"]
 
 
+def _read_pid() -> int | None:
+    """Parse the PID file, or None if missing or corrupt."""
+    try:
+        return int(PID_PATH.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
 def is_daemon_running() -> bool:
     """Check if daemon is running by checking PID file and socket."""
-    if not PID_PATH.exists():
+    pid = _read_pid()
+    if pid is None:
+        if PID_PATH.exists():
+            _cleanup_stale()  # corrupt PID file
         return False
 
     try:
-        pid = int(PID_PATH.read_text().strip())
         # Check if process exists
         os.kill(pid, 0)
         # Also verify socket exists
         return SOCKET_PATH.exists()
-    except (ValueError, ProcessLookupError, PermissionError):
+    except (ProcessLookupError, PermissionError):
         # Stale PID file
         _cleanup_stale()
         return False
@@ -65,8 +75,7 @@ def start_daemon(foreground: bool = False) -> dict:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
 
         if is_daemon_running():
-            pid = int(PID_PATH.read_text().strip())
-            return {"status": "already_running", "pid": pid}
+            return {"status": "already_running", "pid": _read_pid()}
 
         _cleanup_stale()
 
@@ -112,8 +121,7 @@ def _run_daemon_background(lock_file=None) -> dict:
         # Parent - wait briefly for daemon to start
         time.sleep(0.5)
         if is_daemon_running():
-            daemon_pid = int(PID_PATH.read_text().strip())
-            return {"status": "started", "pid": daemon_pid}
+            return {"status": "started", "pid": _read_pid()}
         return {"status": "failed", "error": "Daemon failed to start"}
 
     # Child - release inherited start lock, detach from terminal
@@ -171,9 +179,8 @@ def stop_daemon(timeout: float = 5.0) -> dict:
     if not is_daemon_running():
         return {"status": "not_running"}
 
-    try:
-        pid = int(PID_PATH.read_text().strip())
-    except (ValueError, FileNotFoundError):
+    pid = _read_pid()
+    if pid is None:
         return {"status": "not_running"}
 
     # Send SIGTERM for graceful shutdown
@@ -211,13 +218,7 @@ def daemon_status() -> dict:
         {"running": bool, "pid": N or None, "socket": path or None}
     """
     running = is_daemon_running()
-    pid = None
-
-    if PID_PATH.exists():
-        try:
-            pid = int(PID_PATH.read_text().strip())
-        except ValueError:
-            pass
+    pid = _read_pid()
 
     return {
         "running": running,

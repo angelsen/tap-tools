@@ -157,5 +157,3 @@ class Pane:
         else:
             limit = n if n is not None else cls._DEFAULT_CAPTURE_LIMIT
             return cls.capture_tail(pane_id, limit)
-
-    # --- Helpers ---

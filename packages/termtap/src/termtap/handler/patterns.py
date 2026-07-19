@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -238,8 +238,11 @@ class PatternPair:
 class PatternStore:
     """Load, save, and match patterns."""
 
+    # Per-process config: state -> list[str] patterns, plus "pairs" (list of
+    # dicts) and "hooks" (dict) config sections. YAML-loaded, so values are
+    # defensively isinstance-checked where hand-edited input could break.
     path: Path = field(default_factory=lambda: PATTERNS_PATH)
-    patterns: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    patterns: dict[str, dict[str, Any]] = field(default_factory=dict)
     _hook_manager: "HookManager | None" = field(default=None, repr=False, init=False)
 
     def __post_init__(self):
@@ -386,14 +389,9 @@ class PatternStore:
         """
         _validate_dsl(ready)
         _validate_dsl(busy)
-        proc_patterns = self.patterns.setdefault(process, {})
-        # Get or create pairs list (typing: list[dict] not list[str])
-        if "pairs" not in proc_patterns:
-            proc_patterns["pairs"] = []  # type: ignore
-        pairs_list = proc_patterns["pairs"]
-        # Type narrowing for list operations
-        if isinstance(pairs_list, list):
-            pairs_list.append({"ready": ready, "busy": busy})  # type: ignore
+        pairs = self.patterns.setdefault(process, {}).setdefault("pairs", [])
+        if isinstance(pairs, list):
+            pairs.append({"ready": ready, "busy": busy})
         self.save()
 
     def get_pair_for_ready(self, process: str, ready_pattern: str) -> PatternPair | None:
@@ -410,7 +408,6 @@ class PatternStore:
             return None
 
         pairs_raw = self.patterns[process].get("pairs", [])
-        # Type check: pairs is a list of dicts
         if isinstance(pairs_raw, list):
             for item in pairs_raw:
                 if isinstance(item, dict):
@@ -468,7 +465,7 @@ class PatternStore:
                 new_pairs.append(item)
 
         if new_pairs:
-            self.patterns[process]["pairs"] = new_pairs  # type: ignore
+            self.patterns[process]["pairs"] = new_pairs
         else:
             # Remove empty pairs list
             if "pairs" in self.patterns[process]:
@@ -480,18 +477,18 @@ class PatternStore:
 
         self.save()
 
-    def get(self, process: str) -> dict[str, list[str]]:
+    def get(self, process: str) -> dict[str, Any]:
         """Get patterns for a process.
 
         Args:
             process: Process name
 
         Returns:
-            Dict of state -> pattern list
+            Dict of state -> pattern list (plus pairs/hooks config sections)
         """
         return self.patterns.get(process, {})
 
-    def all(self) -> dict[str, dict[str, list[str]]]:
+    def all(self) -> dict[str, dict[str, Any]]:
         """Get all patterns.
 
         Returns:

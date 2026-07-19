@@ -45,6 +45,19 @@ class LineBuffer:
         """
         self.cursor = max(0, col)
 
+    def erase_from(self, col: int) -> None:
+        """Erase from column to end of line."""
+        self._chars = self._chars[:col]
+
+    def erase_to(self, col: int) -> None:
+        """Erase (blank) from start of line up to column."""
+        self._chars = [" "] * col + self._chars[col:]
+
+    def reset(self) -> None:
+        """Erase the entire line."""
+        self._chars = []
+        self.cursor = 0
+
     @property
     def text(self) -> str:
         """Return line as string."""

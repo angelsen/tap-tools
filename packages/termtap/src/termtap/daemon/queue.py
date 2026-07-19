@@ -43,7 +43,7 @@ class Action:
     pane_id: str  # %id or "" for pane selection
     command: str
     state: ActionState
-    timestamp: float = field(default_factory=lambda: time.time())
+    timestamp: float = field(default_factory=time.time)
     result: dict | None = None
     multi_select: bool = False
     pair_mode: bool = False
@@ -122,13 +122,22 @@ class ActionQueue:
             pane_id=pane_id,
             command=command,
             state=state,
-            timestamp=time.time(),
             multi_select=multi_select,
             client_context=client_context or {},
         )
 
         self.pending.append(action)
         return action
+
+    def _finish(self, action_id: str, result: dict, state: ActionState):
+        """Move a pending action to resolved with the given result and state."""
+        for i, action in enumerate(self.pending):
+            if action.id == action_id:
+                action.result = result
+                action.state = state
+                self.pending.pop(i)
+                self._store_resolved(action)
+                return
 
     def resolve(self, action_id: str, result: dict):
         """Resolve an action with user's response.
@@ -137,13 +146,7 @@ class ActionQueue:
             action_id: ID of action to resolve
             result: User's response (e.g., {"state": "ready", "patterns": [...]})
         """
-        for i, action in enumerate(self.pending):
-            if action.id == action_id:
-                action.result = result
-                action.state = ActionState.COMPLETED
-                self.pending.pop(i)
-                self._store_resolved(action)
-                return
+        self._finish(action_id, result, ActionState.COMPLETED)
 
     def cancel(self, action_id: str, reason: str = "cancelled"):
         """Cancel an action.
@@ -152,13 +155,7 @@ class ActionQueue:
             action_id: ID of action to cancel
             reason: Reason for cancellation
         """
-        for i, action in enumerate(self.pending):
-            if action.id == action_id:
-                action.result = {"error": reason}
-                action.state = ActionState.CANCELLED
-                self.pending.pop(i)
-                self._store_resolved(action)
-                return
+        self._finish(action_id, {"error": reason}, ActionState.CANCELLED)
 
     def get(self, action_id: str) -> Action | None:
         """Get action by ID.

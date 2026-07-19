@@ -167,7 +167,7 @@ async def complete_action(ctx: Any, action: Action, *, state: str | None = None,
     pane = ctx.pane_manager.panes.get(action.pane_id)
     if pane is not None and pane.action is action:
         pane.action = None
-    ctx.pane_manager._busy_tracking.pop(action.id, None)
+    ctx.pane_manager._busy_seen.discard(action.id)
 
     await ctx.daemon.broadcast_event({"type": "action_resolved", "id": action.id})
     return {"status": "busy" if state == "busy" else "completed", "result": action.result}

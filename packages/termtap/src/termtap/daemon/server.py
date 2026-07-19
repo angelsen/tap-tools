@@ -357,7 +357,7 @@ class TermtapDaemon:
                             if window_id:
                                 self.companion_windows[window_id] = writer
                                 logger.info(f"Companion registered for window {window_id}")
-            except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
+            except (asyncio.TimeoutError, json.JSONDecodeError):
                 logger.warning("Companion connected without valid handshake")
 
             # Keep connection open until client disconnects

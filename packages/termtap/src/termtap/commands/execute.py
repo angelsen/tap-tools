@@ -35,6 +35,16 @@ def _truncation_hint(pane_id: str, total_lines: int) -> dict[str, str]:
     }
 
 
+def _output_block(pane_id: str, output: str) -> tuple[list[dict[str, str]], bool]:
+    """Capped code block with truncation notice. Returns (elements, truncated)."""
+    output, total = _cap_output(output)
+    elements: list[dict[str, str]] = []
+    if total:
+        elements.append(_truncation_hint(pane_id, total))
+    elements.append({"type": "code_block", "content": output, "language": "text"})
+    return elements, bool(total)
+
+
 @app.command(
     display="markdown",
     fastmcp={
@@ -71,35 +81,28 @@ def execute(state, command: str, pane_id: str = None) -> dict[str, Any]:  # pyri
         # Build elements
         elements = [build_tips(resolved_pane_id)]
 
-        # Output handling based on status
+        # Output handling based on status. client.execute polls watching/
+        # ready_check to resolution, so post-call status is only ever
+        # completed/busy/error/cancelled/unknown.
         if status == "completed" and result.get("result"):
             output = result["result"].get("output", "")
             if output:
-                output, truncated = _cap_output(output)
-                if truncated:
-                    elements.append(_truncation_hint(resolved_pane_id, truncated))
-                elements.append({"type": "code_block", "content": output, "language": "text"})
+                block, truncated = _output_block(resolved_pane_id, output)
+                elements.extend(block)
                 if not truncated:
                     elements.append(build_hint(resolved_pane_id))
             else:
                 elements.append({"type": "text", "content": "(no output)"})
                 elements.append(build_hint(resolved_pane_id))
-        elif status == "watching":
-            elements.append({"type": "text", "content": "Command sent, watching for completion..."})
-            elements.append(build_hint(resolved_pane_id))
         elif status == "busy":
             output = result.get("output", "")
-            truncated = 0
+            truncated = False
             if output:
-                output, truncated = _cap_output(output)
-                if truncated:
-                    elements.append(_truncation_hint(resolved_pane_id, truncated))
-                elements.append({"type": "code_block", "content": output, "language": "text"})
+                block, truncated = _output_block(resolved_pane_id, output)
+                elements.extend(block)
             elements.append({"type": "text", "content": "Terminal is busy"})
             if not truncated:
                 elements.append(build_hint(resolved_pane_id))
-        elif status == "ready_check":
-            elements.append({"type": "text", "content": "Waiting for pattern learning via Companion..."})
         else:
             elements.append({"type": "text", "content": f"Status: {status}"})
 
@@ -112,15 +115,5 @@ def execute(state, command: str, pane_id: str = None) -> dict[str, Any]:  # pyri
             },
         }
 
-    except TimeoutError:
-        return {
-            "elements": [
-                {
-                    "type": "text",
-                    "content": "Command timed out waiting for ready state. Run 'termtap companion' to respond.",
-                }
-            ],
-            "frontmatter": {"status": "timeout", "pane": resolved_pane_id},
-        }
     except Exception as e:
         return error_response(str(e))

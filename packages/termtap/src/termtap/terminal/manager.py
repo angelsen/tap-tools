@@ -5,6 +5,8 @@ PUBLIC API:
 """
 
 import logging
+import sys
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -52,7 +54,7 @@ class PaneManager:
         self._active_pipes: set[str] = set()  # pipe-pane started in tmux
         self._connected_pipes: set[str] = set()  # collector actually connected back
         self._pipe_started: dict[str, float] = {}  # pane_id -> monotonic start time
-        self._busy_tracking: dict[str, bool] = {}  # action_id -> seen_busy
+        self._busy_seen: set[str] = set()  # action_ids whose busy pattern has appeared
 
     def get_or_create(self, pane_id: str) -> PaneTerminal:
         """Get existing pane or create new one.
@@ -63,8 +65,6 @@ class PaneManager:
         Returns:
             PaneTerminal for this pane
         """
-        import time
-
         if pane_id not in self.panes:
             self.panes[pane_id] = PaneTerminal.create(pane_id, max_lines=self.max_lines)
         pane = self.panes[pane_id]
@@ -137,9 +137,9 @@ class PaneManager:
                     busy_visible = dsl_matches(pane.action.linked_busy_pattern, split_output(recent.content))
 
                     if busy_visible:
-                        self._busy_tracking[action_id] = True
+                        self._busy_seen.add(action_id)
                         logger.debug(f"Action {action_id}: busy pattern visible")
-                    elif self._busy_tracking.get(action_id, False) and state == "ready":
+                    elif action_id in self._busy_seen and state == "ready":
                         # Busy was seen, now gone, ready matches → complete
                         logger.info(f"Action {action_id} completed (auto-pair): busy disappeared")
                         output = Pane.get(pane.pane_id, pane).content
@@ -173,7 +173,7 @@ class PaneManager:
             self.on_resolve(pane.action)
 
         pane.action = None
-        self._busy_tracking.pop(action_id, None)
+        self._busy_seen.discard(action_id)
 
     def _check_hooks(self, pane_id: str, recent: Pane) -> None:
         """Check and fire matching hooks for pane.
@@ -201,8 +201,6 @@ class PaneManager:
         Returns:
             True if pipe-pane is active, False on failure
         """
-        import time
-
         # Even if we think it's active, verify the pane still exists and
         # the collector actually connected back (a collector that died at
         # startup would otherwise leave the pane dark forever).
@@ -219,7 +217,6 @@ class PaneManager:
             else:
                 logger.warning(f"Collector for {pane_id} never connected; restarting pipe")
 
-        import sys
         from ..tmux.core import run_tmux
 
         cmd = f"{sys.executable} -m termtap.daemon.collector {pane_id}"
@@ -243,7 +240,7 @@ class PaneManager:
         if pane_id in self.panes:
             pane = self.panes[pane_id]
             if pane.action:
-                self._busy_tracking.pop(pane.action.id, None)
+                self._busy_seen.discard(pane.action.id)
             del self.panes[pane_id]
 
     def cleanup_dead(self) -> list[str]:

@@ -43,12 +43,8 @@ def register_handlers(rpc, ctx: DaemonContext):
             await ctx.daemon.broadcast_event({"type": "action_watching", "id": action_id, "action": action.to_dict()})
             return {"status": "watching"}
 
-        # Handle READY_CHECK + busy (terminal is busy, capture current output)
-        if action.state == ActionState.READY_CHECK and result.get("state") == "busy":
-            return await complete_action(ctx, action, state="busy")
-
-        # Handle WATCHING + busy (terminal became busy, capture current output)
-        if action.state == ActionState.WATCHING and result.get("state") == "busy":
+        # Terminal is busy (READY_CHECK or WATCHING): capture current output
+        if result.get("state") == "busy" and action.state in (ActionState.READY_CHECK, ActionState.WATCHING):
             return await complete_action(ctx, action, state="busy")
 
         # Handle WATCHING completion
@@ -80,58 +76,41 @@ def register_handlers(rpc, ctx: DaemonContext):
         action = ctx.queue.get(action_id)
         if not action:
             return {"status": "not_found"}
-        if action.state == ActionState.COMPLETED:
-            return {"status": "completed", "result": action.result}
-        if action.state == ActionState.CANCELLED:
-            return {"status": "cancelled", "result": action.result}
-        if action.state == ActionState.WATCHING:
-            return {"status": "watching"}
-        if action.state == ActionState.READY_CHECK:
-            return {"status": "ready_check"}
-        if action.state == ActionState.SELECTING_PANE:
-            return {"status": "selecting_pane"}
-        return {"status": "unknown"}
+        # Status is exactly the state name; result only exists once finished
+        resp: dict[str, Any] = {"status": action.state.value}
+        if action.state in (ActionState.COMPLETED, ActionState.CANCELLED):
+            resp["result"] = action.result
+        return resp
 
-    @rpc.method("select_pane")
-    async def _select_pane(command: str, client_context: dict):
+    async def _select(command: str, client_context: dict, *, multi: bool):
+        """Shared pane-selection flow for select_pane/select_panes."""
         from ...tmux.ops import list_panes
         from ..queue import ActionState
 
         panes = list_panes()
-
         if not panes:
             return {"status": "error", "error": "No panes available"}
 
-        if len(panes) == 1:
+        # Single-select with one pane: nothing to choose
+        if not multi and len(panes) == 1:
             return {"status": "completed", "pane": panes[0].pane_id}
 
         action = ctx.queue.add(
             pane_id="",
             command=command,
             state=ActionState.SELECTING_PANE,
+            multi_select=multi,
             client_context=client_context,
         )
 
         await ctx.daemon.broadcast_event({"type": "action_added", "action": action.to_dict()})
         return {"status": "selecting_pane", "action_id": action.id}
+
+    @rpc.method("select_pane")
+    async def _select_pane(command: str, client_context: dict):
+        return await _select(command, client_context, multi=False)
 
     @rpc.method("select_panes")
     async def _select_panes(command: str, client_context: dict):
         """Select multiple panes via companion UI."""
-        from ...tmux.ops import list_panes
-        from ..queue import ActionState
-
-        panes = list_panes()
-        if not panes:
-            return {"status": "error", "error": "No panes available"}
-
-        action = ctx.queue.add(
-            pane_id="",
-            command=command,
-            state=ActionState.SELECTING_PANE,
-            multi_select=True,
-            client_context=client_context,
-        )
-
-        await ctx.daemon.broadcast_event({"type": "action_added", "action": action.to_dict()})
-        return {"status": "selecting_pane", "action_id": action.id}
+        return await _select(command, client_context, multi=True)

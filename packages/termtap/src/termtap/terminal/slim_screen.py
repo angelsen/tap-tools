@@ -4,11 +4,7 @@ PUBLIC API:
   - SlimScreen: Minimal terminal screen with ring buffer
 """
 
-import logging
-
 from .line_buffer import LineBuffer
-
-logger = logging.getLogger(__name__)
 
 
 class SlimScreen:
@@ -40,10 +36,6 @@ class SlimScreen:
         # Cursor state
         self.cursor_row: int = 0
         self.cursor_col: int = 0
-
-        # Debug logging (optional)
-        self._debug_mode: bool = False
-        self.debug_log: list[str] = []
 
     # --- Ring buffer helpers ---
 
@@ -155,13 +147,10 @@ class SlimScreen:
         if how == 0:
             # Erase from cursor to end of display
             if physical is not None:
-                # Clear from cursor to end of current line
-                line = self.lines[physical]
-                line._chars = line._chars[: self.cursor_col]
+                self.lines[physical].erase_from(self.cursor_col)
 
                 # Clear all lines after current
-                end_physical = len(self.lines)
-                for i in range(physical + 1, end_physical):
+                for i in range(physical + 1, len(self.lines)):
                     self.lines[i] = LineBuffer()
 
         elif how == 1:
@@ -172,9 +161,7 @@ class SlimScreen:
                 for i in range(start_physical, physical):
                     self.lines[i] = LineBuffer()
 
-                # Clear from start of current line to cursor
-                line = self.lines[physical]
-                line._chars = [" "] * self.cursor_col + line._chars[self.cursor_col :]
+                self.lines[physical].erase_to(self.cursor_col)
 
         elif how == 2:
             # Clear entire screen (all scrollback - we don't track pane dimensions)
@@ -196,12 +183,11 @@ class SlimScreen:
             return
         line = self.lines[physical]
         if how == 0:  # Cursor to end
-            line._chars = line._chars[: self.cursor_col]
+            line.erase_from(self.cursor_col)
         elif how == 1:  # Start to cursor
-            line._chars = [" "] * self.cursor_col + line._chars[self.cursor_col :]
+            line.erase_to(self.cursor_col)
         elif how == 2:  # Entire line
-            line._chars = []
-            line.cursor = 0
+            line.reset()
 
     def set_mode(self, *modes, private: bool = False) -> None:
         """Handle mode setting. Key: 1049 = alternate screen."""
@@ -236,15 +222,12 @@ class SlimScreen:
 
     def debug(self, *args, **kwargs) -> None:
         """Handle unknown escape sequences. MUST be a method, not bool."""
-        if self._debug_mode:
-            self.debug_log.append(f"DEBUG: {args} {kwargs}")
 
     def __getattr__(self, name: str):
         """Catch-all for unimplemented pyte methods."""
 
         def noop(*args, **kwargs):
-            if self._debug_mode:
-                self.debug_log.append(f"UNHANDLED: {name}({args}, {kwargs})")
+            pass
 
         return noop
 

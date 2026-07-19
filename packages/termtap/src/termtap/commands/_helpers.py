@@ -100,9 +100,6 @@ def _require_pane_id(client: Any, command_name: str, pane_id: str | None) -> str
     if pane_id is None:
         result = client.select_pane(command_name)
 
-        if result["status"] == "timeout":
-            raise ValueError("Pane selection timed out. Run 'termtap companion' to respond.")
-
         if result["status"] != "completed":
             raise ValueError(f"Pane selection {result['status']}")
 
